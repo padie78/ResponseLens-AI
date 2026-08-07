@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "ResponseLens AI — Nx Monorepo / Hexagonal Architecture / AWS Serverless",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "nx run-many --target=build --projects=common,domain,application,infrastructure",
     "build:lambdas": "npm run build && npm run build --workspaces --if-present",
@@ -21,7 +24,7 @@
   "devDependencies": {
     "@nx/js": "19.5.0",
     "@types/aws-lambda": "^8.10.145",
-    "@types/node": "^20.17.0",
+    "@types/node": "^22.10.0",
     "esbuild": "^0.24.2",
     "nx": "19.5.0",
     "typescript": "~5.4.5"
