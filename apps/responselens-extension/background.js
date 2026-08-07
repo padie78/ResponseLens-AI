@@ -46,12 +46,12 @@ async function openSidePanel(tabId, windowId) {
 
 async function enableSidePanelOnClick() {
   try {
+    // Side Panel a altura completa de la ventana (el popup no puede ocupar toda la pantalla).
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   } catch (err) {
     console.warn('[RL] setPanelBehavior', err);
   }
   try {
-    // Disponible en todo el navegador (no solo hosts del content script)
     await chrome.sidePanel.setOptions({
       path: 'sidepanel.html',
       enabled: true,
@@ -66,19 +66,47 @@ enableSidePanelOnClick();
 
 chrome.runtime.onInstalled.addListener(async () => {
   await enableSidePanelOnClick();
-  const existing = await getLocal([STORAGE_KEYS.alerts]);
-  if (!existing[STORAGE_KEYS.alerts]) {
-    await setLocal({ [STORAGE_KEYS.alerts]: [] });
+  const existing = await getLocal([STORAGE_KEYS.config]);
+  if (!existing[STORAGE_KEYS.config]?.competitors?.length) {
+    // Semilla mínima de rivales reales (buscables en HN); el feed se llena con "Escanear ahora".
+    await setLocal({
+      [STORAGE_KEYS.config]: {
+        ...(existing[STORAGE_KEYS.config] || {}),
+        userId: existing[STORAGE_KEYS.config]?.userId || 'local-user',
+        company: existing[STORAGE_KEYS.config]?.company || {
+          companyName: 'TuMarca',
+          whatTheySell: 'software B2B con soporte humano',
+        },
+        competitors: [
+          {
+            name: 'AWS',
+            aliases: ['RivalCloud', 'Amazon Web Services'],
+            websiteUrl: 'https://aws.amazon.com',
+            logoUrl: 'https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128',
+            industry: 'Cloud / IaaS',
+          },
+          {
+            name: 'Shopify',
+            aliases: ['ShopFast'],
+            websiteUrl: 'https://shopify.com',
+            logoUrl: 'https://www.google.com/s2/favicons?domain=shopify.com&sz=128',
+            industry: 'E-commerce',
+          },
+          {
+            name: 'Mailchimp',
+            aliases: ['MailBlast'],
+            websiteUrl: 'https://mailchimp.com',
+            logoUrl: 'https://www.google.com/s2/favicons?domain=mailchimp.com&sz=128',
+            industry: 'MarTech',
+          },
+        ],
+      },
+    });
   }
 });
 
 chrome.runtime.onStartup.addListener(() => {
   enableSidePanelOnClick();
-});
-
-// Fallback si openPanelOnActionClick no aplicó (algunas builds / recargas)
-chrome.action.onClicked.addListener(async (tab) => {
-  await openSidePanel(tab?.id, tab?.windowId);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -99,14 +127,44 @@ async function handleMessage(message, sender) {
     case 'RL_OPEN_DAMAGE_CONTROL': {
       await setLocal({ [STORAGE_KEYS.pendingComplaint]: message.payload });
       const tabId = sender?.tab?.id;
-      await openSidePanel(tabId);
+      await openSidePanel(tabId, sender?.tab?.windowId);
       try {
         await chrome.runtime.sendMessage({
           type: 'RL_PENDING_COMPLAINT',
           payload: message.payload,
         });
       } catch {
-        // Side panel may not be listening yet; it reads storage on load.
+        // Side panel / popup may not be listening yet
+      }
+      return { ok: true };
+    }
+
+    case 'RL_CAPTURE_OPPORTUNITY': {
+      const alert = message.payload;
+      if (!alert?.alertId) return { ok: false, error: 'invalid_alert' };
+      const data = await getLocal([STORAGE_KEYS.alerts]);
+      const list = Array.isArray(data[STORAGE_KEYS.alerts]) ? data[STORAGE_KEYS.alerts] : [];
+      const next = [{ status: 'NEW', ...alert }, ...list.filter((a) => a.alertId !== alert.alertId)].slice(
+        0,
+        100,
+      );
+      await setLocal({ [STORAGE_KEYS.alerts]: next });
+      const tabId = sender?.tab?.id;
+      await openSidePanel(tabId, sender?.tab?.windowId);
+      try {
+        await chrome.runtime.sendMessage({ type: 'RL_CAPTURE_OPPORTUNITY', payload: alert });
+      } catch {
+        /* popup closed */
+      }
+      try {
+        await chrome.notifications.create(`rl_cap_${alert.alertId}`, {
+          type: 'basic',
+          iconUrl: 'icons/icon48.png',
+          title: `Captación: ${alert.competitorName}`,
+          message: (alert.salesPitch || '').slice(0, 120),
+        });
+      } catch {
+        /* optional */
       }
       return { ok: true };
     }

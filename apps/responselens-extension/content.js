@@ -38,6 +38,15 @@
       '[data-testid="tweetText"]',
       'article [lang] span',
     ],
+    reddit: [
+      '[data-testid="post-title"]',
+      'shreddit-post [slot="title"]',
+      '.Post h1',
+      '.Comment .RichTextJSON-root',
+      '[data-testid="comment"]',
+      '.entry .usertext-body',
+      'p',
+    ],
     default: [
       '[role="article"] p',
       '.comment-body',
@@ -55,16 +64,23 @@
     ignoreHosts: [],
   };
   let markedCount = 0;
+  /** @type {Array<{ name: string, aliases?: string[] }>} */
+  let competitors = [];
+  let companyProfile = { companyName: 'TuMarca', whatTheySell: '' };
 
   function loadDetection() {
     try {
-      chrome.storage.local.get(['rl_detection'], (data) => {
+      chrome.storage.local.get(['rl_detection', 'rl_user_config'], (data) => {
         if (data?.rl_detection) {
           detection = {
             sensitivity: data.rl_detection.sensitivity || 'medium',
             extraKeywords: data.rl_detection.extraKeywords || [],
             ignoreHosts: data.rl_detection.ignoreHosts || [],
           };
+        }
+        if (data?.rl_user_config) {
+          competitors = data.rl_user_config.competitors || [];
+          companyProfile = data.rl_user_config.company || companyProfile;
         }
         if (isHostIgnored()) {
           reportBadge(0);
@@ -75,6 +91,29 @@
     } catch {
       /* ignore */
     }
+  }
+
+  function findCompetitorInText(text) {
+    const lower = text.toLowerCase();
+    for (const c of competitors) {
+      const names = [c.name, ...(c.aliases || [])].filter(Boolean);
+      for (const name of names) {
+        if (name && lower.includes(String(name).toLowerCase())) return c.name;
+      }
+    }
+    return null;
+  }
+
+  function craftPitch(competitorName, complaint) {
+    const brand = companyProfile.companyName || 'TuMarca';
+    const offer = companyProfile.whatTheySell || 'una alternativa más estable';
+    const snippet = complaint.slice(0, 100);
+    return (
+      `Vi tu comentario sobre ${competitorName}. ` +
+      `Si buscas ${offer}, en ${brand} podemos ayudarte ` +
+      `("${snippet}${complaint.length > 100 ? '…' : ''}"). ` +
+      `Te acompañamos en la transición sin fricción.`
+    );
   }
 
   function isHostIgnored() {
@@ -128,6 +167,7 @@
     if (host.includes('ebay.')) return 'ebay';
     if (host.includes('youtube.')) return 'youtube';
     if (host === 'x.com' || host.includes('twitter.')) return 'x';
+    if (host.includes('reddit.')) return 'reddit';
     return 'default';
   }
 
@@ -343,6 +383,53 @@
     node.setAttribute(RL_BTN_ATTR, '1');
   }
 
+  function attachCaptureButton(node, meta) {
+    if (node.getAttribute('data-rl-cap') === '1') return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'rl-action-btn rl-action-btn--capture';
+    btn.title = 'ResponseLens — Captar cliente del rival';
+    btn.setAttribute('aria-label', 'Crear oportunidad de captación');
+    btn.textContent = '🎯';
+    btn.addEventListener(
+      'click',
+      (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const frustration = scoreSeverity(meta.text) === 'low' ? 0.55 : 0.8;
+        chrome.runtime.sendMessage({
+          type: 'RL_CAPTURE_OPPORTUNITY',
+          payload: {
+            alertId: `cap_${Date.now().toString(36)}`,
+            userId: 'local-user',
+            competitorName: meta.competitorName,
+            competitor: {
+              name: meta.competitorName,
+              websiteUrl: null,
+              logoUrl: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(meta.competitorName.toLowerCase().replace(/\s+/g, '') + '.com')}&sz=128`,
+              description: `Competidor detectado en ${location.hostname}`,
+              industry: null,
+              socialHandles: [],
+              weaknessNotes: 'Mencionado en queja pública con carga negativa.',
+            },
+            originalComplaint: meta.text,
+            sourceUrl: location.href,
+            channel: detectChannel(),
+            severity: scoreSeverity(meta.text).toUpperCase(),
+            frustrationScore: frustration,
+            salesPitch: craftPitch(meta.competitorName, meta.text),
+            detectedAt: new Date().toISOString(),
+            status: 'NEW',
+          },
+        });
+        showToast(`Oportunidad creada: ${meta.competitorName}`);
+      },
+      true,
+    );
+    node.appendChild(btn);
+    node.setAttribute('data-rl-cap', '1');
+  }
+
   function markComplaint(node) {
     if (!(node instanceof HTMLElement) || processed.has(node)) return;
     if (node.closest(`[${RL_ATTR}]`)) return;
@@ -353,17 +440,28 @@
     processed.add(node);
     const id = uid();
     const severity = scoreSeverity(text);
+    const competitorName = findCompetitorInText(text);
     node.setAttribute(RL_ATTR, id);
-    node.classList.add('rl-highlight', `rl-highlight--${severity}`);
 
-    const chip = document.createElement('span');
-    chip.className = `rl-sev-chip rl-sev-chip--${severity}`;
-    chip.textContent = severity;
-    chip.setAttribute(RL_BTN_ATTR, '1');
-
-    attachActionButton(node, { id, text, severity });
-    if (!node.querySelector('.rl-sev-chip')) {
-      node.appendChild(chip);
+    if (competitorName) {
+      // Módulo B: queja sobre un rival → captación
+      node.classList.add('rl-highlight', 'rl-highlight--capture');
+      node.setAttribute('data-rl-competitor', competitorName);
+      const chip = document.createElement('span');
+      chip.className = 'rl-sev-chip rl-sev-chip--capture';
+      chip.textContent = `captar · ${competitorName}`;
+      chip.setAttribute(RL_BTN_ATTR, '1');
+      attachCaptureButton(node, { id, text, competitorName });
+      if (!node.querySelector('.rl-sev-chip--capture')) node.appendChild(chip);
+    } else {
+      // Módulo A: canal propio
+      node.classList.add('rl-highlight', `rl-highlight--${severity}`);
+      const chip = document.createElement('span');
+      chip.className = `rl-sev-chip rl-sev-chip--${severity}`;
+      chip.textContent = severity;
+      chip.setAttribute(RL_BTN_ATTR, '1');
+      attachActionButton(node, { id, text, severity });
+      if (!node.querySelector('.rl-sev-chip')) node.appendChild(chip);
     }
     markedCount += 1;
   }
@@ -449,6 +547,28 @@
         href: location.href,
         marked: document.querySelectorAll(`[${RL_ATTR}]`).length,
       });
+      return false;
+    }
+
+    if (message.type === 'RL_LIST_CAPTURE_CANDIDATES') {
+      scan();
+      const items = [];
+      for (const node of document.querySelectorAll(`[${RL_ATTR}].rl-highlight--capture`)) {
+        if (!(node instanceof HTMLElement)) continue;
+        const text = normalizeText(node.innerText || node.textContent);
+        const competitorName =
+          node.getAttribute('data-rl-competitor') || findCompetitorInText(text);
+        if (!text || !competitorName) continue;
+        items.push({
+          id: node.getAttribute(RL_ATTR),
+          text,
+          competitorName,
+          sourceUrl: location.href,
+          channel: detectChannel(),
+          detectedAt: new Date().toISOString(),
+        });
+      }
+      sendResponse({ ok: true, items, href: location.href, channel: detectChannel() });
       return false;
     }
 

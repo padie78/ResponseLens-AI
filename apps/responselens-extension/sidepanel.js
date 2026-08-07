@@ -4,7 +4,15 @@
 
 import { gqlRequest } from './lib/appsync-client.js';
 import { buildLocalReplyOptions } from './lib/local-fallback.js';
-import { DEMO_ALERTS, computeOpsStats } from './lib/ops-stats.js';
+import { computeOpsStats } from './lib/ops-stats.js';
+import {
+  buildDemoOpportunities,
+  buildOpportunity,
+  defaultCompetitorSeed,
+  findMentionedCompetitor,
+  lookupCompetitorProfile,
+} from './lib/competitor-opportunity.js';
+import { runCompetitorScan } from './lib/competitor-scan.js';
 
 const STORAGE = {
   config: 'rl_user_config',
@@ -13,7 +21,12 @@ const STORAGE = {
   appsync: 'rl_appsync',
   history: 'rl_reply_history',
   detection: 'rl_detection',
+  uiZoom: 'rl_ui_zoom',
 };
+
+const ZOOM_STEPS = [100, 110, 125, 140, 160];
+const DEFAULT_ZOOM = 125;
+let uiZoom = DEFAULT_ZOOM;
 
 const ANALYZE_MUTATION = `
   mutation AnalyzeReply($input: AnalyzeReplyInput!) {
@@ -83,9 +96,16 @@ const els = {
   status: document.getElementById('cfg-status'),
   refresh: document.getElementById('btn-refresh-alerts'),
   loadDemo: document.getElementById('btn-load-demo'),
+  scanComp: document.getElementById('btn-scan-comp'),
+  scanStatus: document.getElementById('comp-scan-status'),
   alertFilter: document.getElementById('alert-filter'),
   manual: document.getElementById('own-manual'),
+  compManual: document.getElementById('comp-manual'),
+  rivalSelect: document.getElementById('comp-rival-select'),
   exportHist: document.getElementById('btn-export-history'),
+  zoomOut: document.getElementById('btn-zoom-out'),
+  zoomIn: document.getElementById('btn-zoom-in'),
+  zoomLabel: document.getElementById('btn-zoom-label'),
   kpis: {
     replies: document.getElementById('kpi-replies'),
     alerts: document.getElementById('kpi-alerts'),
@@ -93,6 +113,32 @@ const els = {
     escalations: document.getElementById('kpi-escalations'),
   },
 };
+
+function nearestZoomStep(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_ZOOM;
+  return ZOOM_STEPS.reduce((best, step) =>
+    Math.abs(step - n) < Math.abs(best - n) ? step : best,
+  );
+}
+
+function applyUiZoom(percent) {
+  uiZoom = nearestZoomStep(percent);
+  document.documentElement.style.zoom = `${uiZoom}%`;
+  if (els.zoomLabel) els.zoomLabel.textContent = `${uiZoom}%`;
+  if (els.zoomOut) els.zoomOut.disabled = uiZoom <= ZOOM_STEPS[0];
+  if (els.zoomIn) els.zoomIn.disabled = uiZoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1];
+}
+
+async function loadUiZoom() {
+  const data = await storageGet([STORAGE.uiZoom]);
+  applyUiZoom(data[STORAGE.uiZoom] ?? DEFAULT_ZOOM);
+}
+
+async function setUiZoom(percent) {
+  applyUiZoom(percent);
+  await storageSet({ [STORAGE.uiZoom]: uiZoom });
+}
 
 function activateTab(name) {
   for (const tab of els.tabs) {
@@ -112,6 +158,22 @@ function activateTab(name) {
 els.tabs.forEach((tab) => {
   tab.addEventListener('click', () => activateTab(tab.dataset.tab));
 });
+
+els.zoomOut?.addEventListener('click', () => {
+  const idx = ZOOM_STEPS.indexOf(uiZoom);
+  if (idx > 0) void setUiZoom(ZOOM_STEPS[idx - 1]);
+});
+
+els.zoomIn?.addEventListener('click', () => {
+  const idx = ZOOM_STEPS.indexOf(uiZoom);
+  if (idx < ZOOM_STEPS.length - 1) void setUiZoom(ZOOM_STEPS[idx + 1]);
+});
+
+els.zoomLabel?.addEventListener('click', () => {
+  void setUiZoom(100);
+});
+
+applyUiZoom(DEFAULT_ZOOM);
 
 async function storageGet(keys) {
   return chrome.storage.local.get(keys);
@@ -371,6 +433,8 @@ function matchesAlertFilter(alert, filter) {
 }
 
 async function refreshAlerts() {
+  await ensureCompetitorsReady();
+  await fillRivalSelect();
   const data = await storageGet([STORAGE.alerts]);
   const filter = els.alertFilter?.value || 'OPEN';
   let alerts = data[STORAGE.alerts] || [];
@@ -379,47 +443,232 @@ async function refreshAlerts() {
   await refreshKpis();
 }
 
+/** Asegura perfil/rivales; no auto-inyecta demos (evita confusión). */
+async function ensureCompetitorsReady() {
+  const data = await storageGet([STORAGE.alerts, STORAGE.config]);
+  let cfg = data[STORAGE.config] || {};
+  if (!cfg.competitors?.length) {
+    cfg = {
+      ...cfg,
+      userId: cfg.userId || 'local-user',
+      company: cfg.company || {
+        companyName: 'TuMarca',
+        whatTheySell: 'software B2B con soporte humano',
+      },
+      competitors: defaultCompetitorSeed(),
+    };
+    await storageSet({ [STORAGE.config]: cfg });
+    await fillRivalSelect();
+  }
+  const list = data[STORAGE.alerts];
+  if (Array.isArray(list) && list.length > 0) {
+    const enriched = list.map((a) =>
+      a.competitor
+        ? a
+        : {
+            ...a,
+            competitor: lookupCompetitorProfile(a.competitorName, cfg.competitors),
+          },
+    );
+    if (JSON.stringify(enriched) !== JSON.stringify(list)) {
+      await storageSet({ [STORAGE.alerts]: enriched });
+    }
+  }
+}
+
+async function collectPageMentions() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) return [];
+    const res = await chrome.tabs.sendMessage(tab.id, { type: 'RL_LIST_CAPTURE_CANDIDATES' });
+    return Array.isArray(res?.items) ? res.items : [];
+  } catch {
+    return [];
+  }
+}
+
+async function scanCompetitorMarket() {
+  if (!els.scanComp) return;
+  els.scanComp.disabled = true;
+  if (els.scanStatus) {
+    els.scanStatus.classList.remove('is-error');
+    els.scanStatus.textContent = 'Escaneando Reddit + pestaña activa…';
+  }
+
+  try {
+    await ensureCompetitorsReady();
+    const { [STORAGE.config]: cfg } = await storageGet([STORAGE.config]);
+    const pageMentions = await collectPageMentions();
+    const { opportunities, stats } = await runCompetitorScan({
+      company: cfg?.company,
+      userId: cfg?.userId || 'local-user',
+      competitors: cfg?.competitors || defaultCompetitorSeed(),
+      pageMentions,
+      preferSyntheticFallback: false,
+    });
+
+    const data = await storageGet([STORAGE.alerts]);
+    const existing = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+    // Tirar simulados/demos viejos: solo conservamos oportunidades reales
+    const kept = existing.filter((a) => !a._synthetic && !a._demo && a._source !== 'synthetic');
+    const byId = new Map(kept.map((a) => [a.alertId, a]));
+    for (const opp of opportunities) {
+      if (opp._synthetic) continue;
+      byId.set(opp.alertId, { ...byId.get(opp.alertId), ...opp });
+    }
+    const merged = [...byId.values()]
+      .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime())
+      .slice(0, 100);
+    await storageSet({ [STORAGE.alerts]: merged });
+
+    const parts = [];
+    if (stats.hn) parts.push(`${stats.hn} Hacker News`);
+    if (stats.reddit) parts.push(`${stats.reddit} Reddit`);
+    if (stats.page) parts.push(`${stats.page} en página`);
+    if (els.scanStatus) {
+      els.scanStatus.textContent = parts.length
+        ? `Listo: ${parts.join(' · ')} · ${stats.competitors} rivales`
+        : 'Sin menciones reales. Probá rivales más conocidos en Config, o abrí una página con quejas del rival.';
+    }
+    await refreshAlerts();
+  } catch (err) {
+    if (els.scanStatus) {
+      els.scanStatus.classList.add('is-error');
+      els.scanStatus.textContent =
+        err instanceof Error ? err.message : 'No se pudo escanear. Reintentá.';
+    }
+  } finally {
+    els.scanComp.disabled = false;
+  }
+}
+
+async function fillRivalSelect() {
+  if (!els.rivalSelect) return;
+  const { [STORAGE.config]: cfg } = await storageGet([STORAGE.config]);
+  const competitors = cfg?.competitors?.length
+    ? cfg.competitors
+    : [{ name: 'AWS' }, { name: 'Shopify' }, { name: 'Mailchimp' }];
+  const current = els.rivalSelect.value;
+  els.rivalSelect.innerHTML = competitors
+    .map((c) => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`)
+    .join('');
+  if (current && [...els.rivalSelect.options].some((o) => o.value === current)) {
+    els.rivalSelect.value = current;
+  }
+}
+
+async function prependOpportunity(opp) {
+  const data = await storageGet([STORAGE.alerts]);
+  const list = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+  await storageSet({
+    [STORAGE.alerts]: [opp, ...list.filter((a) => a.alertId !== opp.alertId)].slice(0, 100),
+  });
+}
+
 function renderAlerts(alerts) {
   els.feed.innerHTML = '';
   if (!alerts?.length) {
-    els.feed.innerHTML =
-      '<div class="rl-empty">Sin oportunidades. Usa <strong>Demo</strong> para simular captación o espera el cron AppSync.</div>';
+    els.feed.innerHTML = `
+      <div class="rl-empty">
+        Todavía no hay oportunidades.<br/>
+        Pulsá <strong>Escanear ahora</strong> para buscar quejas de tus rivales en Hacker News / Reddit
+        (e importar las detectadas en la pestaña abierta).
+        <button type="button" class="rl-btn rl-btn--primary" id="btn-empty-scan" style="margin-top:12px">
+          Escanear ahora
+        </button>
+      </div>`;
+    document.getElementById('btn-empty-scan')?.addEventListener('click', () => {
+      void scanCompetitorMarket();
+    });
     return;
   }
 
   for (const alert of alerts) {
+    const c = alert.competitor || lookupCompetitorProfile(alert.competitorName) || {};
+    const logo = c.logoUrl || lookupCompetitorProfile(alert.competitorName)?.logoUrl;
     const node = document.createElement('article');
     node.className = 'rl-alert';
     node.dataset.alertId = alert.alertId;
+
+    const social = (c.socialHandles || [])
+      .map((h) => `<span class="rl-chip rl-chip--muted">${escapeHtml(h)}</span>`)
+      .join('');
+
     node.innerHTML = `
-      <header>
-        <strong>${escapeHtml(alert.competitorName)}</strong>
-        <span class="rl-badge rl-badge--${escapeHtml(String(alert.severity || 'HIGH').toLowerCase())}">
-          ${escapeHtml(alert.severity || 'HIGH')} · ${escapeHtml(alert.status || 'NEW')}
-        </span>
-      </header>
+      <div class="rl-comp-card">
+        <img class="rl-comp-logo" src="${escapeHtml(logo || '')}" alt="" width="40" height="40" />
+        <div class="rl-comp-meta">
+          <header>
+            <strong>${escapeHtml(alert.competitorName)}</strong>
+            <span class="rl-badge rl-badge--${escapeHtml(String(alert.severity || 'HIGH').toLowerCase())}">
+              ${escapeHtml(alert.severity || 'HIGH')} · ${escapeHtml(alert.status || 'NEW')}
+            </span>
+          </header>
+          ${c.industry ? `<p class="rl-comp-industry">${escapeHtml(c.industry)}</p>` : ''}
+          ${c.description ? `<p class="rl-muted">${escapeHtml(c.description)}</p>` : ''}
+          ${c.weaknessNotes ? `<p class="rl-comp-weak"><strong>Debilidad:</strong> ${escapeHtml(c.weaknessNotes)}</p>` : ''}
+          <div class="rl-chips">${social}</div>
+          <p class="rl-muted">
+            ${
+              c.websiteUrl
+                ? `<a href="${escapeHtml(c.websiteUrl)}" target="_blank" rel="noopener">Sitio</a> · `
+                : ''
+            }
+            <a href="${escapeHtml(alert.sourceUrl)}" target="_blank" rel="noopener">Fuente queja</a>
+            · score ${escapeHtml(String(alert.frustrationScore ?? '—'))}
+            ${alert._demo ? ' · ejemplo' : ''}
+            ${alert._synthetic ? ' · simulado' : ''}
+            ${alert._source === 'hackernews' ? ' · hn' : ''}
+            ${alert._source === 'reddit' ? ' · reddit' : ''}
+            ${alert._source === 'page' ? ' · página' : ''}
+          </p>
+        </div>
+      </div>
+      <p class="rl-muted">Queja del cliente del rival</p>
       <p>${escapeHtml(alert.originalComplaint)}</p>
+      <p class="rl-muted">Tu pitch de captación</p>
       <p><em>${escapeHtml(alert.salesPitch)}</em></p>
-      <p class="rl-muted">
-        <a href="${escapeHtml(alert.sourceUrl)}" target="_blank" rel="noopener">Fuente</a>
-        · ${escapeHtml(alert.detectedAt || '')}
-        ${alert._demo ? ' · demo' : ''}
-      </p>
     `;
 
+    const img = node.querySelector('.rl-comp-logo');
+    if (img) {
+      img.addEventListener('error', () => {
+        img.src = lookupCompetitorProfile(alert.competitorName)?.logoUrl || img.src;
+        img.onerror = null;
+      });
+    }
+
     const actions = document.createElement('div');
-    actions.className = 'rl-card-actions';
+    actions.className = 'rl-card-actions rl-card-actions--3';
 
     const copy = document.createElement('button');
     copy.type = 'button';
-    copy.className = 'rl-btn rl-btn--ghost';
+    copy.className = 'rl-btn rl-btn--primary';
     copy.textContent = 'Copiar pitch';
     copy.addEventListener('click', async () => {
       await navigator.clipboard.writeText(alert.salesPitch);
-      copy.textContent = 'Copiado';
+      copy.textContent = '✓ Copiado';
       setTimeout(() => {
         copy.textContent = 'Copiar pitch';
-      }, 1000);
+      }, 1200);
+    });
+
+    const inject = document.createElement('button');
+    inject.type = 'button';
+    inject.className = 'rl-btn rl-btn--ghost';
+    inject.textContent = 'Inyectar en página';
+    inject.addEventListener('click', async () => {
+      inject.disabled = true;
+      try {
+        await chrome.runtime.sendMessage({
+          type: 'RL_INJECT_REPLY',
+          text: alert.salesPitch,
+          complaintId: null,
+        });
+        await updateAlertStatus(alert.alertId, 'CONTACTED');
+      } finally {
+        inject.disabled = false;
+      }
     });
 
     const mkStatusBtn = (label, status) => {
@@ -435,6 +684,7 @@ function renderAlerts(alerts) {
 
     actions.append(
       copy,
+      inject,
       mkStatusBtn('Contactado', 'CONTACTED'),
       mkStatusBtn('Ganado', 'WON'),
       mkStatusBtn('Descartar', 'DISMISSED'),
@@ -452,20 +702,106 @@ async function updateAlertStatus(alertId, status) {
   await refreshAlerts();
 }
 
-function parseCompetitors(raw) {
-  return String(raw || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [namePart, aliasesPart] = line.split('|').map((s) => s.trim());
-      return {
-        name: namePart,
-        aliases: aliasesPart
-          ? aliasesPart.split(',').map((a) => a.trim()).filter(Boolean)
-          : [],
-      };
+function emptyCompetitorDraft() {
+  return {
+    name: '',
+    aliases: [],
+    websiteUrl: '',
+    logoUrl: '',
+    industry: '',
+    description: '',
+    socialHandles: [],
+    weaknessNotes: '',
+  };
+}
+
+function renderCompetitorEditor(competitors) {
+  const root = document.getElementById('cfg-competitors-list');
+  if (!root) return;
+  const list = Array.isArray(competitors) && competitors.length ? competitors : [emptyCompetitorDraft()];
+
+  root.innerHTML = list
+    .map((c, idx) => {
+      const aliases = Array.isArray(c.aliases) ? c.aliases.join(', ') : '';
+      const social = Array.isArray(c.socialHandles) ? c.socialHandles.join(', ') : '';
+      return `
+      <article class="rl-comp-form" data-idx="${idx}">
+        <div class="rl-comp-form__head">
+          <strong>Competidor ${idx + 1}</strong>
+          <button type="button" class="rl-btn rl-btn--ghost rl-btn--danger-text" data-remove="${idx}">
+            Quitar
+          </button>
+        </div>
+        <label>
+          Nombre *
+          <input data-field="name" value="${escapeHtml(c.name || '')}" maxlength="120" required placeholder="Shopify" />
+        </label>
+        <label>
+          Aliases (separados por coma)
+          <input data-field="aliases" value="${escapeHtml(aliases)}" maxlength="200" placeholder="rival cloud, rivalcloud" />
+        </label>
+        <label>
+          Sitio web
+          <input data-field="websiteUrl" type="url" value="${escapeHtml(c.websiteUrl || '')}" maxlength="300" placeholder="https://…" />
+        </label>
+        <label>
+          Logo URL (opcional)
+          <input data-field="logoUrl" type="url" value="${escapeHtml(c.logoUrl && !String(c.logoUrl).includes('google.com/s2/favicons') ? c.logoUrl : '')}" maxlength="400" placeholder="https://…/logo.png" />
+        </label>
+        <label>
+          Industria
+          <input data-field="industry" value="${escapeHtml(c.industry || '')}" maxlength="120" placeholder="Cloud / IaaS" />
+        </label>
+        <label>
+          Descripción
+          <textarea data-field="description" rows="2" maxlength="400" placeholder="Qué vende / posicionamiento">${escapeHtml(c.description || '')}</textarea>
+        </label>
+        <label>
+          Debilidades conocidas
+          <textarea data-field="weaknessNotes" rows="2" maxlength="400" placeholder="Soporte lento, cobros duplicados…">${escapeHtml(c.weaknessNotes || '')}</textarea>
+        </label>
+        <label>
+          Redes (coma)
+          <input data-field="socialHandles" value="${escapeHtml(social)}" maxlength="200" placeholder="@rivalcloud" />
+        </label>
+      </article>`;
+    })
+    .join('');
+
+  root.querySelectorAll('[data-remove]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const current = collectCompetitorsFromForm();
+      const idx = Number(btn.getAttribute('data-remove'));
+      current.splice(idx, 1);
+      renderCompetitorEditor(current.length ? current : [emptyCompetitorDraft()]);
     });
+  });
+}
+
+function collectCompetitorsFromForm() {
+  const root = document.getElementById('cfg-competitors-list');
+  if (!root) return [];
+  return [...root.querySelectorAll('.rl-comp-form')]
+    .map((card) => {
+      const val = (field) => card.querySelector(`[data-field="${field}"]`)?.value?.trim() || '';
+      const name = val('name');
+      if (!name) return null;
+      const splitList = (s) =>
+        s
+          ? s.split(',').map((x) => x.trim()).filter(Boolean)
+          : [];
+      return {
+        name,
+        aliases: splitList(val('aliases')),
+        websiteUrl: val('websiteUrl') || null,
+        logoUrl: val('logoUrl') || null,
+        industry: val('industry') || null,
+        description: val('description') || null,
+        weaknessNotes: val('weaknessNotes') || null,
+        socialHandles: splitList(val('socialHandles')),
+      };
+    })
+    .filter(Boolean);
 }
 
 function parseKeywords(raw) {
@@ -486,9 +822,7 @@ async function loadConfigForm() {
   document.getElementById('cfg-sells').value = cfg.company?.whatTheySell || '';
   document.getElementById('cfg-links').value = (cfg.company?.keyLinks || []).join('\n');
   document.getElementById('cfg-voice').value = cfg.company?.brandVoiceNotes || '';
-  document.getElementById('cfg-competitors').value = (cfg.competitors || [])
-    .map((c) => (c.aliases?.length ? `${c.name} | ${c.aliases.join(',')}` : c.name))
-    .join('\n');
+  renderCompetitorEditor(cfg.competitors?.length ? cfg.competitors : defaultCompetitorSeed());
   document.getElementById('cfg-gql').value = appsync.graphqlUrl || '';
   document.getElementById('cfg-rt').value = appsync.realtimeUrl || '';
   document.getElementById('cfg-key').value = appsync.apiKey || '';
@@ -497,6 +831,15 @@ async function loadConfigForm() {
   document.getElementById('cfg-ignore-hosts').value = (detection.ignoreHosts || []).join('\n');
   document.getElementById('cfg-offline').checked = detection.offlineFallback !== false;
 }
+
+document.getElementById('btn-add-competitor')?.addEventListener('click', () => {
+  const current = collectCompetitorsFromForm();
+  current.push(emptyCompetitorDraft());
+  renderCompetitorEditor(current);
+  const cards = document.querySelectorAll('.rl-comp-form');
+  cards[cards.length - 1]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  cards[cards.length - 1]?.querySelector('[data-field="name"]')?.focus();
+});
 
 els.form.addEventListener('submit', async (ev) => {
   ev.preventDefault();
@@ -514,7 +857,12 @@ els.form.addEventListener('submit', async (ev) => {
       .filter(Boolean),
     brandVoiceNotes: document.getElementById('cfg-voice').value.trim() || null,
   };
-  const competitors = parseCompetitors(document.getElementById('cfg-competitors').value);
+  const competitors = collectCompetitorsFromForm();
+  if (!competitors.length) {
+    els.status.classList.add('is-error');
+    els.status.textContent = 'Agregá al menos un competidor con nombre.';
+    return;
+  }
   const appsync = {
     graphqlUrl: document.getElementById('cfg-gql').value.trim(),
     realtimeUrl: document.getElementById('cfg-rt').value.trim(),
@@ -552,7 +900,8 @@ els.form.addEventListener('submit', async (ev) => {
     }
 
     await chrome.runtime.sendMessage({ type: 'RL_START_SUBSCRIPTION', userId });
-    els.status.textContent = 'Configuración guardada (local + cloud + detección).';
+    await fillRivalSelect();
+    els.status.textContent = 'Configuración guardada. Competidores listos para captación.';
   } catch (err) {
     els.status.classList.add('is-error');
     els.status.textContent =
@@ -572,17 +921,60 @@ els.manual.addEventListener('submit', async (ev) => {
   });
 });
 
+els.compManual?.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const text = document.getElementById('comp-manual-text').value.trim();
+  if (!text) return;
+  const { [STORAGE.config]: cfg } = await storageGet([STORAGE.config]);
+  const rival =
+    els.rivalSelect?.value ||
+    findMentionedCompetitor(text, cfg?.competitors || []) ||
+    'Competidor';
+  const opp = buildOpportunity({
+    competitorName: rival,
+    complaint: text,
+    sourceUrl: document.getElementById('comp-manual-url').value.trim() || 'manual://competencia',
+    channel: 'manual',
+    company: cfg?.company,
+    userId: cfg?.userId || 'local-user',
+    competitors: cfg?.competitors || defaultCompetitorSeed(),
+  });
+  await prependOpportunity(opp);
+  document.getElementById('comp-manual-text').value = '';
+  els.alertFilter.value = 'OPEN';
+  await refreshAlerts();
+});
+
 els.refresh.addEventListener('click', refreshAlerts);
 els.alertFilter.addEventListener('change', refreshAlerts);
+els.scanComp?.addEventListener('click', () => {
+  void scanCompetitorMarket();
+});
 
 els.loadDemo.addEventListener('click', async () => {
-  const data = await storageGet([STORAGE.alerts]);
-  const existing = data[STORAGE.alerts] || [];
-  const merged = [
-    ...DEMO_ALERTS,
-    ...existing.filter((a) => !DEMO_ALERTS.some((d) => d.alertId === a.alertId)),
-  ];
-  await storageSet({ [STORAGE.alerts]: merged });
+  const { [STORAGE.config]: cfg, [STORAGE.alerts]: existing } = await storageGet([
+    STORAGE.config,
+    STORAGE.alerts,
+  ]);
+  let competitors = cfg?.competitors?.length ? cfg.competitors : defaultCompetitorSeed();
+  if (!cfg?.competitors?.length) {
+    await storageSet({
+      [STORAGE.config]: {
+        ...(cfg || {}),
+        userId: cfg?.userId || 'local-user',
+        company: cfg?.company || {
+          companyName: 'TuMarca',
+          whatTheySell: 'software B2B con soporte humano',
+        },
+        competitors,
+      },
+    });
+    await loadConfigForm();
+  }
+  const demos = buildDemoOpportunities(cfg?.company, cfg?.userId || 'local-user', competitors);
+  const rest = (existing || []).filter((a) => !String(a.alertId || '').startsWith('demo-'));
+  await storageSet({ [STORAGE.alerts]: [...demos, ...rest] });
+  els.alertFilter.value = 'OPEN';
   await refreshAlerts();
   activateTab('comp');
 });
@@ -611,14 +1003,16 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === 'RL_PENDING_COMPLAINT' && message.payload) {
     analyzeComplaint(message.payload);
   }
-  if (message?.type === 'RL_NEW_ALERT') {
+  if (message?.type === 'RL_NEW_ALERT' || message?.type === 'RL_CAPTURE_OPPORTUNITY') {
     refreshAlerts();
     activateTab('comp');
   }
 });
 
 (async function boot() {
+  await loadUiZoom();
   await loadConfigForm();
+  await fillRivalSelect();
   await refreshAlerts();
   await refreshKpis();
 

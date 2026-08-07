@@ -8,6 +8,7 @@ import {
 import type { AlertSeverity, CompetitorAlert, CompetitorProfile } from '@responselens/domain';
 import { randomUUID } from 'crypto';
 import type { ScheduledHandler } from 'aws-lambda';
+import { fetchLiveMentions } from './reddit-mentions';
 
 const logger = new ConsoleLogger({ source: 'competitor_scan' });
 const userConfigs = new DynamoDbUserConfigRepository();
@@ -34,17 +35,25 @@ function severityFromScore(score: number): AlertSeverity {
 function craftPitch(companyName: string | undefined, competitorName: string, complaint: string): string {
   const brand = companyName || 'nuestra solución';
   return (
-    `Si buscas una alternativa estable a ${competitorName}, ` +
-    `${brand} puede ayudarte a resolver: "${complaint.slice(0, 120)}…". ` +
+    `Vi tu comentario sobre ${competitorName}. ` +
+    `Si buscas una alternativa más estable, ${brand} puede ayudarte a resolver eso ` +
+    `("${complaint.slice(0, 100)}${complaint.length > 100 ? '…' : ''}"). ` +
     `Estamos disponibles para una transición sin fricción.`
   );
 }
 
-/** Stub MVP — enchufar conectores reales (X API, news, etc.). */
 async function fetchMentionsForCompetitor(
-  _competitor: CompetitorProfile,
+  competitor: CompetitorProfile,
 ): Promise<Array<{ id?: string; text: string; sourceUrl: string; channel?: string; detectedAt?: string }>> {
-  return [];
+  try {
+    return await fetchLiveMentions(competitor.name);
+  } catch (err) {
+    logger.warn('mentions.fetch_failed', {
+      competitor: competitor.name,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
 }
 
 export const handler: ScheduledHandler = async () => {
