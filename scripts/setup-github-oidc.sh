@@ -124,8 +124,67 @@ aws iam put-role-policy \
   --policy-document "file://${POLICY_FILE}"
 rm -f "${POLICY_FILE}"
 
+# Ampliar permisos Terraform (S3 state + Dynamo locks + stack) — least-privilege amplio para MVP CI
+TF_POLICY_FILE="$(mktemp)"
+cat > "${TF_POLICY_FILE}" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TerraformState",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::responselens-tfstate-*",
+        "arn:aws:s3:::responselens-tfstate-*/*"
+      ]
+    },
+    {
+      "Sid": "TerraformLocks",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:DeleteItem"
+      ],
+      "Resource": "arn:aws:dynamodb:${AWS_REGION}:${ACCOUNT_ID}:table/responselens-tf-locks"
+    },
+    {
+      "Sid": "DeployStackMVP",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:*",
+        "lambda:*",
+        "appsync:*",
+        "iam:*",
+        "logs:*",
+        "events:*",
+        "sqs:*",
+        "s3:*",
+        "xray:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+EOF
+
+aws iam put-role-policy \
+  --role-name "${ROLE_NAME}" \
+  --policy-name responselens-github-terraform-inline \
+  --policy-document "file://${TF_POLICY_FILE}"
+rm -f "${TF_POLICY_FILE}"
+
 echo ""
-echo "==> Listo. Añadí este secret en GitHub:"
-echo "    AWS_DEPLOY_ROLE_ARN=${ROLE_ARN}"
-echo "==> Variable recomendada: AWS_REGION=${AWS_REGION}"
-echo "==> Variable recomendada: NAME_PREFIX=responselens-dev"
+echo "==> Listo. Secrets / Variables en GitHub:"
+echo "    Secret  AWS_DEPLOY_ROLE_ARN=${ROLE_ARN}"
+echo "    Var     AWS_REGION=${AWS_REGION}"
+echo "    Var     TF_STATE_BUCKET=<bucket del bootstrap>"
+echo "    Var     TF_STATE_LOCKS_TABLE=responselens-tf-locks"
+echo "    Var     NAME_PREFIX=responselens-dev"
