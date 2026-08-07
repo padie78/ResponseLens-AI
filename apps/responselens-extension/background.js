@@ -25,22 +25,60 @@ async function setLocal(obj) {
   return chrome.storage.local.set(obj);
 }
 
-async function openSidePanel(tabId) {
+async function openSidePanel(tabId, windowId) {
   try {
-    if (tabId) {
+    if (typeof windowId === 'number') {
+      await chrome.sidePanel.open({ windowId });
+      return;
+    }
+    if (typeof tabId === 'number') {
       await chrome.sidePanel.open({ tabId });
+      return;
+    }
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (active?.windowId != null) {
+      await chrome.sidePanel.open({ windowId: active.windowId });
     }
   } catch (err) {
     console.warn('[RL] sidePanel.open', err);
   }
 }
 
+async function enableSidePanelOnClick() {
+  try {
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  } catch (err) {
+    console.warn('[RL] setPanelBehavior', err);
+  }
+  try {
+    // Disponible en todo el navegador (no solo hosts del content script)
+    await chrome.sidePanel.setOptions({
+      path: 'sidepanel.html',
+      enabled: true,
+    });
+  } catch (err) {
+    console.warn('[RL] setOptions', err);
+  }
+}
+
+// Importante: no solo en onInstalled — también al despertar el service worker
+enableSidePanelOnClick();
+
 chrome.runtime.onInstalled.addListener(async () => {
-  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  await enableSidePanelOnClick();
   const existing = await getLocal([STORAGE_KEYS.alerts]);
   if (!existing[STORAGE_KEYS.alerts]) {
     await setLocal({ [STORAGE_KEYS.alerts]: [] });
   }
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  enableSidePanelOnClick();
+});
+
+// Fallback si openPanelOnActionClick no aplicó (algunas builds / recargas)
+chrome.action.onClicked.addListener(async (tab) => {
+  await openSidePanel(tab?.id, tab?.windowId);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
