@@ -1,0 +1,9 @@
+# ResponseLens — contexto de módulos en la extensión
+
+La UI del Side Panel cambia por pestaña activa:
+
+`[Canales Propios] | [Competencia] | [Configuración]`
+
+- Canales Propios → Módulo A (micro, respuesta a queja)
+- Competencia → Módulo B (feed de alertas AppSync)
+- Configuración → Módulo C (perfil + rivales)

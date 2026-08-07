@@ -1,0 +1,8 @@
+{
+  "name": "responselens-extension",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/responselens-extension",
+  "projectType": "application",
+  "targets": {},
+  "tags": ["scope:client", "type:extension"]
+}

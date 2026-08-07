@@ -1,0 +1,29 @@
+{
+  "name": "responselens-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ResponseLens AI — Nx Monorepo / Hexagonal Architecture / AWS Serverless",
+  "scripts": {
+    "build": "nx run-many --target=build --projects=common,domain,application,infrastructure",
+    "build:lambdas": "npm run build && npm run build --workspaces --if-present",
+    "build:extension": "echo \"Extension is static — load apps/responselens-extension in Chrome\"",
+    "sync:env": "bash scripts/sync-local-env.sh"
+  },
+  "workspaces": [
+    "lambda_code/ingestion/*",
+    "lambda_code/api/*"
+  ],
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.679.0",
+    "@aws-sdk/lib-dynamodb": "^3.679.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@nx/js": "19.5.0",
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^20.17.0",
+    "esbuild": "^0.24.2",
+    "nx": "19.5.0",
+    "typescript": "~5.4.5"
+  }
+}

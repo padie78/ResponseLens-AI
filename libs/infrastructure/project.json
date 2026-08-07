@@ -1,0 +1,20 @@
+{
+  "name": "infrastructure",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/infrastructure/src",
+  "projectType": "library",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/infrastructure",
+        "main": "libs/infrastructure/src/index.ts",
+        "rootDir": ".",
+        "tsConfig": "libs/infrastructure/tsconfig.lib.json",
+        "buildLibsFromSource": false
+      }
+    }
+  },
+  "tags": ["scope:shared", "type:infra"]
+}

@@ -1,0 +1,198 @@
+# ResponseLens AI — AppSync GraphQL Schema (API_KEY)
+# Patrón de subscriptions alineado con statsGames: Mutation NONE/passthrough + @aws_subscribe.
+
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+# ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum ReplyTone {
+  FORMAL_CORPORATE
+  EMPATHETIC
+  RESOLUTIVE_TECHNICAL
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+# ─── Company / Config (Users_Config) ─────────────────────────────────────────
+
+type CompetitorProfile {
+  name: String!
+  aliases: [String!]
+  websiteUrl: String
+  socialHandles: [String!]
+}
+
+type CompanyProfile {
+  companyName: String!
+  whatTheySell: String!
+  keyLinks: [String!]
+  brandVoiceNotes: String
+}
+
+type UserConfig {
+  userId: ID!
+  company: CompanyProfile!
+  competitors: [CompetitorProfile!]!
+  updatedAt: AWSDateTime!
+}
+
+input CompetitorProfileInput {
+  name: String!
+  aliases: [String!]
+  websiteUrl: String
+  socialHandles: [String!]
+}
+
+input CompanyProfileInput {
+  companyName: String!
+  whatTheySell: String!
+  keyLinks: [String!]
+  brandVoiceNotes: String
+}
+
+input SaveUserConfigInput {
+  userId: ID!
+  company: CompanyProfileInput!
+  competitors: [CompetitorProfileInput!]!
+}
+
+# ─── Módulo A: Control de Daños ──────────────────────────────────────────────
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RecommendedAction {
+  PUBLIC_REPLY
+  PRIVATE_DM
+  ESCALATE_LEGAL
+  ESCALATE_SAFETY
+  NO_ENGAGE
+}
+
+enum EscalationFlag {
+  LEGAL_THREAT
+  SAFETY_HARM
+  DATA_PRIVACY
+  CHARGEBACK
+  INFLUENCER_REACH
+  CHURN_SIGNAL
+}
+
+enum AlertWorkflowStatus {
+  NEW
+  CONTACTED
+  SNOOZED
+  DISMISSED
+  WON
+}
+
+type ReplyOption {
+  tone: ReplyTone!
+  label: String!
+  body: String!
+  rationale: String
+}
+
+type ComplaintTriage {
+  riskScore: Float!
+  riskLevel: RiskLevel!
+  escalationFlags: [EscalationFlag!]!
+  recommendedAction: RecommendedAction!
+  keyIssues: [String!]!
+  summary: String!
+}
+
+type ReplyOptions {
+  complaintId: ID
+  sourceUrl: String
+  channel: String
+  originalText: String!
+  options: [ReplyOption!]!
+  triage: ComplaintTriage!
+  model: String!
+  generatedAt: AWSDateTime!
+}
+
+input AnalyzeReplyInput {
+  userId: ID!
+  text: String!
+  channel: String
+  sourceUrl: String
+  complaintId: ID
+  companyName: String
+  whatTheySell: String
+  brandVoiceNotes: String
+}
+
+# ─── Módulo B: Conquista Comercial ───────────────────────────────────────────
+
+type CompetitorAlert {
+  alertId: ID!
+  userId: ID!
+  competitorName: String!
+  originalComplaint: String!
+  sourceUrl: String!
+  channel: String
+  severity: AlertSeverity!
+  frustrationScore: Float
+  salesPitch: String!
+  detectedAt: AWSDateTime!
+  status: AlertWorkflowStatus
+  notes: String
+}
+
+input PublishCompetitorAlertInput {
+  alertId: ID!
+  userId: ID!
+  competitorName: String!
+  originalComplaint: String!
+  sourceUrl: String!
+  channel: String
+  severity: AlertSeverity!
+  frustrationScore: Float
+  salesPitch: String!
+  detectedAt: AWSDateTime!
+  status: AlertWorkflowStatus
+  notes: String
+}
+
+# ─── Root operations ─────────────────────────────────────────────────────────
+
+type Query {
+  health: String! @aws_api_key
+
+  getUserConfig(userId: ID!): UserConfig @aws_api_key
+
+  listCompetitorAlerts(userId: ID!, limit: Int): [CompetitorAlert!]! @aws_api_key
+}
+
+type Mutation {
+  analyzeReply(input: AnalyzeReplyInput!): ReplyOptions! @aws_api_key
+
+  saveUserConfig(input: SaveUserConfigInput!): UserConfig! @aws_api_key
+
+  """
+  Publicada por el cron Lambda de escaneo competitivo.
+  Data source NONE (passthrough) — dispara la subscription WebSocket.
+  """
+  publishCompetitorAlert(input: PublishCompetitorAlertInput!): CompetitorAlert! @aws_api_key
+}
+
+type Subscription {
+  onNewCompetitorAlert(userId: ID!): CompetitorAlert
+    @aws_subscribe(mutations: ["publishCompetitorAlert"])
+    @aws_api_key
+}

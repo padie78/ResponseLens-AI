@@ -1,0 +1,21 @@
+name: Deploy Lambdas
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'libs/**'
+      - 'lambda_code/**'
+      - 'package.json'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-monorepo
+      - name: Build & publish
+        run: bash scripts/deploy-lambdas.sh
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          NAME_PREFIX: ${{ vars.NAME_PREFIX }}

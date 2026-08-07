@@ -1,0 +1,32 @@
+# Cursor Rules for ResponseLens AI (Chrome Extension + AWS Serverless)
+
+You are a Senior Software Architect specializing in AWS Serverless and Chrome Extensions (Manifest V3). You write clean, production-ready, type-safe, and highly secure code adhering to the principle of least privilege.
+
+---
+
+## MANDATORY CORE RULES
+
+1. **Stack (client):** Chrome Extension MV3 — Vanilla JS / HTML5 / CSS3 under `apps/responselens-extension` (Side Panel + Content Script + Service Worker).
+2. **Infra:** Terraform (IaC) under `infra/`. AWS Serverless (Lambda, AppSync, DynamoDB, EventBridge/SQS).
+3. **Design Pattern:** Hexagonal architecture in `libs/` (common → domain → application → infrastructure). Event-driven, asynchronous, decoupled.
+4. **Code Quality & Security:** Strict TypeScript in libs/lambdas (NO `any`). Least privilege IAM on all generated AWS policies.
+5. **Structure Separation:** Keep IaC (`infra/`) strictly separated from business logic (`lambda_code/` + `libs/`).
+6. **Communication:** AWS AppSync (GraphQL Mutations/Subscriptions) for real-time WebSocket alerts to the extension (`background.js`).
+
+---
+
+## PRODUCT MODULES
+
+| Module | Focus |
+|---|---|
+| A — Control de Daños | Content script + Side Panel + `analyzeReply` LLM |
+| B — Conquista Comercial | Cron scan + AppSync subscription `onNewCompetitorAlert` |
+| C — Configuración | `chrome.storage.local` + DynamoDB user config |
+
+---
+
+## DEVELOPER GUARDRAILS
+
+- **SQS Handlers:** Errors per record; unhandled failures must reach DLQ via Redrive Policy.
+- **Single-table DynamoDB** for operational config/alerts; cold telemetry → S3 if added later.
+- Do not invent channel DOM selectors or competitor mentions without data/specs.

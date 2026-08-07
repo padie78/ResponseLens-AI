@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ResponseLens AI</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="rl-header">
+      <div class="rl-brand">
+        <img src="icons/icon48.png" alt="" width="28" height="28" />
+        <div>
+          <strong>ResponseLens AI</strong>
+          <span class="rl-sub">Operaciones de reputación &amp; captación</span>
+        </div>
+      </div>
+      <div id="ops-kpis" class="rl-kpis" aria-label="Indicadores operativos">
+        <div class="rl-kpi"><span id="kpi-replies">0</span><small>Respuestas / 7d</small></div>
+        <div class="rl-kpi"><span id="kpi-alerts">0</span><small>Alertas abiertas</small></div>
+        <div class="rl-kpi"><span id="kpi-critical">0</span><small>Críticas</small></div>
+        <div class="rl-kpi"><span id="kpi-escalations">0</span><small>Escalados</small></div>
+      </div>
+    </header>
+
+    <nav class="rl-tabs" role="tablist" aria-label="Módulos">
+      <button class="rl-tab is-active" role="tab" aria-selected="true" data-tab="own">
+        Canales Propios
+      </button>
+      <button class="rl-tab" role="tab" aria-selected="false" data-tab="comp">
+        Competencia
+      </button>
+      <button class="rl-tab" role="tab" aria-selected="false" data-tab="hist">
+        Historial
+      </button>
+      <button class="rl-tab" role="tab" aria-selected="false" data-tab="cfg">
+        Config
+      </button>
+    </nav>
+
+    <main>
+      <!-- Módulo A -->
+      <section id="panel-own" class="rl-panel is-visible" role="tabpanel">
+        <div id="own-empty" class="rl-empty">
+          Selecciona un comentario resaltado en la página para generar respuestas.
+          <p class="rl-hint">También puedes pegar una queja abajo y analizarla sin salir del panel.</p>
+        </div>
+
+        <form id="own-manual" class="rl-manual">
+          <label>
+            Pegar queja / review
+            <textarea id="manual-text" rows="3" maxlength="4000" placeholder="Pega aquí el texto negativo…"></textarea>
+          </label>
+          <button type="submit" class="rl-btn rl-btn--ghost">Analizar texto</button>
+        </form>
+
+        <div id="own-loader" class="rl-loader" hidden>
+          <div class="rl-spinner" aria-hidden="true"></div>
+          <p>Triaging riesgo y redactando 3 enfoques…</p>
+        </div>
+
+        <div id="own-triage" class="rl-triage" hidden></div>
+        <div id="own-complaint" class="rl-complaint" hidden></div>
+        <div id="own-cards" class="rl-cards" hidden></div>
+      </section>
+
+      <!-- Módulo B -->
+      <section id="panel-comp" class="rl-panel" role="tabpanel" hidden>
+        <div class="rl-panel-head">
+          <h2>Oportunidades de Captación</h2>
+          <div class="rl-head-actions">
+            <select id="alert-filter" class="rl-select" aria-label="Filtro de estado">
+              <option value="OPEN">Abiertas</option>
+              <option value="ALL">Todas</option>
+              <option value="CONTACTED">Contactadas</option>
+              <option value="WON">Ganadas</option>
+              <option value="DISMISSED">Descartadas</option>
+            </select>
+            <button type="button" id="btn-load-demo" class="rl-btn rl-btn--ghost">Demo</button>
+            <button type="button" id="btn-refresh-alerts" class="rl-btn rl-btn--ghost">Actualizar</button>
+          </div>
+        </div>
+        <div id="comp-feed" class="rl-feed"></div>
+      </section>
+
+      <!-- Historial -->
+      <section id="panel-hist" class="rl-panel" role="tabpanel" hidden>
+        <div class="rl-panel-head">
+          <h2>Historial de respuestas</h2>
+          <button type="button" id="btn-export-history" class="rl-btn rl-btn--ghost">Exportar CSV</button>
+        </div>
+        <div id="hist-list" class="rl-feed"></div>
+      </section>
+
+      <!-- Módulo C -->
+      <section id="panel-cfg" class="rl-panel" role="tabpanel" hidden>
+        <h2>Perfil de la Empresa</h2>
+        <form id="cfg-form" class="rl-form">
+          <label>
+            Nombre
+            <input id="cfg-name" name="companyName" required maxlength="120" />
+          </label>
+          <label>
+            Qué vende
+            <textarea id="cfg-sells" name="whatTheySell" rows="3" required maxlength="800"></textarea>
+          </label>
+          <label>
+            Enlaces clave (uno por línea)
+            <textarea id="cfg-links" name="keyLinks" rows="3" maxlength="1200"></textarea>
+          </label>
+          <label>
+            Notas de voz de marca
+            <textarea id="cfg-voice" name="brandVoiceNotes" rows="2" maxlength="600"></textarea>
+          </label>
+
+          <h2>Competidores</h2>
+          <label>
+            Lista (uno por línea: Nombre | alias1,alias2)
+            <textarea id="cfg-competitors" name="competitors" rows="4" maxlength="2000"></textarea>
+          </label>
+
+          <h2>Detección en página</h2>
+          <label>
+            Sensibilidad
+            <select id="cfg-sensitivity">
+              <option value="low">Baja (menos falsos positivos)</option>
+              <option value="medium" selected>Media</option>
+              <option value="high">Alta (más cobertura)</option>
+            </select>
+          </label>
+          <label>
+            Keywords extra (coma o línea)
+            <textarea id="cfg-keywords" rows="2" maxlength="800" placeholder="roto, estafadores, me arrepiento"></textarea>
+          </label>
+          <label>
+            Dominios ignorados (uno por línea)
+            <textarea id="cfg-ignore-hosts" rows="2" maxlength="800" placeholder="example.com"></textarea>
+          </label>
+          <label class="rl-check">
+            <input type="checkbox" id="cfg-offline" checked />
+            Usar fallback offline si falla la nube
+          </label>
+
+          <label>
+            User ID (MVP)
+            <input id="cfg-user-id" name="userId" required maxlength="64" />
+          </label>
+
+          <fieldset class="rl-fieldset">
+            <legend>AppSync (cloud)</legend>
+            <label>
+              GraphQL URL
+              <input id="cfg-gql" name="graphqlUrl" type="url" />
+            </label>
+            <label>
+              Realtime URL
+              <input id="cfg-rt" name="realtimeUrl" type="url" />
+            </label>
+            <label>
+              API Key
+              <input id="cfg-key" name="apiKey" type="password" autocomplete="off" />
+            </label>
+          </fieldset>
+
+          <button type="submit" class="rl-btn rl-btn--primary">Guardar</button>
+          <p id="cfg-status" class="rl-status" role="status"></p>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

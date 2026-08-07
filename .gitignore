@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Nx caches
+.nx/
+**/.nx/
+tmp/
+**/tmp/
+out-tsc/
+**/out-tsc/
+
+# Builds
+dist/
+build/
+**/dist/
+**/build/
+lambda_code/**/dist/
+lambda_code/**/*.zip
+
+# Terraform
+**/.terraform/
+.terraform/
+infra/**/.terraform/
+infra/**/.artifacts/
+**/.artifacts/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*~
+
+# Logs / coverage
+*.log
+npm-debug.log*
+coverage/
+**/coverage/
+
+*.js.map

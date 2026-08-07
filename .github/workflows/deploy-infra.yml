@@ -1,0 +1,19 @@
+name: Deploy Infra
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'infra/**'
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform init
+      - run: terraform plan
+        env:
+          TF_VAR_openai_api_key: ${{ secrets.OPENAI_API_KEY }}

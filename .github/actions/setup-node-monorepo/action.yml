@@ -1,0 +1,11 @@
+name: Setup Node monorepo
+description: Install Node and npm dependencies
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: npm
+    - shell: bash
+      run: npm ci
