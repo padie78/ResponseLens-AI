@@ -120,19 +120,65 @@ function normalizeProfile(raw) {
 }
 
 export function craftSalesPitch({ companyName, whatTheySell, keyLinks, competitorName, complaint }) {
+  const variants = craftSalesPitchVariants({
+    companyName,
+    whatTheySell,
+    keyLinks,
+    competitorName,
+    complaint,
+  });
+  return variants.find((v) => v.recommended)?.body || variants[0]?.body || '';
+}
+
+/**
+ * Tres pitches de captación: suave (recomendado), directo y técnico.
+ */
+export function craftSalesPitchVariants({
+  companyName,
+  whatTheySell,
+  keyLinks,
+  competitorName,
+  complaint,
+}) {
   const brand = companyName?.trim() || 'nuestra solución';
   const offer = whatTheySell?.trim()
     ? whatTheySell.trim().slice(0, 120)
     : 'una alternativa más estable y con soporte humano';
-  const link = Array.isArray(keyLinks) && keyLinks[0] ? ` Más info: ${keyLinks[0]}` : '';
-  const snippet = String(complaint || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+  const link = Array.isArray(keyLinks) && keyLinks[0] ? ` ${keyLinks[0]}` : '';
+  const snippet = String(complaint || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+  const rival = competitorName || 'ese proveedor';
 
-  return (
-    `Vi tu comentario sobre ${competitorName}. ` +
-    `Si buscas ${offer}, en ${brand} podemos ayudarte a salir de esto ` +
-    `("${snippet}${snippet.length >= 100 ? '…' : ''}"). ` +
-    `Te acompañamos en la transición sin fricción.${link}`
-  );
+  return [
+    {
+      id: 'soft',
+      label: 'Suave',
+      recommended: true,
+      rationale: 'Empático y no agresivo: mejor para comentarios públicos (menos spam).',
+      body:
+        `Lamento lo que estás pasando con ${rival}. ` +
+        `Si en algún momento explorás alternativas, en ${brand} nos enfocamos en ${offer}. ` +
+        `Podemos ayudarte a migrar sin fricción si te sirve.${link ? ` Info:${link}` : ''}`,
+    },
+    {
+      id: 'direct',
+      label: 'Directo',
+      recommended: false,
+      rationale: 'Clara propuesta de valor; útil en foros donde piden alternativas.',
+      body:
+        `Vi tu comentario sobre ${rival} ("${snippet}${snippet.length >= 90 ? '…' : ''}"). ` +
+        `Si buscás ${offer}, en ${brand} resolvemos justo ese tipo de fricción. ` +
+        `Te acompañamos en la transición.${link ? ` →${link}` : ''}`,
+    },
+    {
+      id: 'technical',
+      label: 'Técnico',
+      recommended: false,
+      rationale: 'Enfocado en estabilidad/soporte; bueno para audiencias HN / devops.',
+      body:
+        `Si el dolor con ${rival} es uptime/soporte, en ${brand} priorizamos operación predecible y respuesta humana. ` +
+        `Ofrecemos ${offer}. Si querés, te paso un checklist de migración corta.${link ? ` ${link}` : ''}`,
+    },
+  ];
 }
 
 export function buildOpportunity({
@@ -149,6 +195,13 @@ export function buildOpportunity({
 }) {
   const frustrationScore = scoreFrustration(complaint);
   const competitor = lookupCompetitorProfile(competitorName, competitors);
+  const salesPitches = craftSalesPitchVariants({
+    companyName: company?.companyName,
+    whatTheySell: company?.whatTheySell,
+    keyLinks: company?.keyLinks,
+    competitorName: competitor.name,
+    complaint,
+  });
 
   return {
     alertId:
@@ -162,13 +215,8 @@ export function buildOpportunity({
     channel: channel || 'manual',
     severity: severityFromScore(frustrationScore),
     frustrationScore,
-    salesPitch: craftSalesPitch({
-      companyName: company?.companyName,
-      whatTheySell: company?.whatTheySell,
-      keyLinks: company?.keyLinks,
-      competitorName: competitor.name,
-      complaint,
-    }),
+    salesPitches,
+    salesPitch: salesPitches.find((p) => p.recommended)?.body || salesPitches[0].body,
     detectedAt: detectedAt || new Date().toISOString(),
     status: 'NEW',
     _demo: Boolean(demo),

@@ -1,41 +1,13 @@
 /**
  * Escaneo de menciones competitivas (MVP).
- * 1) Hacker News (Algolia, sin API key)
- * 2) Reddit search (best-effort; a menudo bloqueado)
- * 3) Fallback sintético etiquetado
+ * Fuentes: Hacker News (Algolia) → Reddit (best-effort) → pestaña activa.
+ * Sin fallback sintético por defecto.
  */
 
 import { buildOpportunity, scoreFrustration } from './competitor-opportunity.js';
 
-const FRUSTRATION_WORDS = [
-  'scam',
-  'outage',
-  'broken',
-  'terrible',
-  'horrible',
-  'refund',
-  'downtime',
-  'falla',
-  'estafa',
-];
-
-const SYNTHETIC_TEMPLATES = [
-  {
-    channel: 'reddit',
-    complaint: (name) =>
-      `Llevo horas con ${name} caído y el soporte no responde. Si conocen una alternativa seria, avisen.`,
-  },
-  {
-    channel: 'x',
-    complaint: (name) =>
-      `${name} me cobró de más otra vez. Esto es una estafa. Me cambio sí o sí.`,
-  },
-  {
-    channel: 'web',
-    complaint: (name) =>
-      `La experiencia con ${name} es horrible: fallas constantes y nadie se hace cargo. ¿Recomendaciones?`,
-  },
-];
+const NEGATIVE_HINT =
+  /\b(scam|outage|broken|terrible|horrible|awful|refund|downtime|fail(ure|ed|ing)?|bug|crash|estafa|falla|ca[ií]da|basura|caro|slow|unreliable|worst|hate|sucks)\b/i;
 
 function stripHtml(html) {
   return String(html || '')
@@ -50,69 +22,119 @@ function stripHtml(html) {
     .trim();
 }
 
+function looksNegative(text) {
+  return NEGATIVE_HINT.test(text) || scoreFrustration(text) >= 0.35;
+}
+
 /**
- * Varias queries simples: Algolia no rankea bien el OR en español/inglés junto.
+ * Fetch JSON vía service worker (evita CORS del Side Panel).
+ * En Node/tests cae a fetch directo.
+ * @param {string} url
+ * @returns {Promise<{ ok: boolean, status?: number, json?: unknown, contentType?: string, error?: string }>}
+ */
+async function extensionFetchJson(url) {
+  if (typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage) {
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'RL_FETCH_JSON', url });
+      return res && typeof res === 'object'
+        ? res
+        : { ok: false, error: 'empty_sw_response' };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    const contentType = res.headers.get('content-type') || '';
+    const text = await res.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return { ok: false, status: res.status, contentType, error: 'invalid_json' };
+    }
+    return {
+      ok: res.ok,
+      status: res.status,
+      contentType,
+      json,
+      error: res.ok ? undefined : `HTTP ${res.status}`,
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
  * @param {string} competitorName
  * @param {{ limit?: number }} [opts]
+ * @returns {Promise<{ mentions: object[], error?: string }>}
  */
 export async function fetchHnMentions(competitorName, opts = {}) {
-  const limit = opts.limit ?? 6;
+  const limit = opts.limit ?? 8;
   const name = String(competitorName || '').trim();
-  if (!name) return [];
+  if (!name) return { mentions: [] };
 
   const queries = [
+    name,
     `${name} scam`,
     `${name} outage`,
     `${name} broken`,
     `${name} terrible`,
-    `${name} estafa`,
-    `${name} falla`,
+    `${name} fail`,
   ];
 
   const byId = new Map();
+  let lastError = '';
 
   for (const query of queries) {
     if (byId.size >= limit) break;
-    const url =
-      `https://hn.algolia.com/api/v1/search_by_date?query=${encodeURIComponent(query)}` +
-      `&tags=comment&hitsPerPage=${Math.min(8, limit)}`;
 
-    let json;
-    try {
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!res.ok) continue;
-      json = await res.json();
-    } catch {
-      continue;
-    }
+    for (const endpoint of ['search_by_date', 'search']) {
+      if (byId.size >= limit) break;
+      const url =
+        `https://hn.algolia.com/api/v1/${endpoint}?query=${encodeURIComponent(query)}` +
+        `&tags=comment&hitsPerPage=12`;
 
-    const hits = Array.isArray(json?.hits) ? json.hits : [];
-    for (const hit of hits) {
-      const text = stripHtml(hit.comment_text || hit.title || hit.story_title || '');
-      if (!text || text.length < 24) continue;
-      if (!text.toLowerCase().includes(name.toLowerCase())) continue;
-      // Umbral bajo: la query ya acotó frustración
-      if (scoreFrustration(text) < 0.35 && !/\b(scam|outage|broken|terrible|horrible|estafa|falla|refund)\b/i.test(text)) {
+      const res = await extensionFetchJson(url);
+      if (!res.ok || !res.json) {
+        lastError = res.error || `HN HTTP ${res.status || '?'}`;
         continue;
       }
 
-      const objectId = hit.objectID || hit.story_id;
-      if (!objectId || byId.has(String(objectId))) continue;
+      const hits = Array.isArray(res.json?.hits) ? res.json.hits : [];
+      for (const hit of hits) {
+        const text = stripHtml(hit.comment_text || hit.title || hit.story_title || '');
+        if (!text || text.length < 20) continue;
+        if (!text.toLowerCase().includes(name.toLowerCase())) continue;
+        if (query === name && !looksNegative(text)) continue;
+        if (query !== name && !looksNegative(text) && scoreFrustration(text) < 0.3) continue;
 
-      const sourceUrl = hit.story_url
-        || (objectId ? `https://news.ycombinator.com/item?id=${objectId}` : 'https://news.ycombinator.com');
+        const objectId = hit.objectID || hit.story_id;
+        if (!objectId || byId.has(String(objectId))) continue;
 
-      byId.set(String(objectId), {
-        id: `hn_${objectId}`,
-        text: text.slice(0, 2000),
-        sourceUrl,
-        channel: 'hackernews',
-        detectedAt: hit.created_at || new Date().toISOString(),
-      });
+        const sourceUrl =
+          hit.story_url ||
+          (objectId
+            ? `https://news.ycombinator.com/item?id=${objectId}`
+            : 'https://news.ycombinator.com');
+
+        byId.set(String(objectId), {
+          id: `hn_${objectId}`,
+          text: text.slice(0, 2000),
+          sourceUrl,
+          channel: 'hackernews',
+          detectedAt: hit.created_at || new Date().toISOString(),
+        });
+      }
     }
   }
 
-  return [...byId.values()].slice(0, limit);
+  return {
+    mentions: [...byId.values()].slice(0, limit),
+    error: byId.size ? undefined : lastError || undefined,
+  };
 }
 
 /**
@@ -122,25 +144,20 @@ export async function fetchHnMentions(competitorName, opts = {}) {
 export async function fetchRedditMentions(competitorName, opts = {}) {
   const limit = opts.limit ?? 5;
   const name = String(competitorName || '').trim();
-  if (!name) return [];
+  if (!name) return { mentions: [] };
 
-  const q = `${name} (${FRUSTRATION_WORDS.join(' OR ')})`;
+  const q = `${name} (scam OR outage OR broken OR terrible OR estafa OR falla)`;
   const url =
     `https://www.reddit.com/search.json?q=${encodeURIComponent(q)}` +
-    `&sort=new&limit=${limit}&t=month&type=link&raw_json=1`;
+    `&sort=new&limit=${limit}&t=year&type=link&raw_json=1`;
 
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-  });
+  const res = await extensionFetchJson(url);
+  if (!res.ok || !res.json) {
+    return { mentions: [], error: res.error || `Reddit HTTP ${res.status || '?'}` };
+  }
 
-  if (!res.ok) throw new Error(`Reddit HTTP ${res.status}`);
-  const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('json')) throw new Error('Reddit blocked JSON');
-
-  const json = await res.json();
-  const children = json?.data?.children;
-  if (!Array.isArray(children)) return [];
+  const children = res.json?.data?.children;
+  if (!Array.isArray(children)) return { mentions: [] };
 
   const mentions = [];
   for (const child of children) {
@@ -151,70 +168,49 @@ export async function fetchRedditMentions(competitorName, opts = {}) {
     const text = [title, selftext].filter(Boolean).join('\n').slice(0, 2000);
     if (!text) continue;
     if (!text.toLowerCase().includes(name.toLowerCase())) continue;
-    if (scoreFrustration(text) < 0.5) continue;
-
-    const permalink = d.permalink
-      ? `https://www.reddit.com${d.permalink}`
-      : d.url || 'https://www.reddit.com';
+    if (!looksNegative(text)) continue;
 
     mentions.push({
       id: `reddit_${d.id || Math.random().toString(36).slice(2, 9)}`,
       text,
-      sourceUrl: permalink,
+      sourceUrl: d.permalink ? `https://www.reddit.com${d.permalink}` : d.url || 'https://www.reddit.com',
       channel: 'reddit',
       detectedAt: d.created_utc
         ? new Date(Number(d.created_utc) * 1000).toISOString()
         : new Date().toISOString(),
     });
   }
-
-  return mentions;
+  return { mentions };
 }
 
-function buildSyntheticMentions(competitorName) {
-  const name = String(competitorName || 'el rival').trim();
-  const now = Date.now();
-  return SYNTHETIC_TEMPLATES.map((t, i) => ({
-    id: `synth_${name.toLowerCase().replace(/\s+/g, '_')}_${i}`,
-    text: t.complaint(name),
-    sourceUrl: `synthetic://competitor-scan/${encodeURIComponent(name)}/${i}`,
-    channel: t.channel,
-    detectedAt: new Date(now - (i + 1) * 45e5).toISOString(),
-    synthetic: true,
-  }));
-}
-
-async function fetchLiveMentions(competitorName) {
-  const collected = [];
-  const errors = [];
-
-  try {
-    collected.push(...(await fetchHnMentions(competitorName, { limit: 5 })));
-  } catch (err) {
-    errors.push(err instanceof Error ? err.message : String(err));
-  }
-
-  try {
-    collected.push(...(await fetchRedditMentions(competitorName, { limit: 4 })));
-  } catch (err) {
-    errors.push(err instanceof Error ? err.message : String(err));
-  }
-
-  return { mentions: collected, errors };
+/** Nombres demo viejos → marcas reales buscables en HN. */
+export function normalizeCompetitorNameForScan(name) {
+  const n = String(name || '').trim();
+  const map = {
+    RivalCloud: 'AWS',
+    rivalcloud: 'AWS',
+    ShopFast: 'Shopify',
+    shopfast: 'Shopify',
+    MailBlast: 'Mailchimp',
+    mailblast: 'Mailchimp',
+  };
+  return map[n] || n;
 }
 
 /**
- * Escanea un set de competidores → oportunidades con pitch.
+ * @returns {Promise<{ opportunities: object[], stats: object, errors: string[], scannedNames: string[] }>}
  */
 export async function runCompetitorScan({
   company,
   userId,
   competitors,
   pageMentions = [],
-  preferSyntheticFallback = true,
+  preferSyntheticFallback = false,
 } = {}) {
   const list = Array.isArray(competitors) && competitors.length ? competitors : [];
   const opportunities = [];
+  const errors = [];
+  const scannedNames = [];
   const stats = {
     hn: 0,
     reddit: 0,
@@ -267,10 +263,18 @@ export async function runCompetitorScan({
   }
 
   for (const competitor of list) {
-    const name = competitor?.name;
-    if (!name) continue;
+    const originalName = competitor?.name;
+    if (!originalName) continue;
+    const name = normalizeCompetitorNameForScan(originalName);
+    scannedNames.push(name);
 
-    const { mentions } = await fetchLiveMentions(name);
+    const hn = await fetchHnMentions(name, { limit: 6 });
+    if (hn.error) errors.push(`${name}/HN: ${hn.error}`);
+
+    const reddit = await fetchRedditMentions(name, { limit: 4 });
+    if (reddit.error) errors.push(`${name}/Reddit: ${reddit.error}`);
+
+    const mentions = [...(hn.mentions || []), ...(reddit.mentions || [])];
 
     if (mentions.length) {
       for (const m of mentions) {
@@ -278,7 +282,7 @@ export async function runCompetitorScan({
         pushOpp(
           {
             alertId: m.id || null,
-            competitorName: name,
+            competitorName: originalName,
             complaint: m.text,
             sourceUrl: m.sourceUrl,
             channel: m.channel,
@@ -290,20 +294,8 @@ export async function runCompetitorScan({
         else stats.reddit += 1;
       }
     } else if (preferSyntheticFallback) {
-      for (const m of buildSyntheticMentions(name)) {
-        pushOpp(
-          {
-            alertId: m.id,
-            competitorName: name,
-            complaint: m.text,
-            sourceUrl: m.sourceUrl,
-            channel: m.channel,
-            detectedAt: m.detectedAt,
-          },
-          { synthetic: true },
-        );
-        stats.synthetic += 1;
-      }
+      // Desactivado en UI; se deja por si se reutiliza en demos internas.
+      stats.synthetic += 0;
     }
   }
 
@@ -311,5 +303,5 @@ export async function runCompetitorScan({
     (a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime(),
   );
 
-  return { opportunities, stats };
+  return { opportunities, stats, errors, scannedNames };
 }

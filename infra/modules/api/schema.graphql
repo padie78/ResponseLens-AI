@@ -104,6 +104,8 @@ type ReplyOption {
   label: String!
   body: String!
   rationale: String
+  """True en la opción que la IA recomienda usar primero."""
+  recommended: Boolean
 }
 
 type ComplaintTriage {

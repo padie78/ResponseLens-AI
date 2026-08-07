@@ -10,6 +10,8 @@ export interface ReplyOption {
   label: string;
   body: string;
   rationale?: string | null;
+  /** La IA marca exactamente una opción como recomendada para el caso. */
+  recommended?: boolean | null;
 }
 
 export interface ComplaintTriage {

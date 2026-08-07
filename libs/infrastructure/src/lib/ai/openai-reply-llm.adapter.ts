@@ -24,9 +24,9 @@ Contrato JSON obligatorio:
     "summary": "1 frase del riesgo reputacional"
   },
   "options": [
-    { "tone": "FORMAL_CORPORATE", "label": "Formal-Corporativa", "body": "...", "rationale": "..." },
-    { "tone": "EMPATHETIC", "label": "Empática-Cercana", "body": "...", "rationale": "..." },
-    { "tone": "RESOLUTIVE_TECHNICAL", "label": "Resolutiva-Técnica", "body": "...", "rationale": "..." }
+    { "tone": "FORMAL_CORPORATE", "label": "Formal-Corporativa", "body": "...", "rationale": "...", "recommended": false },
+    { "tone": "EMPATHETIC", "label": "Empática-Cercana", "body": "...", "rationale": "...", "recommended": true },
+    { "tone": "RESOLUTIVE_TECHNICAL", "label": "Resolutiva-Técnica", "body": "...", "rationale": "...", "recommended": false }
   ]
 }
 
@@ -35,7 +35,8 @@ Reglas:
 - No inventes políticas, plazos ni compensaciones.
 - Si hay amenaza legal/seguridad/privacidad: recommendedAction debe ser ESCALATE_* o PRIVATE_DM; body debe ser prudente.
 - riskScore entre 0 y 1.
-- body autónomo 2–5 frases.`;
+- body autónomo 2–5 frases.
+- Marca EXACTAMENTE una opción con "recommended": true (la mejor para publicar/usar ahora) y justifica en rationale por qué esa.`;
 
 const RISK_LEVELS: RiskLevel[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 const ACTIONS: RecommendedAction[] = [
@@ -96,6 +97,7 @@ function normalizeOptions(parsed: unknown): ReplyOption[] {
       rationale: (item as { rationale?: string }).rationale
         ? String((item as { rationale?: string }).rationale).trim()
         : null,
+      recommended: Boolean((item as { recommended?: unknown }).recommended),
     });
   }
 
@@ -103,7 +105,23 @@ function normalizeOptions(parsed: unknown): ReplyOption[] {
   if (missing.length) {
     throw new Error(`LLM_MISSING_TONES: ${missing.join(',')}`);
   }
-  return REPLY_TONES.map((t) => byTone.get(t)!);
+
+  const ordered = REPLY_TONES.map((t) => byTone.get(t)!);
+  if (!ordered.some((o) => o.recommended)) {
+    for (const o of ordered) {
+      o.recommended = o.tone === 'EMPATHETIC';
+    }
+  } else {
+    let seen = false;
+    for (const o of ordered) {
+      if (o.recommended && !seen) {
+        seen = true;
+      } else {
+        o.recommended = false;
+      }
+    }
+  }
+  return ordered;
 }
 
 function heuristicTriage(text: string): ComplaintTriage {

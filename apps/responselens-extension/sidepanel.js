@@ -8,6 +8,7 @@ import { computeOpsStats } from './lib/ops-stats.js';
 import {
   buildDemoOpportunities,
   buildOpportunity,
+  craftSalesPitchVariants,
   defaultCompetitorSeed,
   findMentionedCompetitor,
   lookupCompetitorProfile,
@@ -242,13 +243,54 @@ function renderComplaint(payload) {
   els.complaint.title = payload.sourceUrl || '';
 }
 
+function ensureRecommendedOptions(result) {
+  const options = Array.isArray(result?.options) ? [...result.options] : [];
+  if (!options.length) return result;
+  if (options.some((o) => o.recommended)) {
+    let seen = false;
+    return {
+      ...result,
+      options: options.map((o) => {
+        if (o.recommended && !seen) {
+          seen = true;
+          return { ...o, recommended: true };
+        }
+        return { ...o, recommended: false };
+      }),
+    };
+  }
+
+  const action = result.triage?.recommendedAction || '';
+  let tone = 'EMPATHETIC';
+  if (action.startsWith('ESCALATE') || action === 'PRIVATE_DM' || action === 'NO_ENGAGE') {
+    tone = 'FORMAL_CORPORATE';
+  } else if (/\b(bug|error|falla|ca[ií]da|outage|api|timeout)\b/i.test(result.originalText || '')) {
+    tone = 'RESOLUTIVE_TECHNICAL';
+  }
+
+  return {
+    ...result,
+    options: options.map((o) => ({
+      ...o,
+      recommended: o.tone === tone,
+      rationale:
+        o.tone === tone && !o.rationale
+          ? 'Opción recomendada según el triage de este caso.'
+          : o.rationale,
+    })),
+  };
+}
+
 function renderCards(result) {
-  const options = result.options || [];
-  const complaintId = result.complaintId;
+  const normalized = ensureRecommendedOptions(result);
+  const options = [...(normalized.options || [])].sort(
+    (a, b) => Number(Boolean(b.recommended)) - Number(Boolean(a.recommended)),
+  );
+  const complaintId = normalized.complaintId;
   const blockPublic =
-    result.triage?.recommendedAction === 'ESCALATE_LEGAL' ||
-    result.triage?.recommendedAction === 'ESCALATE_SAFETY' ||
-    result.triage?.recommendedAction === 'NO_ENGAGE';
+    normalized.triage?.recommendedAction === 'ESCALATE_LEGAL' ||
+    normalized.triage?.recommendedAction === 'ESCALATE_SAFETY' ||
+    normalized.triage?.recommendedAction === 'NO_ENGAGE';
 
   els.cards.innerHTML = '';
   if (blockPublic) {
@@ -261,9 +303,12 @@ function renderCards(result) {
 
   for (const opt of options) {
     const card = document.createElement('article');
-    card.className = 'rl-card';
+    card.className = `rl-card${opt.recommended ? ' is-recommended' : ''}`;
     card.innerHTML = `
-      <h3>${escapeHtml(opt.label)}</h3>
+      <div class="rl-card__head">
+        <h3>${escapeHtml(opt.label)}</h3>
+        ${opt.recommended ? '<span class="rl-rec-badge">Recomendada</span>' : ''}
+      </div>
       ${opt.rationale ? `<p class="rl-rationale">${escapeHtml(opt.rationale)}</p>` : ''}
       <p>${escapeHtml(opt.body)}</p>
     `;
@@ -284,8 +329,8 @@ function renderCards(result) {
 
     const injectBtn = document.createElement('button');
     injectBtn.type = 'button';
-    injectBtn.className = 'rl-btn rl-btn--primary';
-    injectBtn.textContent = blockPublic ? 'Inyectar igual' : 'Inyectar';
+    injectBtn.className = `rl-btn ${opt.recommended ? 'rl-btn--primary' : 'rl-btn--ghost'}`;
+    injectBtn.textContent = blockPublic ? 'Inyectar igual' : opt.recommended ? 'Usar recomendada' : 'Inyectar';
     injectBtn.addEventListener('click', async () => {
       injectBtn.disabled = true;
       try {
@@ -297,15 +342,16 @@ function renderCards(result) {
         await appendHistory({
           at: new Date().toISOString(),
           tone: opt.tone,
-          label: opt.label,
+          label: opt.recommended ? `${opt.label} (recomendada)` : opt.label,
           body: opt.body,
-          channel: result.channel || currentComplaint?.channel,
-          sourceUrl: result.sourceUrl || currentComplaint?.sourceUrl,
-          originalText: result.originalText || currentComplaint?.text,
-          recommendedAction: result.triage?.recommendedAction,
-          riskLevel: result.triage?.riskLevel,
+          channel: normalized.channel || currentComplaint?.channel,
+          sourceUrl: normalized.sourceUrl || currentComplaint?.sourceUrl,
+          originalText: normalized.originalText || currentComplaint?.text,
+          recommendedAction: normalized.triage?.recommendedAction,
+          riskLevel: normalized.triage?.riskLevel,
           injectResult: res?.reason || (res?.ok ? 'ok' : 'unknown'),
-          model: result.model,
+          model: normalized.model,
+          recommended: Boolean(opt.recommended),
         });
         await refreshKpis();
       } finally {
@@ -333,20 +379,31 @@ async function renderHistory() {
   els.histList.innerHTML = '';
   if (!list.length) {
     els.histList.innerHTML =
-      '<div class="rl-empty">Aún no hay respuestas inyectadas/copiadas registradas.</div>';
+      '<div class="rl-empty">Aún no hay actividad. Las inyecciones de Propios y los cambios de Competencia (Contactado / Ganado / Descartar) aparecen acá.</div>';
     return;
   }
   for (const item of list) {
     const node = document.createElement('article');
     node.className = 'rl-alert';
+    const isCap = item.kind === 'captacion';
+    const title = isCap
+      ? `${item.label || 'Captación'} · ${item.competitorName || ''}`
+      : item.label || item.tone || 'Respuesta';
+    const badge = isCap ? item.status || '—' : item.riskLevel || '—';
     node.innerHTML = `
       <header>
-        <strong>${escapeHtml(item.label || item.tone || 'Respuesta')}</strong>
-        <span class="rl-badge">${escapeHtml(item.riskLevel || '—')}</span>
+        <strong>${escapeHtml(title)}</strong>
+        <span class="rl-badge">${escapeHtml(badge)}</span>
       </header>
-      <p class="rl-muted">${escapeHtml(item.at || '')} · ${escapeHtml(item.channel || '')}</p>
-      <p>${escapeHtml((item.body || '').slice(0, 220))}${(item.body || '').length > 220 ? '…' : ''}</p>
-      <p class="rl-muted">${escapeHtml(ACTION_LABELS[item.recommendedAction] || item.recommendedAction || '')}</p>
+      <p class="rl-muted">${escapeHtml(item.at || '')} · ${escapeHtml(item.channel || (isCap ? 'competencia' : ''))}</p>
+      <p>${escapeHtml((item.body || item.originalText || '').slice(0, 220))}${
+        (item.body || item.originalText || '').length > 220 ? '…' : ''
+      }</p>
+      <p class="rl-muted">${escapeHtml(
+        isCap
+          ? item.sourceUrl || ''
+          : ACTION_LABELS[item.recommendedAction] || item.recommendedAction || '',
+      )}</p>
     `;
     els.histList.appendChild(node);
   }
@@ -435,11 +492,12 @@ function matchesAlertFilter(alert, filter) {
 async function refreshAlerts() {
   await ensureCompetitorsReady();
   await fillRivalSelect();
-  const data = await storageGet([STORAGE.alerts]);
+  const data = await storageGet([STORAGE.alerts, STORAGE.config]);
   const filter = els.alertFilter?.value || 'OPEN';
   let alerts = data[STORAGE.alerts] || [];
   alerts = alerts.filter((a) => matchesAlertFilter(a, filter));
-  renderAlerts(alerts);
+  const company = data[STORAGE.config]?.company || null;
+  renderAlerts(alerts, company);
   await refreshKpis();
 }
 
@@ -492,24 +550,26 @@ async function scanCompetitorMarket() {
   els.scanComp.disabled = true;
   if (els.scanStatus) {
     els.scanStatus.classList.remove('is-error');
-    els.scanStatus.textContent = 'Escaneando Reddit + pestaña activa…';
+    els.scanStatus.textContent = 'Escaneando Hacker News + Reddit + pestaña…';
   }
 
   try {
     await ensureCompetitorsReady();
     const { [STORAGE.config]: cfg } = await storageGet([STORAGE.config]);
+    const competitors = cfg?.competitors?.length
+      ? cfg.competitors
+      : defaultCompetitorSeed();
     const pageMentions = await collectPageMentions();
-    const { opportunities, stats } = await runCompetitorScan({
+    const { opportunities, stats, errors, scannedNames } = await runCompetitorScan({
       company: cfg?.company,
       userId: cfg?.userId || 'local-user',
-      competitors: cfg?.competitors || defaultCompetitorSeed(),
+      competitors,
       pageMentions,
       preferSyntheticFallback: false,
     });
 
     const data = await storageGet([STORAGE.alerts]);
     const existing = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
-    // Tirar simulados/demos viejos: solo conservamos oportunidades reales
     const kept = existing.filter((a) => !a._synthetic && !a._demo && a._source !== 'synthetic');
     const byId = new Map(kept.map((a) => [a.alertId, a]));
     for (const opp of opportunities) {
@@ -525,10 +585,16 @@ async function scanCompetitorMarket() {
     if (stats.hn) parts.push(`${stats.hn} Hacker News`);
     if (stats.reddit) parts.push(`${stats.reddit} Reddit`);
     if (stats.page) parts.push(`${stats.page} en página`);
+    const namesLabel = (scannedNames || []).slice(0, 4).join(', ') || '—';
     if (els.scanStatus) {
-      els.scanStatus.textContent = parts.length
-        ? `Listo: ${parts.join(' · ')} · ${stats.competitors} rivales`
-        : 'Sin menciones reales. Probá rivales más conocidos en Config, o abrí una página con quejas del rival.';
+      if (parts.length) {
+        els.scanStatus.textContent = `Listo: ${parts.join(' · ')} · rivales: ${namesLabel}`;
+      } else {
+        const hint = errors?.length ? ` (${errors[0]})` : '';
+        els.scanStatus.textContent =
+          `Sin menciones para: ${namesLabel}.${hint} ` +
+          `En Config poné marcas reales (Shopify, Stripe, AWS…) y volvé a escanear.`;
+      }
     }
     await refreshAlerts();
   } catch (err) {
@@ -565,7 +631,7 @@ async function prependOpportunity(opp) {
   });
 }
 
-function renderAlerts(alerts) {
+function renderAlerts(alerts, company = null) {
   els.feed.innerHTML = '';
   if (!alerts?.length) {
     els.feed.innerHTML = `
@@ -626,8 +692,8 @@ function renderAlerts(alerts) {
       </div>
       <p class="rl-muted">Queja del cliente del rival</p>
       <p>${escapeHtml(alert.originalComplaint)}</p>
-      <p class="rl-muted">Tu pitch de captación</p>
-      <p><em>${escapeHtml(alert.salesPitch)}</em></p>
+      <p class="rl-muted">Pitches de captación (elegí uno)</p>
+      <div class="rl-pitch-list" data-pitch-root="1"></div>
     `;
 
     const img = node.querySelector('.rl-comp-logo');
@@ -638,6 +704,50 @@ function renderAlerts(alerts) {
       });
     }
 
+    const pitchRoot = node.querySelector('[data-pitch-root]');
+    let pitches = Array.isArray(alert.salesPitches) ? alert.salesPitches : null;
+    if (!pitches?.length) {
+      pitches = craftSalesPitchVariants({
+        companyName: company?.companyName,
+        whatTheySell: company?.whatTheySell,
+        keyLinks: company?.keyLinks,
+        competitorName: alert.competitorName,
+        complaint: alert.originalComplaint,
+      });
+      // Rehidratar con pitch histórico como "suave" si existía
+      if (alert.salesPitch && pitches[0]) {
+        pitches = pitches.map((p, i) =>
+          i === 0 ? { ...p, body: alert.salesPitch, recommended: true } : { ...p, recommended: false },
+        );
+      }
+    }
+
+    let selectedPitch = pitches.find((p) => p.recommended) || pitches[0];
+
+    const renderPitchCards = () => {
+      if (!pitchRoot) return;
+      pitchRoot.innerHTML = '';
+      for (const pitch of pitches) {
+        const isSel = selectedPitch?.id === pitch.id;
+        const card = document.createElement('div');
+        card.className = `rl-pitch${isSel ? ' is-selected' : ''}${pitch.recommended ? ' is-recommended' : ''}`;
+        card.innerHTML = `
+          <div class="rl-pitch__head">
+            <strong>${escapeHtml(pitch.label)}</strong>
+            ${pitch.recommended ? '<span class="rl-rec-badge">Recomendada</span>' : ''}
+          </div>
+          ${pitch.rationale ? `<p class="rl-rationale">${escapeHtml(pitch.rationale)}</p>` : ''}
+          <p><em>${escapeHtml(pitch.body)}</em></p>
+        `;
+        card.addEventListener('click', () => {
+          selectedPitch = pitch;
+          renderPitchCards();
+        });
+        pitchRoot.appendChild(card);
+      }
+    };
+    renderPitchCards();
+
     const actions = document.createElement('div');
     actions.className = 'rl-card-actions rl-card-actions--3';
 
@@ -646,7 +756,8 @@ function renderAlerts(alerts) {
     copy.className = 'rl-btn rl-btn--primary';
     copy.textContent = 'Copiar pitch';
     copy.addEventListener('click', async () => {
-      await navigator.clipboard.writeText(alert.salesPitch);
+      const text = selectedPitch?.body || alert.salesPitch;
+      await navigator.clipboard.writeText(text);
       copy.textContent = '✓ Copiado';
       setTimeout(() => {
         copy.textContent = 'Copiar pitch';
@@ -660,9 +771,10 @@ function renderAlerts(alerts) {
     inject.addEventListener('click', async () => {
       inject.disabled = true;
       try {
+        const text = selectedPitch?.body || alert.salesPitch;
         await chrome.runtime.sendMessage({
           type: 'RL_INJECT_REPLY',
-          text: alert.salesPitch,
+          text,
           complaintId: null,
         });
         await updateAlertStatus(alert.alertId, 'CONTACTED');
@@ -694,12 +806,38 @@ function renderAlerts(alerts) {
   }
 }
 
+const CAPTURE_STATUS_LABELS = {
+  CONTACTED: 'Contactado',
+  WON: 'Ganado',
+  DISMISSED: 'Descartado',
+  NEW: 'Abierto',
+  SNOOZED: 'Pospuesto',
+};
+
 async function updateAlertStatus(alertId, status) {
   const data = await storageGet([STORAGE.alerts]);
   const list = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+  const prev = list.find((a) => a.alertId === alertId);
   const next = list.map((a) => (a.alertId === alertId ? { ...a, status } : a));
   await storageSet({ [STORAGE.alerts]: next });
+
+  if (prev) {
+    await appendHistory({
+      kind: 'captacion',
+      at: new Date().toISOString(),
+      label: CAPTURE_STATUS_LABELS[status] || status,
+      status,
+      competitorName: prev.competitorName,
+      body: prev.salesPitch || '',
+      originalText: prev.originalComplaint || '',
+      channel: prev.channel || 'competencia',
+      sourceUrl: prev.sourceUrl || '',
+      alertId: prev.alertId,
+    });
+  }
+
   await refreshAlerts();
+  await refreshKpis();
 }
 
 function emptyCompetitorDraft() {

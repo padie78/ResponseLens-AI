@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ResponseLens AI",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "Control de daños reputacionales e inteligencia competitiva para equipos de soporte, marketing y ventas.",
   "permissions": [
     "sidePanel",
@@ -20,10 +20,12 @@
     "https://*.twitter.com/*",
     "https://*.reddit.com/*",
     "https://www.reddit.com/*",
+    "https://old.reddit.com/*",
     "https://hn.algolia.com/*",
-    "https://*.appsync-api.*.amazonaws.com/*",
-    "wss://*.appsync-realtime-api.*.amazonaws.com/*"
-  ],  "background": {
+    "https://*.amazonaws.com/*",
+    "wss://*.amazonaws.com/*"
+  ],
+  "background": {
     "service_worker": "background.js",
     "type": "module"
   },
@@ -68,6 +70,6 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:;"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://hn.algolia.com https://www.reddit.com https://*.reddit.com https://old.reddit.com https://*.amazonaws.com wss://*.amazonaws.com https://www.google.com"
   }
 }

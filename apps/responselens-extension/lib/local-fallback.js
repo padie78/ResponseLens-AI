@@ -1,11 +1,12 @@
 /**
  * Fallback local cuando AppSync/LLM no está disponible.
- * Genera 3 tonos + triage heurístico para no bloquear al agente.
+ * Genera 3 tonos + triage heurístico + marca 1 opción recomendada.
  */
 
 const LEGAL_RE = /\b(abogad|demanda|legal|lawsuit|attorney|sue)\b/i;
 const SAFETY_RE = /\b(amenaza|suicid|violencia|harm|danger)\b/i;
 const PRIVACY_RE = /\b(gdpr|rgpd|datos personales|privacy|doxx)\b/i;
+const TECH_RE = /\b(bug|error|falla|ca[ií]da|outage|api|timeout|500|técnic)\b/i;
 
 export function buildLocalTriage(text) {
   const flags = [];
@@ -38,11 +39,24 @@ export function buildLocalTriage(text) {
   };
 }
 
+function pickRecommendedTone(triage, text) {
+  if (
+    triage.recommendedAction.startsWith('ESCALATE') ||
+    triage.recommendedAction === 'PRIVATE_DM' ||
+    triage.recommendedAction === 'NO_ENGAGE'
+  ) {
+    return 'FORMAL_CORPORATE';
+  }
+  if (TECH_RE.test(text || '')) return 'RESOLUTIVE_TECHNICAL';
+  return 'EMPATHETIC';
+}
+
 export function buildLocalReplyOptions({ text, companyName }) {
   const brand = companyName || 'nuestro equipo';
   const triage = buildLocalTriage(text);
   const cautious =
     triage.recommendedAction.startsWith('ESCALATE') || triage.recommendedAction === 'PRIVATE_DM';
+  const recommendedTone = pickRecommendedTone(triage, text);
 
   const options = [
     {
@@ -51,7 +65,10 @@ export function buildLocalReplyOptions({ text, companyName }) {
       body: cautious
         ? `Gracias por tu mensaje. En ${brand} tomamos muy en serio este tipo de situaciones. Un especialista te contactará por canal privado para revisarlo con la debida confidencialidad.`
         : `Lamentamos la experiencia descrita. En ${brand} estamos revisando el caso para darte una respuesta precisa. ¿Puedes compartir el número de pedido o cuenta asociada?`,
-      rationale: 'Tono institucional y prudente.',
+      rationale: cautious
+        ? 'Recomendada si hay riesgo legal/privacidad: prudente y deriva a privado.'
+        : 'Tono institucional y prudente.',
+      recommended: recommendedTone === 'FORMAL_CORPORATE',
     },
     {
       tone: 'EMPATHETIC',
@@ -59,7 +76,8 @@ export function buildLocalReplyOptions({ text, companyName }) {
       body: cautious
         ? `Entendemos lo frustrante que debe ser esto. Queremos ayudarte con cuidado: te escribimos por privado para no exponer datos sensibles y resolverlo juntos.`
         : `Sentimos mucho que hayas pasado por esto. Estamos aquí para ayudarte: cuéntanos un poco más del problema y lo priorizamos.`,
-      rationale: 'Valida emoción y abre diálogo.',
+      rationale: 'Valida emoción y abre diálogo; suele funcionar mejor en público.',
+      recommended: recommendedTone === 'EMPATHETIC',
     },
     {
       tone: 'RESOLUTIVE_TECHNICAL',
@@ -67,7 +85,8 @@ export function buildLocalReplyOptions({ text, companyName }) {
       body: cautious
         ? `Hemos registrado tu reporte. Por protocolo, el siguiente paso es validación interna y contacto privado. Evitaremos detalles técnicos en público hasta confirmar el alcance.`
         : `Recibido. Pasos: 1) confirmar el síntoma, 2) revisar logs/estado del servicio, 3) devolverte un plan concreto en este hilo o por DM en cuanto lo tengamos.`,
-      rationale: 'Enfoque accionable y claro.',
+      rationale: 'Enfoque accionable cuando el problema es técnico/operativo.',
+      recommended: recommendedTone === 'RESOLUTIVE_TECHNICAL',
     },
   ];
 

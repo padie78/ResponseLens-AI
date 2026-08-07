@@ -229,6 +229,56 @@ async function handleMessage(message, sender) {
       return { ok: true, alerts: data[STORAGE_KEYS.alerts] || [] };
     }
 
+    case 'RL_FETCH_JSON': {
+      const url = String(message.url || '');
+      if (!/^https:\/\//i.test(url)) {
+        return { ok: false, error: 'invalid_url' };
+      }
+      const allowed =
+        /^https:\/\/hn\.algolia\.com\//i.test(url) ||
+        /^https:\/\/([a-z0-9-]+\.)?reddit\.com\//i.test(url) ||
+        /^https:\/\/old\.reddit\.com\//i.test(url);
+      if (!allowed) {
+        return { ok: false, error: 'url_not_allowed' };
+      }
+      try {
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'ResponseLensAI/0.2 (Chrome extension; competitor-scan)',
+          },
+        });
+        const contentType = res.headers.get('content-type') || '';
+        const text = await res.text();
+        let json = null;
+        if (contentType.includes('json') || text.trimStart().startsWith('{') || text.trimStart().startsWith('[')) {
+          try {
+            json = JSON.parse(text);
+          } catch {
+            return {
+              ok: false,
+              status: res.status,
+              contentType,
+              error: 'invalid_json',
+            };
+          }
+        }
+        return {
+          ok: res.ok && json != null,
+          status: res.status,
+          contentType,
+          json,
+          error: res.ok ? (json == null ? 'not_json' : undefined) : `HTTP ${res.status}`,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
     case 'RL_START_SUBSCRIPTION': {
       await ensureRealtimeSubscription(message.userId);
       return { ok: true };

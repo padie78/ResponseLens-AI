@@ -22,5 +22,6 @@ Sensibilidad, keywords extra, dominios ignorados y badge en el icono del plugin 
 ## Fallback offline
 Si AppSync/LLM falla (o no está configurado), genera 3 tonos + triage heurístico local para no bloquear al agente.
 
-## Análisis manual
-En Canales Propios / Competencia se puede pegar cualquier queja y analizarla o generar pitch sin estar en la página fuente.
+## IA en respuestas
+- Propios: 3 tonos + badge **Recomendada** (LLM o fallback heurístico).
+- Competencia: 3 pitches (Suave recomendado / Directo / Técnico); clic para elegir antes de copiar/inyectar.
