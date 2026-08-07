@@ -1,34 +1,126 @@
 name: Deploy Lambdas
+
 on:
-  workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - 'libs/**'
       - 'lambda_code/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'tsconfig.base.json'
       - 'scripts/deploy-lambdas.sh'
+      - '.github/workflows/deploy-lambdas.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: lambdas-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+  NAME_PREFIX: ${{ vars.NAME_PREFIX || 'responselens-dev' }}
+
 jobs:
-  deploy:
+  build:
+    name: Build lambdas
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: ./.github/actions/setup-node-monorepo
-      - name: Require AWS credentials
+
+      - name: Build libs + bundle lambdas
+        run: npm run build:lambdas
+
+      - name: Zip artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          for pair in "api/api:appsync-api" "ingestion/competitor_scan:competitor-scan"; do
+            path="${pair%%:*}"
+            name="${pair##*:}"
+            dir="lambda_code/${path}"
+            test -f "${dir}/dist/index.js"
+            (cd "${dir}/dist" && zip -qr "${GITHUB_WORKSPACE}/artifacts/${name}.zip" .)
+            echo "Zipped ${name}.zip"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambda-zips
+          path: artifacts/*.zip
+          retention-days: 7
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to AWS
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: lambda-zips
+          path: artifacts
+
+      - name: Resolve auth mode
+        id: auth
         env:
+          AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
-          if [ -z "${AWS_ACCESS_KEY_ID}" ] || [ -z "${AWS_SECRET_ACCESS_KEY}" ]; then
-            echo "Missing secrets AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY" >&2
-            exit 1
+          set -euo pipefail
+          if [ -n "${AWS_DEPLOY_ROLE_ARN}" ]; then
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+            echo "Using OIDC role assumption"
+          elif [ -n "${AWS_ACCESS_KEY_ID}" ] && [ -n "${AWS_SECRET_ACCESS_KEY}" ]; then
+            echo "mode=keys" >> "$GITHUB_OUTPUT"
+            echo "Using static access keys"
+          else
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+            echo "::warning::Sin credenciales AWS. Configurá el secret AWS_DEPLOY_ROLE_ARN (OIDC, recomendado) o AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY. Deploy omitido; el build ya validó el código."
           fi
-      - name: Build & publish
-        run: bash scripts/deploy-lambdas.sh
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.auth.outputs.mode == 'oidc'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials (access keys)
+        if: steps.auth.outputs.mode == 'keys'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Publish Lambda code
+        if: steps.auth.outputs.mode != 'skip'
         env:
-          # Prefer repo Variable (no secreto). Fallback: secret legado → eu-central-1
-          AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-central-1' }}
-          AWS_DEFAULT_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-central-1' }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          NAME_PREFIX: ${{ vars.NAME_PREFIX || 'responselens-dev' }}
+          PREFIX: ${{ env.NAME_PREFIX }}
+        run: |
+          set -euo pipefail
+          publish() {
+            local zip="$1"
+            local fn="$2"
+            echo "Updating ${fn} from ${zip}"
+            aws lambda update-function-code \
+              --region "${AWS_REGION}" \
+              --function-name "${fn}" \
+              --zip-file "fileb://${zip}" \
+              --publish \
+              --no-cli-pager
+            aws lambda wait function-updated-v2 --function-name "${fn}"
+          }
+          publish artifacts/appsync-api.zip "${PREFIX}-appsync-api"
+          publish artifacts/competitor-scan.zip "${PREFIX}-competitor-scan"
+          echo "Deploy complete"
