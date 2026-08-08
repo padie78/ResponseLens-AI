@@ -18,8 +18,10 @@
     /\b(no\s+funciona|no\s+sirve|falla|fall[oó]|bug|error|ca[ií]da)\b/i,
     /\b(reembolso|devolver|devuelvan|cancel(ar|aci[oó]n)|me\s+cambio)\b/i,
     /\b(nunca\s+m[aá]s|basura|robo|estafadores|verg[uü]enza)\b/i,
-    /\b(scam|fraud|terrible|awful|worst|unacceptable|refund)\b/i,
+    /\b(scam(mer|mers)?|fraud|terrible|awful|worst|unacceptable|refund)\b/i,
     /\b(broken|doesn'?t\s+work|outage|downtime|ripoff|switch(ing)?\s+to)\b/i,
+    /\b(zero\s+support|no\s+support|abysmal|shady|negligen(ce|cia)|suspend(ed|en))\b/i,
+    /\b(does\s+absolutely\s+nothing|locked|nuked|harassed)\b/i,
   ];
 
   /** Selectores por canal (conservadores; se amplían sin tocar la lógica core). */
@@ -47,11 +49,25 @@
       '.entry .usertext-body',
       'p',
     ],
+    hackernews: [
+      '.comment-tree .commtext',
+      '.commtext',
+      '.storytitle',
+      '.titleline a',
+      '.toptext',
+      'td.default p',
+    ],
+    trustpilot: [
+      '[data-service-review-text-typography]',
+      '.review-content__text',
+      'p',
+    ],
     default: [
       '[role="article"] p',
       '.comment-body',
       '.review-body',
       '[data-testid="comment"]',
+      'p',
     ],
   };
 
@@ -68,6 +84,28 @@
   /** @type {Array<{ name: string, aliases?: string[] }>} */
   let competitors = [];
   let companyProfile = { companyName: 'TuMarca', whatTheySell: '' };
+
+  const DEFAULT_RIVALS = [
+    { name: 'Shopify', aliases: ['ShopFast', 'shop fast', 'shopify'] },
+    { name: 'AWS', aliases: ['RivalCloud', 'rival cloud', 'Amazon Web Services', 'aws'] },
+    { name: 'Mailchimp', aliases: ['MailBlast', 'mail blast', 'mailchimp'] },
+  ];
+
+  function activeCompetitors() {
+    /** Fusiona semillas + config (si el form tiene rivales vacíos, no cegamos Shopify/AWS/…). */
+    const byKey = new Map();
+    for (const c of [...DEFAULT_RIVALS, ...(competitors || [])]) {
+      const name = String(c?.name || '').trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const prev = byKey.get(key);
+      const aliases = [
+        ...new Set([...(prev?.aliases || []), ...(c.aliases || [])].map((a) => String(a || '').trim()).filter(Boolean)),
+      ];
+      byKey.set(key, { name: prev?.name || name, aliases });
+    }
+    return [...byKey.values()];
+  }
 
   function loadDetection() {
     try {
@@ -96,6 +134,8 @@
   }
 
   function isPlatformAllowed() {
+    // Página demo propia de la extensión (fixtures/)
+    if (location.protocol === 'chrome-extension:') return true;
     const prefs = detection.platforms;
     if (!prefs) return true;
     const host = location.hostname.toLowerCase().replace(/^www\./, '');
@@ -106,6 +146,8 @@
       youtube: ['youtube.com'],
       x: ['x.com', 'twitter.com'],
       reddit: ['reddit.com'],
+      hackernews: ['news.ycombinator.com', 'ycombinator.com'],
+      trustpilot: ['trustpilot.com'],
     };
     for (const [id, hosts] of Object.entries(builtins)) {
       if (hosts.some((h) => host === h || host.endsWith(`.${h}`))) {
@@ -124,7 +166,7 @@
 
   function findCompetitorInText(text) {
     const lower = text.toLowerCase();
-    for (const c of competitors) {
+    for (const c of activeCompetitors()) {
       const names = [c.name, ...(c.aliases || [])].filter(Boolean);
       for (const name of names) {
         if (name && lower.includes(String(name).toLowerCase())) return c.name;
@@ -217,6 +259,8 @@
     if (host.includes('youtube.')) return 'youtube';
     if (host === 'x.com' || host.includes('twitter.')) return 'x';
     if (host.includes('reddit.')) return 'reddit';
+    if (host.includes('ycombinator') || host === 'news.ycombinator.com') return 'hackernews';
+    if (host.includes('trustpilot.')) return 'trustpilot';
     return 'default';
   }
 
@@ -376,6 +420,17 @@
   }
 
   function openSidePanelWithComplaint(payload) {
+    const competitorName =
+      payload.competitorName || findCompetitorInText(payload.text || '');
+    // Queja de rival → Competencia (captación), no Control de Daños
+    if (competitorName) {
+      sendCaptureOpportunity({
+        id: payload.id,
+        text: payload.text,
+        competitorName,
+      });
+      return;
+    }
     chrome.runtime.sendMessage(
       {
         type: 'RL_OPEN_DAMAGE_CONTROL',
@@ -393,6 +448,49 @@
         }
       },
     );
+  }
+
+  function sendCaptureOpportunity(meta) {
+    const frustration = scoreSeverity(meta.text) === 'low' ? 0.55 : 0.8;
+    const rivals = collectRivalMentionsFromDom();
+    const same = rivals.find((r) => r.name === meta.competitorName);
+    chrome.runtime.sendMessage(
+      {
+        type: 'RL_CAPTURE_OPPORTUNITY',
+        payload: {
+          alertId: `cap_${Date.now().toString(36)}`,
+          userId: 'local-user',
+          competitorName: meta.competitorName,
+          competitor: {
+            name: meta.competitorName,
+            websiteUrl: null,
+            logoUrl: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(meta.competitorName.toLowerCase().replace(/\s+/g, '') + '.com')}&sz=128`,
+            description: `Competidor detectado en ${location.hostname}`,
+            industry: null,
+            socialHandles: [],
+            weaknessNotes: 'Mencionado en queja pública con carga negativa.',
+          },
+          originalComplaint: meta.text,
+          sourceUrl: location.href,
+          channel: detectChannel(),
+          severity: scoreSeverity(meta.text).toUpperCase(),
+          frustrationScore: frustration,
+          salesPitch: craftPitch(meta.competitorName, meta.text),
+          detectedAt: new Date().toISOString(),
+          status: 'NEW',
+          requestRivalReport: true,
+          pageMentions: same?.mentions || [
+            { text: meta.text, sourceUrl: location.href, channel: detectChannel() },
+          ],
+        },
+      },
+      () => {
+        if (chrome.runtime.lastError) {
+          console.warn('[ResponseLens]', chrome.runtime.lastError.message);
+        }
+      },
+    );
+    showToast(`Captado → Competencia: ${meta.competitorName}`);
   }
 
   function attachActionButton(node, meta) {
@@ -492,45 +590,15 @@
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'rl-action-btn rl-action-btn--capture';
-    btn.title = 'ResponseLens — Captar cliente del rival';
-    btn.setAttribute('aria-label', 'Crear oportunidad de captación');
+    btn.title = 'ResponseLens — Captar cliente del rival (Competencia)';
+    btn.setAttribute('aria-label', 'Crear oportunidad de captación en Competencia');
     btn.textContent = '🎯';
     btn.addEventListener(
       'click',
       (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        const frustration = scoreSeverity(meta.text) === 'low' ? 0.55 : 0.8;
-        const rivals = collectRivalMentionsFromDom();
-        const same = rivals.find((r) => r.name === meta.competitorName);
-        chrome.runtime.sendMessage({
-          type: 'RL_CAPTURE_OPPORTUNITY',
-          payload: {
-            alertId: `cap_${Date.now().toString(36)}`,
-            userId: 'local-user',
-            competitorName: meta.competitorName,
-            competitor: {
-              name: meta.competitorName,
-              websiteUrl: null,
-              logoUrl: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(meta.competitorName.toLowerCase().replace(/\s+/g, '') + '.com')}&sz=128`,
-              description: `Competidor detectado en ${location.hostname}`,
-              industry: null,
-              socialHandles: [],
-              weaknessNotes: 'Mencionado en queja pública con carga negativa.',
-            },
-            originalComplaint: meta.text,
-            sourceUrl: location.href,
-            channel: detectChannel(),
-            severity: scoreSeverity(meta.text).toUpperCase(),
-            frustrationScore: frustration,
-            salesPitch: craftPitch(meta.competitorName, meta.text),
-            detectedAt: new Date().toISOString(),
-            status: 'NEW',
-            requestRivalReport: true,
-            pageMentions: same?.mentions || [{ text: meta.text, sourceUrl: location.href, channel: detectChannel() }],
-          },
-        });
-        showToast(`Captado + informe IA: ${meta.competitorName}`);
+        sendCaptureOpportunity(meta);
       },
       true,
     );
@@ -587,10 +655,21 @@
       // Módulo B: queja sobre un rival → captación
       node.classList.add('rl-highlight', 'rl-highlight--capture');
       node.setAttribute('data-rl-competitor', competitorName);
-      const chip = document.createElement('span');
+      const chip = document.createElement('button');
+      chip.type = 'button';
       chip.className = 'rl-sev-chip rl-sev-chip--capture';
       chip.textContent = `captar · ${competitorName}`;
+      chip.title = 'Agregar a Competencia';
       chip.setAttribute(RL_BTN_ATTR, '1');
+      chip.addEventListener(
+        'click',
+        (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          sendCaptureOpportunity({ id, text, competitorName });
+        },
+        true,
+      );
       attachCaptureButton(node, { id, text, competitorName });
       if (!node.querySelector('.rl-sev-chip--capture')) node.appendChild(chip);
     } else {

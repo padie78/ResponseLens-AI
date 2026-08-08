@@ -15,6 +15,7 @@ import {
 } from './lib/auth.js';
 import { buildLocalReplyOptions } from './lib/local-fallback.js';
 import { buildLocalRivalReport, normalizeRivalReport } from './lib/rival-report.js';
+import { computeRivalPerception } from './lib/rival-intel.js';
 import { computeAnalytics, computeOpsStats, topEntries } from './lib/ops-stats.js';
 import {
   buildDemoOpportunities,
@@ -25,6 +26,13 @@ import {
   lookupCompetitorProfile,
 } from './lib/competitor-opportunity.js';
 import { runCompetitorScan } from './lib/competitor-scan.js';
+import {
+  createSharePackage,
+  formatPushSummary,
+  loadIntegrations,
+  pushOpportunityToCrm,
+  saveIntegrations,
+} from './lib/integrations.js';
 import {
   SCAN_SOURCES,
   PAGE_PLATFORMS,
@@ -156,6 +164,8 @@ const els = {
   rivalBannerSub: document.getElementById('rival-intel-sub'),
   rivalBannerBtn: document.getElementById('btn-rival-intel'),
   rivalReportPanel: document.getElementById('rival-report-panel'),
+  fichaRivalSelect: document.getElementById('ficha-rival-select'),
+  btnOpenRivalFicha: document.getElementById('btn-open-rival-ficha'),
   manual: document.getElementById('own-manual'),
   compManual: document.getElementById('comp-manual'),
   rivalSelect: document.getElementById('comp-rival-select'),
@@ -325,7 +335,17 @@ async function renderStats() {
   renderFunnel(els.chartFunnel, pipeline);
   renderRiskBars(els.chartRisk, own.riskCounts);
   renderRiskBars(els.chartSeverity, comp.severityCounts || {});
-  renderHBars(els.chartRivals, topEntries(comp.byCompetitor, 5), 'Sin rivales');
+  renderHBars(els.chartRivals, topEntries(comp.byCompetitor, 5), 'Sin rivales', {
+    clickableRival: true,
+  });
+  els.chartRivals?.querySelectorAll('[data-rival-name]').forEach((node) => {
+    node.style.cursor = 'pointer';
+    node.title = 'Ver ficha de percepción';
+    node.addEventListener('click', () => {
+      const name = node.getAttribute('data-rival-name');
+      if (name) void openRivalFicha(name);
+    });
+  });
   renderHBars(els.chartChannels, mergeChannelMaps(own.byChannel, comp.byChannel), 'Sin canales');
   renderHBars(els.chartTones, topEntries(own.byTone, 5), 'Sin tonos');
   renderHBars(
@@ -543,17 +563,18 @@ function renderRiskBars(el, riskCounts) {
     .join('')}</div>`;
 }
 
-function renderHBars(el, entries, emptyMsg) {
+function renderHBars(el, entries, emptyMsg, opts = {}) {
   if (!el) return;
   if (!entries?.length) {
     el.innerHTML = `<p class="rl-empty rl-empty--sm">${escapeHtml(emptyMsg)}</p>`;
     return;
   }
   const max = Math.max(1, ...entries.map((e) => e.count));
+  const clickable = Boolean(opts.clickableRival);
   el.innerHTML = `<div class="rl-funnel rl-funnel--dense">${entries
     .map(
       (e) => `
-      <div class="rl-funnel__row">
+      <div class="rl-funnel__row"${clickable ? ` data-rival-name="${escapeHtml(e.name)}" role="button" tabindex="0"` : ''}>
         <span class="rl-funnel__label" title="${escapeHtml(e.name)}">${escapeHtml(e.name)}</span>
         <div class="rl-funnel__track">
           <div class="rl-funnel__bar rl-funnel__bar--comp" style="width:${Math.round((e.count / max) * 100)}%"></div>
@@ -1030,6 +1051,7 @@ function fillRivalFilterOptions(alerts, competitors = []) {
 async function refreshAlerts() {
   await ensureCompetitorsReady();
   await fillRivalSelect();
+  await fillFichaRivalSelect();
   const data = await storageGet([STORAGE.alerts, STORAGE.config]);
   const all = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
   fillRivalFilterOptions(all, data[STORAGE.config]?.competitors || []);
@@ -1074,31 +1096,91 @@ async function refreshPageRivalBanner() {
   }
 }
 
-function renderRivalReport(report) {
+function renderRivalReport(report, perception = null) {
   const panel = els.rivalReportPanel;
   if (!panel || !report) return;
   panel.hidden = false;
   const themes = (report.themes || []).map((t) => t.label || t).join(' · ');
+  const perc = perception;
+
   panel.innerHTML = `
     <div class="rl-rival-report__head">
-      <h3>Informe IA · ${escapeHtml(report.competitorName)}</h3>
+      <h3>Ficha · ${escapeHtml(report.competitorName)}</h3>
       <button type="button" class="rl-btn rl-btn--ghost" data-close-report>Cerrar</button>
     </div>
+    ${
+      perc
+        ? `
+    <p class="rl-rival-voice">${escapeHtml(perc.voiceLine)}</p>
+    <div class="rl-rival-kpis" aria-label="KPIs del rival">
+      ${kpiTile(`${perc.perceptionScore}`, 'Percepción')}
+      ${kpiTile(perc.mentionCount, 'Menciones')}
+      ${kpiTile(perc.avgFrustration, 'Frustración')}
+      ${kpiTile(`${perc.switchIntentPct}%`, 'Churn')}
+      ${kpiTile(perc.pipeline.open, 'Abiertas')}
+      ${kpiTile(`${perc.pipeline.winRate}%`, 'Win')}
+      ${kpiTile(perc.pipeline.won, 'Ganados')}
+      ${kpiTile(perc.days + 'd', 'Ventana')}
+    </div>
+    <div class="rl-rival-charts">
+      <article class="rl-chart-card rl-chart-card--dense">
+        <header class="rl-chart-card__head"><h3>Cómo lo ven (temas)</h3></header>
+        <div data-ficha-themes class="rl-chart rl-chart--sm"></div>
+      </article>
+      <article class="rl-chart-card rl-chart-card--dense">
+        <header class="rl-chart-card__head"><h3>Canales</h3></header>
+        <div data-ficha-channels class="rl-chart rl-chart--sm"></div>
+      </article>
+      <article class="rl-chart-card rl-chart-card--dense">
+        <header class="rl-chart-card__head"><h3>Severidad</h3></header>
+        <div data-ficha-severity class="rl-chart rl-chart--sm"></div>
+      </article>
+      <article class="rl-chart-card rl-chart-card--dense">
+        <header class="rl-chart-card__head"><h3>Tendencia</h3></header>
+        <div data-ficha-trend class="rl-chart rl-chart--sm"></div>
+      </article>
+    </div>
+    ${
+      perc.sampleQuotes?.length
+        ? `<p class="rl-muted rl-alert__section-label">Cómo hablan los usuarios</p>
+    <ul class="rl-rival-quotes">${perc.sampleQuotes
+      .map(
+        (q) => `<li>“${escapeHtml(q.text)}”<span class="rl-muted">${escapeHtml(q.channel)}${
+          q.sourceUrl ? ` · ${escapeHtml(q.sourceUrl.slice(0, 48))}` : ''
+        }</span></li>`,
+      )
+      .join('')}</ul>`
+        : ''
+    }`
+        : ''
+    }
     <p class="rl-rival-report__meta">
       ${escapeHtml(report.riskLevel || '')} · frustración ${escapeHtml(String(report.avgFrustration ?? '—'))}
       · ${escapeHtml(String(report.mentionCount ?? 0))} menciones · ${escapeHtml(report.model || '')}
       ${themes ? ` · ${escapeHtml(themes)}` : ''}
     </p>
-    <p class="rl-muted rl-alert__section-label">Conclusiones</p>
+    <p class="rl-muted rl-alert__section-label">Conclusiones IA</p>
     <ul>${(report.conclusions || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
     <p class="rl-muted rl-alert__section-label">Ángulos de captación</p>
     <ul>${(report.opportunities || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
-    <p class="rl-muted rl-alert__section-label">Reporte</p>
-    <pre class="rl-rival-report__md">${escapeHtml(report.reportMarkdown || '')}</pre>
+    <details class="rl-disclosure">
+      <summary>Informe markdown</summary>
+      <pre class="rl-rival-report__md">${escapeHtml(report.reportMarkdown || '')}</pre>
+    </details>
     <div class="rl-rival-report__actions">
       <button type="button" class="rl-btn rl-btn--primary" data-copy-report>Copiar informe</button>
+      <button type="button" class="rl-btn rl-btn--ghost" data-share-ficha>Compartir ficha</button>
+      <button type="button" class="rl-btn rl-btn--ghost" data-goto-stats>Ver en Stats</button>
     </div>
   `;
+
+  if (perc) {
+    renderHBars(panel.querySelector('[data-ficha-themes]'), perc.topThemes, 'Sin temas');
+    renderHBars(panel.querySelector('[data-ficha-channels]'), perc.topChannels, 'Sin canales');
+    renderRiskBars(panel.querySelector('[data-ficha-severity]'), perc.bySeverity);
+    renderRivalTrend(panel.querySelector('[data-ficha-trend]'), perc.series);
+  }
+
   panel.querySelector('[data-close-report]')?.addEventListener('click', () => {
     panel.hidden = true;
   });
@@ -1112,7 +1194,60 @@ function renderRivalReport(report) {
       }, 1200);
     }
   });
+  panel.querySelector('[data-share-ficha]')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    if (btn) btn.disabled = true;
+    try {
+      const { viewerUrl, token, pack } = await createSharePackage({
+        kind: 'rival_ficha',
+        title: `Ficha · ${report.competitorName}`,
+        data: {
+          competitorName: report.competitorName,
+          voiceLine: perc?.voiceLine,
+          perceptionScore: perc?.perceptionScore,
+          avgFrustration: perc?.avgFrustration ?? report.avgFrustration,
+          switchIntentPct: perc?.switchIntentPct,
+          conclusions: report.conclusions,
+          opportunities: report.opportunities,
+          reportMarkdown: report.reportMarkdown,
+          themes: report.themes,
+        },
+      });
+      await navigator.clipboard.writeText(`${viewerUrl}\n\nToken:\n${token}`);
+      await chrome.tabs.create({ url: viewerUrl, active: true });
+      if (btn) btn.textContent = '✓ Share';
+      if (els.scanStatus) {
+        els.scanStatus.classList.remove('is-error');
+        els.scanStatus.textContent = `Ficha compartida (${pack.shareId}).`;
+      }
+    } finally {
+      setTimeout(() => {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Compartir ficha';
+        }
+      }, 1400);
+    }
+  });
+  panel.querySelector('[data-goto-stats]')?.addEventListener('click', () => {
+    activateTab('stats');
+    void renderStats();
+  });
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function renderRivalTrend(el, series) {
+  if (!el) return;
+  if (!series?.length) {
+    el.innerHTML = '<p class="rl-empty rl-empty--sm">Sin serie.</p>';
+    return;
+  }
+  const mapped = series.map((d) => ({
+    label: d.label,
+    own: 0,
+    comp: d.count || 0,
+  }));
+  renderTrendChart(el, mapped);
 }
 
 async function gatherMentionsForRival(competitorName, extraMentions = []) {
@@ -1230,17 +1365,63 @@ async function generateRivalReport(competitorName, extraMentions = []) {
     });
   }
 
+  const alertsData = await storageGet([STORAGE.alerts]);
+  const perception = computeRivalPerception({
+    competitorName: name,
+    mentions,
+    alerts: alertsData[STORAGE.alerts] || [],
+    days: statsRangeDays(),
+  });
+
   const stored = await storageGet([STORAGE.rivalReports]);
   const map = stored[STORAGE.rivalReports] && typeof stored[STORAGE.rivalReports] === 'object'
     ? stored[STORAGE.rivalReports]
     : {};
-  map[name] = report;
+  map[name] = { ...report, perception };
   await storageSet({ [STORAGE.rivalReports]: map });
   await storageSet({ [STORAGE.pendingRivalReport]: null });
 
-  renderRivalReport(report);
+  if (els.fichaRivalSelect) els.fichaRivalSelect.value = name;
+  renderRivalReport(report, perception);
   return report;
 }
+
+async function fillFichaRivalSelect() {
+  const sel = els.fichaRivalSelect;
+  if (!sel) return;
+  const data = await storageGet([STORAGE.config, STORAGE.alerts, STORAGE.pageRivals]);
+  const names = new Set();
+  for (const c of data[STORAGE.config]?.competitors || []) {
+    if (c?.name) names.add(String(c.name).trim());
+  }
+  for (const a of data[STORAGE.alerts] || []) {
+    if (a?.competitorName) names.add(String(a.competitorName).trim());
+  }
+  for (const r of data[STORAGE.pageRivals]?.rivals || []) {
+    if (r?.name) names.add(String(r.name).trim());
+  }
+  if (!names.size) {
+    for (const n of ['Shopify', 'AWS', 'Mailchimp']) names.add(n);
+  }
+  const prev = sel.value;
+  sel.innerHTML = [...names]
+    .sort((a, b) => a.localeCompare(b))
+    .map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`)
+    .join('');
+  if (prev && names.has(prev)) sel.value = prev;
+}
+
+async function openRivalFicha(competitorName) {
+  const name = String(competitorName || els.fichaRivalSelect?.value || '').trim();
+  if (!name) return;
+  activateTab('comp');
+  if (els.fichaRivalSelect) els.fichaRivalSelect.value = name;
+  await generateRivalReport(name);
+}
+
+els.btnOpenRivalFicha?.addEventListener('click', () => {
+  void openRivalFicha(els.fichaRivalSelect?.value);
+});
 
 async function consumePendingRivalReport() {
   const data = await storageGet([STORAGE.pendingRivalReport]);
@@ -1633,6 +1814,75 @@ function renderAlertCard(alert, company = null) {
         mkStatusBtn('Descartar', 'DISMISSED'),
       );
 
+      const crmBtn = document.createElement('button');
+      crmBtn.type = 'button';
+      crmBtn.className = 'rl-btn rl-btn--ghost';
+      crmBtn.textContent = 'CRM';
+      crmBtn.title = 'Enviar a webhook / HubSpot';
+      crmBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        crmBtn.disabled = true;
+        crmBtn.textContent = '…';
+        try {
+          const cfgData = await storageGet([STORAGE.config]);
+          const results = await pushOpportunityToCrm(alert, {
+            companyName: cfgData[STORAGE.config]?.company?.companyName,
+          });
+          crmBtn.textContent = results.some((r) => r.ok) ? '✓ CRM' : 'CRM ✗';
+          if (els.scanStatus) {
+            els.scanStatus.classList.toggle('is-error', !results.some((r) => r.ok));
+            els.scanStatus.textContent = formatPushSummary(results);
+          }
+        } finally {
+          setTimeout(() => {
+            crmBtn.disabled = false;
+            crmBtn.textContent = 'CRM';
+          }, 1600);
+        }
+      });
+
+      const shareBtn = document.createElement('button');
+      shareBtn.type = 'button';
+      shareBtn.className = 'rl-btn rl-btn--ghost';
+      shareBtn.textContent = 'Share';
+      shareBtn.title = 'Crear link / token compartible';
+      shareBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        shareBtn.disabled = true;
+        try {
+          const { viewerUrl, token, pack } = await createSharePackage({
+            kind: 'opportunity',
+            title: `Oportunidad · ${alert.competitorName}`,
+            data: {
+              competitorName: alert.competitorName,
+              originalComplaint: alert.originalComplaint,
+              sourceUrl: alert.sourceUrl,
+              channel: alert.channel,
+              severity: alert.severity,
+              status: alert.status,
+              salesPitch: selectedPitch?.body || alert.salesPitch,
+              alertId: alert.alertId,
+            },
+          });
+          await navigator.clipboard.writeText(
+            `${viewerUrl}\n\nToken (si el destinatario no tiene el link local):\n${token}`,
+          );
+          shareBtn.textContent = '✓ Copiado';
+          await chrome.tabs.create({ url: viewerUrl, active: false });
+          if (els.scanStatus) {
+            els.scanStatus.classList.remove('is-error');
+            els.scanStatus.textContent = `Share ${pack.shareId} copiado (link + token).`;
+          }
+        } finally {
+          setTimeout(() => {
+            shareBtn.disabled = false;
+            shareBtn.textContent = 'Share';
+          }, 1400);
+        }
+      });
+
+      actions.append(crmBtn, shareBtn);
+
       const reportBtn = document.createElement('button');
       reportBtn.type = 'button';
       reportBtn.className = 'rl-btn rl-btn--ghost';
@@ -1928,6 +2178,15 @@ async function loadConfigForm() {
   document.getElementById('cfg-offline').checked = detection.offlineFallback !== false;
   renderPlatformPrefs(detection.platforms || defaultPlatformPrefs());
 
+  const integ = await loadIntegrations();
+  document.getElementById('cfg-crm-webhook').checked = Boolean(integ.webhook?.enabled);
+  document.getElementById('cfg-crm-webhook-url').value = integ.webhook?.url || '';
+  document.getElementById('cfg-crm-webhook-secret').value = integ.webhook?.secret || '';
+  document.getElementById('cfg-crm-hubspot').checked = Boolean(integ.hubspot?.enabled);
+  document.getElementById('cfg-crm-hubspot-token').value = integ.hubspot?.accessToken || '';
+  document.getElementById('cfg-crm-autopush').checked = Boolean(integ.autoPushOnCapture);
+  document.getElementById('cfg-share-ttl').value = String(integ.shareTtlHours || 168);
+
   const label = document.getElementById('auth-user-label');
   if (label && session) {
     label.textContent =
@@ -2072,6 +2331,31 @@ els.form?.addEventListener('submit', async (ev) => {
       [STORAGE.detection]: detection,
     });
 
+    await saveIntegrations({
+      webhook: {
+        enabled: document.getElementById('cfg-crm-webhook')?.checked,
+        url: document.getElementById('cfg-crm-webhook-url')?.value?.trim() || '',
+        secret: document.getElementById('cfg-crm-webhook-secret')?.value || '',
+      },
+      hubspot: {
+        enabled: document.getElementById('cfg-crm-hubspot')?.checked,
+        accessToken: document.getElementById('cfg-crm-hubspot-token')?.value?.trim() || '',
+      },
+      autoPushOnCapture: document.getElementById('cfg-crm-autopush')?.checked,
+      shareTtlHours: Number(document.getElementById('cfg-share-ttl')?.value || 168),
+    });
+
+    // Pedir host opcional para webhook custom si está activo
+    const whUrl = document.getElementById('cfg-crm-webhook-url')?.value?.trim();
+    if (document.getElementById('cfg-crm-webhook')?.checked && whUrl) {
+      try {
+        const u = new URL(whUrl);
+        await chrome.permissions.request({ origins: [`${u.protocol}//${u.host}/*`] });
+      } catch {
+        /* ignore */
+      }
+    }
+
     await chrome.runtime.sendMessage({ type: 'RL_DETECTION_UPDATED', detection });
 
     if (appsync.graphqlUrl && appsync.apiKey) {
@@ -2158,6 +2442,16 @@ els.scanComp?.addEventListener('click', () => {
   void scanCompetitorMarket();
 });
 
+document.getElementById('btn-open-capture-demo')?.addEventListener('click', async () => {
+  const url = chrome.runtime.getURL('fixtures/rival-capture-demo.html');
+  await chrome.tabs.create({ url, active: true });
+  if (els.scanStatus) {
+    els.scanStatus.classList.remove('is-error');
+    els.scanStatus.textContent =
+      'Demo abierta. Esperá el highlight azul y usá 🎯 para captar o 📊 para el informe.';
+  }
+});
+
 els.loadDemo?.addEventListener('click', async () => {
   const { [STORAGE.config]: cfg, [STORAGE.alerts]: existing } = await storageGet([
     STORAGE.config,
@@ -2223,6 +2517,16 @@ els.rivalBannerBtn?.addEventListener('click', async () => {
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === 'RL_PENDING_COMPLAINT' && message.payload) {
+    const text = message.payload.text || '';
+    const rival =
+      message.payload.competitorName ||
+      findMentionedCompetitor(text, []);
+    // Defensa: si menciona rival, no abrir triage de Propios
+    if (rival) {
+      activateTab('comp');
+      void refreshAlerts();
+      return;
+    }
     analyzeComplaint(message.payload);
   }
   if (message?.type === 'RL_NEW_ALERT' || message?.type === 'RL_CAPTURE_OPPORTUNITY') {
@@ -2286,8 +2590,22 @@ async function enterApp(session) {
   await consumePendingRivalReport();
 
   const pending = await storageGet([STORAGE.pending]);
-  if (pending[STORAGE.pending]) {
-    await analyzeComplaint(pending[STORAGE.pending]);
+  const pendingPayload = pending[STORAGE.pending];
+  // Si hay informe de rival pendiente / recién capturado, no mandar a Propios
+  const rivalPending = await storageGet(['rl_pending_rival_report']);
+  if (pendingPayload && !rivalPending.rl_pending_rival_report) {
+    const rivalHint =
+      pendingPayload.competitorName ||
+      findMentionedCompetitor(pendingPayload.text || '', (await storageGet([STORAGE.config]))[STORAGE.config]?.competitors || []);
+    if (rivalHint) {
+      await storageSet({ [STORAGE.pending]: null });
+      activateTab('comp');
+      await refreshAlerts();
+    } else {
+      await analyzeComplaint(pendingPayload);
+      await storageSet({ [STORAGE.pending]: null });
+    }
+  } else if (pendingPayload) {
     await storageSet({ [STORAGE.pending]: null });
   }
 
@@ -2352,6 +2670,12 @@ document.getElementById('btn-logout')?.addEventListener('click', async () => {
 });
 
 (async function boot() {
+  const verEl = document.getElementById('ext-version');
+  if (verEl) {
+    const v = chrome.runtime.getManifest?.()?.version || '?';
+    verEl.hidden = false;
+    verEl.textContent = `v${v}`;
+  }
   await loadUiZoom();
   const session = await getSession();
   if (session?.userId) {

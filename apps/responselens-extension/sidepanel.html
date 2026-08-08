@@ -72,6 +72,7 @@
           <div>
             <strong>ResponseLens AI</strong>
             <span class="rl-sub" id="auth-user-label">Reputación &amp; captación competitiva</span>
+            <span class="rl-sub" id="ext-version" hidden></span>
           </div>
         </div>
         <div class="rl-zoom" role="group" aria-label="Tamaño de interfaz">
@@ -146,6 +147,9 @@
             <button type="button" id="btn-scan-comp" class="rl-btn rl-btn--primary" title="Busca quejas de rivales en Reddit + en la pestaña activa">
               Escanear
             </button>
+            <button type="button" id="btn-open-capture-demo" class="rl-btn rl-btn--ghost" title="Abre una página de prueba con quejas de Shopify/AWS/Mailchimp">
+              Demo chip
+            </button>
             <button type="button" id="btn-load-demo" class="rl-btn rl-btn--ghost" title="Cargar ejemplos listos">
               Ejemplos
             </button>
@@ -219,6 +223,17 @@
         </details>
 
         <p id="comp-scan-status" class="rl-status" aria-live="polite"></p>
+
+        <div class="rl-ficha-bar" id="rival-ficha-bar">
+          <label class="rl-filter rl-filter--grow">
+            <span>Ficha rival</span>
+            <select id="ficha-rival-select" class="rl-select" aria-label="Elegir rival para ficha de percepción"></select>
+          </label>
+          <button type="button" id="btn-open-rival-ficha" class="rl-btn rl-btn--primary" title="KPIs, gráficos e informe de cómo lo ven los usuarios">
+            Ver percepción
+          </button>
+        </div>
+
         <div id="rival-intel-banner" class="rl-intel-banner" hidden>
           <div class="rl-intel-banner__text">
             <strong id="rival-intel-title">Rival detectado en la página</strong>
@@ -463,6 +478,42 @@
             <label>
               App Client ID
               <input id="cfg-cog-client" name="cognitoClient" maxlength="128" />
+            </label>
+          </fieldset>
+
+          <fieldset class="rl-fieldset">
+            <legend>Integraciones CRM</legend>
+            <p class="rl-hint" style="margin-top:0">
+              Webhook genérico (Zapier, Make, Salesforce Flow…) y/o HubSpot Private App.
+              Requiere permiso de host al primer push (Chrome lo pide).
+            </p>
+            <label class="rl-check">
+              <input type="checkbox" id="cfg-crm-webhook" />
+              Webhook habilitado
+            </label>
+            <label>
+              Webhook URL
+              <input id="cfg-crm-webhook-url" type="url" placeholder="https://hooks.zapier.com/…" />
+            </label>
+            <label>
+              Secret (header X-ResponseLens-Secret)
+              <input id="cfg-crm-webhook-secret" type="password" autocomplete="off" maxlength="200" />
+            </label>
+            <label class="rl-check">
+              <input type="checkbox" id="cfg-crm-hubspot" />
+              HubSpot habilitado
+            </label>
+            <label>
+              HubSpot Private App token
+              <input id="cfg-crm-hubspot-token" type="password" autocomplete="off" maxlength="300" />
+            </label>
+            <label class="rl-check">
+              <input type="checkbox" id="cfg-crm-autopush" />
+              Auto-push al captar (🎯)
+            </label>
+            <label>
+              TTL shares (horas)
+              <input id="cfg-share-ttl" type="number" min="1" max="720" value="168" />
             </label>
           </fieldset>
 

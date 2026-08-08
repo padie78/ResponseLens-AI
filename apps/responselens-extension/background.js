@@ -197,7 +197,11 @@ async function handleMessage(message, sender) {
         0,
         100,
       );
-      await setLocal({ [STORAGE_KEYS.alerts]: next });
+      // No abrir Propios por un pending viejo de Control de Daños
+      await setLocal({
+        [STORAGE_KEYS.alerts]: next,
+        [STORAGE_KEYS.pendingComplaint]: null,
+      });
       if (alert.requestRivalReport) {
         await setLocal({
           rl_pending_rival_report: {
@@ -220,6 +224,19 @@ async function handleMessage(message, sender) {
         await chrome.runtime.sendMessage({ type: 'RL_CAPTURE_OPPORTUNITY', payload: alert });
       } catch {
         /* popup closed */
+      }
+      // Auto-push CRM si está configurado
+      try {
+        const integ = await getLocal(['rl_integrations']);
+        if (integ.rl_integrations?.autoPushOnCapture) {
+          const { pushOpportunityToCrmLocal } = await import('./lib/integrations.js');
+          const cfg = await getLocal([STORAGE_KEYS.config]);
+          await pushOpportunityToCrmLocal(alert, {
+            companyName: cfg[STORAGE_KEYS.config]?.company?.companyName,
+          });
+        }
+      } catch (err) {
+        console.warn('[RL] auto CRM push', err);
       }
       try {
         await chrome.notifications.create(`rl_cap_${alert.alertId}`, {
@@ -345,6 +362,12 @@ async function handleMessage(message, sender) {
           error: err instanceof Error ? err.message : String(err),
         };
       }
+    }
+
+    case 'RL_CRM_PUSH': {
+      const { pushOpportunityToCrmLocal } = await import('./lib/integrations.js');
+      const results = await pushOpportunityToCrmLocal(message.alert, message.extras || {});
+      return { ok: results.some((r) => r.ok), results };
     }
 
     case 'RL_SAVE_CONFIG': {

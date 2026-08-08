@@ -7,7 +7,10 @@ Cada análisis incluye `riskScore`, `riskLevel`, flags de escalado y acción rec
 Las inyecciones quedan en `rl_reply_history` (export CSV). Cabecera con respuestas/7d, alertas abiertas, críticas y win rate.
 
 ## Stats (panel)
-Tab **Stats**: KPIs detallados, comparación Propios vs Competencia (barras + tendencia diaria), embudo de captación (abiertas → contactadas → ganadas/descartadas), distribución de riesgo, top rivales y canales. Ventana 7 / 14 / 30 días. Datos 100% locales (historial + alertas).
+Tab **Stats**: KPIs detallados, comparación Propios vs Competencia (barras + tendencia diaria), embudo de captación (abiertas → contactadas → ganadas/descartadas), distribución de riesgo, top rivales y canales. Ventana 7 / 14 / 30 días. Datos 100% locales (historial + alertas). Click en un rival del chart **Top rivales** abre su ficha.
+
+## Ficha de percepción del rival
+En **Competencia**: selector **Ficha rival** + **Ver percepción** (también 📊 / Informe IA / captar). Genera KPIs (percepción, frustración, churn, win), gráficos de temas / canales / severidad / tendencia, citas de usuarios e informe IA. Fuente: menciones de página + alertas + scan HN/Reddit.
 
 ## Workflow de captación
 Estados: NEW → CONTACTED / WON / DISMISSED.
@@ -19,6 +22,11 @@ Estados: NEW → CONTACTED / WON / DISMISSED.
 - Cron Lambda `competitor_scan` publica solo menciones live.
 - Detección en página también en Reddit; chip **captar · Rival**.
 
+## CRM / Share (v0.6)
+- Config → Integraciones: webhook + HubSpot + auto-push.
+- Alertas: botones **CRM** y **Share**; ficha: **Compartir ficha**.
+- Detalle: `docs/integrations.md`.
+
 ## Plataformas configurables
 - Config → **Fuentes de escaneo**: HN / Reddit API / pestaña activa.
 - Config → **Plataformas en página**: Amazon, eBay, YouTube, X, Reddit (on/off).
@@ -29,6 +37,9 @@ Sensibilidad, keywords extra, dominios ignorados y badge en el icono del plugin 
 
 ## Fallback offline
 Si AppSync/LLM falla (o no está configurado), genera 3 tonos + triage heurístico local para no bloquear al agente.
+
+## Integraciones CRM + share
+Ver `docs/integrations.md`. Webhook genérico + HubSpot + botones CRM/Share en oportunidades y ficha rival.
 
 ## IA en respuestas
 - Propios: 3 tonos + badge **Recomendada** (LLM o fallback heurístico).

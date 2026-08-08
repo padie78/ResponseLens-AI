@@ -52,7 +52,19 @@ export const PAGE_PLATFORMS = [
     id: 'reddit',
     label: 'Reddit (página)',
     hosts: ['reddit.com'],
-    openUrl: 'https://www.reddit.com/',
+    openUrl: 'https://old.reddit.com/r/shopify/comments/',
+  },
+  {
+    id: 'hackernews',
+    label: 'Hacker News',
+    hosts: ['news.ycombinator.com'],
+    openUrl: 'https://news.ycombinator.com/item?id=32247991',
+  },
+  {
+    id: 'trustpilot',
+    label: 'Trustpilot',
+    hosts: ['trustpilot.com'],
+    openUrl: 'https://www.trustpilot.com/review/shopify.com',
   },
 ];
 

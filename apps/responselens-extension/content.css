@@ -61,12 +61,14 @@
   margin-left: 4px;
   padding: 1px 5px;
   border-radius: 999px;
+  border: none;
   font: 700 9px/1.4 system-ui, sans-serif;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   vertical-align: middle;
   background: #fee2e2;
   color: #991b1b;
+  cursor: pointer;
 }
 
 .rl-sev-chip--medium {

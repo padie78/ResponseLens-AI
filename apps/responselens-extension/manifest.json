@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ResponseLens AI",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Control de daños reputacionales e inteligencia competitiva para equipos de soporte, marketing y ventas.",
   "permissions": [
     "sidePanel",
@@ -25,8 +25,20 @@
     "https://*.reddit.com/*",
     "https://www.reddit.com/*",
     "https://old.reddit.com/*",
+    "https://news.ycombinator.com/*",
+    "https://*.trustpilot.com/*",
     "https://hn.algolia.com/*",
-    "https://cognito-idp.*.amazonaws.com/*",
+    "https://cognito-idp.us-east-1.amazonaws.com/*",
+    "https://cognito-idp.us-east-2.amazonaws.com/*",
+    "https://cognito-idp.us-west-1.amazonaws.com/*",
+    "https://cognito-idp.us-west-2.amazonaws.com/*",
+    "https://cognito-idp.eu-west-1.amazonaws.com/*",
+    "https://cognito-idp.eu-west-2.amazonaws.com/*",
+    "https://cognito-idp.eu-central-1.amazonaws.com/*",
+    "https://cognito-idp.sa-east-1.amazonaws.com/*",
+    "https://cognito-idp.ap-southeast-1.amazonaws.com/*",
+    "https://cognito-idp.ap-northeast-1.amazonaws.com/*",
+    "https://api.hubapi.com/*",
     "https://*.amazonaws.com/*",
     "wss://*.amazonaws.com/*"
   ],
@@ -61,7 +73,10 @@
         "https://x.com/*",
         "https://twitter.com/*",
         "https://www.reddit.com/*",
-        "https://old.reddit.com/*"
+        "https://old.reddit.com/*",
+        "https://news.ycombinator.com/*",
+        "https://*.trustpilot.com/*",
+        "https://www.trustpilot.com/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],
@@ -70,11 +85,11 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["icons/*", "assets/*"],
+      "resources": ["icons/*", "assets/*", "fixtures/*", "share-viewer.html", "share-viewer.js", "lib/*"],
       "matches": ["<all_urls>"]
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://hn.algolia.com https://www.reddit.com https://*.reddit.com https://old.reddit.com https://*.amazonaws.com https://cognito-idp.*.amazonaws.com wss://*.amazonaws.com https://www.google.com"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://hn.algolia.com https://www.reddit.com https://*.reddit.com https://old.reddit.com https://*.amazonaws.com https://api.hubapi.com https://cognito-idp.us-east-1.amazonaws.com https://cognito-idp.us-east-2.amazonaws.com https://cognito-idp.us-west-1.amazonaws.com https://cognito-idp.us-west-2.amazonaws.com https://cognito-idp.eu-west-1.amazonaws.com https://cognito-idp.eu-west-2.amazonaws.com https://cognito-idp.eu-central-1.amazonaws.com https://cognito-idp.sa-east-1.amazonaws.com https://cognito-idp.ap-southeast-1.amazonaws.com https://cognito-idp.ap-northeast-1.amazonaws.com wss://*.amazonaws.com https://www.google.com"
   }
 }

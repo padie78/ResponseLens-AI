@@ -8,3 +8,6 @@
 - Lambda: `lambda_code/ingestion/competitor_scan/src/reddit-mentions.ts` (misma lógica)
 
 Próximos conectores: X API, NewsAPI, Trustpilot, G2.
+
+## CRM / Share
+Ver `docs/integrations.md` — webhook genérico, HubSpot, paquetes compartibles.
