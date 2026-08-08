@@ -14,3 +14,10 @@ export class ValidationError extends DomainError {
     this.name = 'ValidationError';
   }
 }
+
+export class NotFoundError extends DomainError {
+  constructor(message: string) {
+    super(message, 'NOT_FOUND');
+    this.name = 'NotFoundError';
+  }
+}

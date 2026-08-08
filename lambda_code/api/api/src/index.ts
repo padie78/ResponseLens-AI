@@ -5,6 +5,8 @@ import {
   getUserConfig,
   listCompetitorAlerts,
   saveUserConfig,
+  updateCompetitorAlert,
+  upsertCompetitorAlert,
 } from './composition-root';
 
 type Args = Record<string, unknown>;
@@ -37,6 +39,16 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
         userId: String(args.userId),
         limit: args.limit as number | null | undefined,
       });
+
+    case 'upsertCompetitorAlert':
+      return upsertCompetitorAlert.execute(
+        args.input as Parameters<typeof upsertCompetitorAlert.execute>[0],
+      );
+
+    case 'updateCompetitorAlert':
+      return updateCompetitorAlert.execute(
+        args.input as Parameters<typeof updateCompetitorAlert.execute>[0],
+      );
 
     case 'ping':
       return `pong:${String(args.message ?? '')}`;

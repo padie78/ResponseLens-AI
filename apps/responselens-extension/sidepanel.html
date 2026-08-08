@@ -68,30 +68,24 @@
     <header class="rl-header">
       <div class="rl-header__top">
         <div class="rl-brand">
-          <img class="rl-brand__mark" src="icons/icon48.png" alt="" width="36" height="36" />
+          <img class="rl-brand__mark" src="icons/icon48.png" alt="" width="32" height="32" />
           <div>
-            <strong>ResponseLens AI</strong>
-            <span class="rl-sub" id="auth-user-label">Reputación &amp; captación competitiva</span>
+            <strong>ResponseLens</strong>
+            <span class="rl-sub" id="auth-user-label">Listo para operar</span>
             <span class="rl-sub" id="ext-version" hidden></span>
           </div>
         </div>
         <div class="rl-zoom" role="group" aria-label="Tamaño de interfaz">
-          <button type="button" id="btn-zoom-out" class="rl-zoom__btn" title="Reducir" aria-label="Reducir zoom">
-            −
-          </button>
-          <button type="button" id="btn-zoom-label" class="rl-zoom__value" title="Restablecer 100%" aria-live="polite">
-            125%
-          </button>
-          <button type="button" id="btn-zoom-in" class="rl-zoom__btn" title="Ampliar" aria-label="Ampliar zoom">
-            +
-          </button>
+          <button type="button" id="btn-zoom-out" class="rl-zoom__btn" title="Reducir" aria-label="Reducir zoom">−</button>
+          <button type="button" id="btn-zoom-label" class="rl-zoom__value" title="Restablecer 100%" aria-live="polite">125%</button>
+          <button type="button" id="btn-zoom-in" class="rl-zoom__btn" title="Ampliar" aria-label="Ampliar zoom">+</button>
         </div>
       </div>
-      <div id="ops-kpis" class="rl-kpis" aria-label="Indicadores operativos">
-        <div class="rl-kpi"><span id="kpi-replies">0</span><small>Respuestas 7d</small></div>
+      <div id="ops-kpis" class="rl-kpis rl-kpis--slim" aria-label="Indicadores operativos" hidden>
+        <div class="rl-kpi"><span id="kpi-replies">0</span><small>Resp.</small></div>
         <div class="rl-kpi"><span id="kpi-alerts">0</span><small>Abiertas</small></div>
         <div class="rl-kpi"><span id="kpi-critical">0</span><small>Críticas</small></div>
-        <div class="rl-kpi"><span id="kpi-winrate">0%</span><small>Win rate</small></div>
+        <div class="rl-kpi"><span id="kpi-winrate">0%</span><small>Win</small></div>
       </div>
     </header>
 
@@ -116,9 +110,15 @@
     <main>
       <!-- Módulo A -->
       <section id="panel-own" class="rl-panel is-visible" role="tabpanel">
+        <div class="rl-panel-head">
+          <div class="rl-panel-head__copy">
+            <h2>Propios</h2>
+            <p class="rl-panel-lead">Respuestas a quejas de tu marca.</p>
+          </div>
+        </div>
+
         <div id="own-empty" class="rl-empty">
-          Selecciona un comentario resaltado en la página para generar respuestas.
-          <p class="rl-hint">También puedes pegar una queja abajo y analizarla sin salir del panel.</p>
+          Seleccioná un comentario en la página, o pegá el texto abajo.
         </div>
 
         <details class="rl-disclosure rl-cfg-panel">
@@ -145,20 +145,20 @@
       <!-- Módulo B -->
       <section id="panel-comp" class="rl-panel" role="tabpanel" hidden>
         <div class="rl-panel-head">
-          <h2>Oportunidades</h2>
+          <div class="rl-panel-head__copy">
+            <h2>Competencia</h2>
+            <p class="rl-panel-lead">Oportunidades de captación desde quejas reales.</p>
+          </div>
           <div class="rl-head-actions">
-            <button type="button" id="btn-scan-comp" class="rl-btn rl-btn--primary" title="Busca quejas de rivales en Reddit + en la pestaña activa">
+            <button type="button" id="btn-scan-comp" class="rl-btn rl-btn--primary" title="Busca menciones negativas de rivales">
               Escanear
             </button>
-            <button type="button" id="btn-open-capture-demo" class="rl-btn rl-btn--ghost" title="Abre una página de prueba con quejas de Shopify/AWS/Mailchimp">
-              Demo chip
-            </button>
-            <button type="button" id="btn-load-demo" class="rl-btn rl-btn--ghost" title="Cargar ejemplos listos">
-              Ejemplos
-            </button>
-            <button type="button" id="btn-refresh-alerts" class="rl-btn rl-btn--ghost" title="Actualizar">↻</button>
+            <button type="button" id="btn-refresh-alerts" class="rl-btn rl-btn--ghost rl-btn--icon" title="Actualizar lista">↻</button>
           </div>
         </div>
+
+        <p id="comp-scan-status" class="rl-status rl-status--compact" aria-live="polite"></p>
+        <p id="comp-filter-count" class="rl-filter-count" aria-live="polite"></p>
 
         <details class="rl-disclosure rl-cfg-panel">
           <summary>Filtros</summary>
@@ -230,28 +230,49 @@
             </label>
           </div>
         </details>
-        <p id="comp-filter-count" class="rl-filter-count" aria-live="polite"></p>
 
-        <details class="rl-disclosure">
-          <summary>Cómo funciona</summary>
-          <p class="rl-comp-intro">
-            Busca clientes enfadados con tus rivales (HN / Reddit / noticias + pestaña abierta)
-            y menciones de <em>tu marca</em> en prensa. Configurá rivales y el nombre de empresa en <em>Config</em>.
-          </p>
-        </details>
-
-        <p id="comp-scan-status" class="rl-status" aria-live="polite"></p>
-
-        <details class="rl-disclosure rl-cfg-panel" id="rival-ficha-bar">
-          <summary>Ficha rival</summary>
-          <div class="rl-ficha-bar rl-ficha-bar--inner">
-            <label class="rl-filter rl-filter--grow">
-              <span class="visually-hidden">Elegir rival</span>
-              <select id="ficha-rival-select" class="rl-select" aria-label="Elegir rival para ficha de percepción"></select>
-            </label>
-            <button type="button" id="btn-open-rival-ficha" class="rl-btn rl-btn--primary" title="KPIs, gráficos e informe de cómo lo ven los usuarios">
-              Ver percepción
-            </button>
+        <details class="rl-disclosure rl-cfg-panel">
+          <summary>Más herramientas</summary>
+          <div class="rl-tools-stack">
+            <div class="rl-tools-row">
+              <button type="button" id="btn-open-capture-demo" class="rl-btn rl-btn--ghost">Demo chip</button>
+              <button type="button" id="btn-load-demo" class="rl-btn rl-btn--ghost">Ejemplos</button>
+            </div>
+            <div class="rl-ficha-bar rl-ficha-bar--inner" id="rival-ficha-bar">
+              <label class="rl-filter rl-filter--grow">
+                <span>Ficha rival</span>
+                <select id="ficha-rival-select" class="rl-select" aria-label="Elegir rival para ficha de percepción"></select>
+              </label>
+              <button type="button" id="btn-open-rival-ficha" class="rl-btn rl-btn--soft" title="KPIs e informe de percepción">
+                Ver percepción
+              </button>
+            </div>
+            <details class="rl-disclosure" id="comp-manual-wrap">
+              <summary>Agregar oportunidad manual</summary>
+              <form id="comp-manual" class="rl-manual rl-manual--nested">
+                <label>
+                  Competidor
+                  <select id="comp-rival-select" class="rl-select" style="width:100%"></select>
+                </label>
+                <label>
+                  Queja del cliente del rival
+                  <textarea
+                    id="comp-manual-text"
+                    rows="2"
+                    maxlength="4000"
+                    placeholder="Ej: Llevan caídos todo el día…"
+                  ></textarea>
+                </label>
+                <label>
+                  Link fuente (opcional)
+                  <input id="comp-manual-url" type="url" placeholder="https://…" />
+                </label>
+                <button type="submit" class="rl-btn rl-btn--primary">Generar + pitch</button>
+              </form>
+            </details>
+            <p class="rl-hint" style="margin:0">
+              Escaneá fuentes públicas o abrí la página del rival y usá captar. Configurá rivales en Config.
+            </p>
           </div>
         </details>
 
@@ -263,30 +284,6 @@
           <button type="button" id="btn-rival-intel" class="rl-btn rl-btn--primary">Informe IA</button>
         </div>
         <div id="rival-report-panel" class="rl-rival-report" hidden></div>
-
-        <details class="rl-disclosure" id="comp-manual-wrap">
-          <summary>Agregar oportunidad manual</summary>
-          <form id="comp-manual" class="rl-manual">
-            <label>
-              Competidor
-              <select id="comp-rival-select" class="rl-select" style="width:100%"></select>
-            </label>
-            <label>
-              Queja del cliente del rival
-              <textarea
-                id="comp-manual-text"
-                rows="2"
-                maxlength="4000"
-                placeholder="Ej: Llevan caídos todo el día…"
-              ></textarea>
-            </label>
-            <label>
-              Link fuente (opcional)
-              <input id="comp-manual-url" type="url" placeholder="https://…" />
-            </label>
-            <button type="submit" class="rl-btn rl-btn--primary">Generar + pitch</button>
-          </form>
-        </details>
 
         <div id="comp-feed" class="rl-feed"></div>
       </section>
@@ -366,7 +363,7 @@
 
       <!-- Historial -->
       <section id="panel-hist" class="rl-panel" role="tabpanel" hidden>
-        <div class="rl-panel-head">
+        <div class="rl-panel-head rl-panel-head--tight">
           <h2>Historial</h2>
           <button type="button" id="btn-export-history" class="rl-btn rl-btn--ghost">Exportar CSV</button>
         </div>
@@ -467,6 +464,52 @@
               <label>
                 User ID (de la sesión)
                 <input id="cfg-user-id" name="userId" required maxlength="64" readonly />
+              </label>
+            </div>
+          </details>
+
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Alertas y notificaciones</summary>
+            <div class="rl-cfg-panel__body">
+              <p class="rl-hint" style="margin-top:0">
+                En producción las alertas las empuja <strong>AWS</strong> (Lambda → AppSync).
+                El escaneo automático local solo corre si AppSync no está configurado.
+              </p>
+              <p id="cfg-notify-mode" class="rl-status" role="status" style="margin:0"></p>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-notify-enabled" checked />
+                Alertas de competencia activas
+              </label>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-notify-desktop" checked />
+                Notificaciones de escritorio (Chrome)
+              </label>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-notify-badge" checked />
+                Badge en el icono de la extensión
+              </label>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-notify-own" checked />
+                Incluir noticias negativas de tu marca
+              </label>
+              <label>
+                Severidad mínima para avisar
+                <select id="cfg-notify-severity">
+                  <option value="LOW">Baja (todo)</option>
+                  <option value="MEDIUM" selected>Media+</option>
+                  <option value="HIGH">Alta / crítica</option>
+                  <option value="CRITICAL">Solo crítica</option>
+                </select>
+              </label>
+              <label id="cfg-notify-autoscan-wrap">
+                Escaneo automático local (fallback sin AWS)
+                <select id="cfg-notify-autoscan">
+                  <option value="0">Off</option>
+                  <option value="15">Cada 15 min</option>
+                  <option value="30" selected>Cada 30 min</option>
+                  <option value="60">Cada 60 min</option>
+                  <option value="120">Cada 2 h</option>
+                </select>
               </label>
             </div>
           </details>

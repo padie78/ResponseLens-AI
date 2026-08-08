@@ -26,6 +26,12 @@ import {
   lookupCompetitorProfile,
 } from './lib/competitor-opportunity.js';
 import { runCompetitorScan } from './lib/competitor-scan.js';
+import { mentionDedupeKey } from './lib/mention-dedupe.js';
+import {
+  buildCapturePlaybook,
+  buildDefensePlaybook,
+  formatPlaybookHtml,
+} from './lib/playbooks.js';
 import {
   createSharePackage,
   formatPushSummary,
@@ -37,6 +43,20 @@ import {
   saveIntegrations,
 } from './lib/integrations.js';
 import { loadScanCredentials, saveScanCredentials } from './lib/scan-credentials.js';
+import {
+  hydrateFromCloud,
+  updateAlertStatusInCloud,
+  upsertAlertsToCloud,
+  upsertAlertToCloud,
+} from './lib/cloud-sync.js';
+import {
+  consumeFocusAlert,
+  hasAppSyncCloud,
+  loadNotifyPrefs,
+  notifyNewCompetitorAlerts,
+  refreshCompetitorBadge,
+  saveNotifyPrefs,
+} from './lib/notify.js';
 import {
   SCAN_SOURCES,
   PAGE_PLATFORMS,
@@ -575,6 +595,8 @@ function activateTab(name) {
     panel.classList.toggle('is-visible', on);
     panel.hidden = !on;
   }
+  const kpis = document.getElementById('ops-kpis');
+  if (kpis) kpis.hidden = name !== 'stats';
   if (name === 'hist') void renderHistory();
   if (name === 'comp') void refreshAlerts().catch((err) => console.error('[RL] refreshAlerts', err));
   if (name === 'stats') void renderStats().catch((err) => console.error('[RL] renderStats', err));
@@ -1030,11 +1052,18 @@ function renderCards(result) {
       <p>${escapeHtml(opt.body)}</p>
     `;
     const actions = document.createElement('div');
-    actions.className = 'rl-card-actions';
+    actions.className = 'rl-action-bar';
+    const group = document.createElement('div');
+    group.className = 'rl-action-bar__group';
+    const lab = document.createElement('p');
+    lab.className = 'rl-action-bar__label';
+    lab.textContent = 'Respuesta';
+    const row = document.createElement('div');
+    row.className = 'rl-action-bar__row';
 
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
-    copyBtn.className = 'rl-btn rl-btn--ghost';
+    copyBtn.className = 'rl-btn rl-btn--soft';
     copyBtn.textContent = 'Copiar';
     copyBtn.addEventListener('click', async () => {
       await navigator.clipboard.writeText(opt.body);
@@ -1046,8 +1075,12 @@ function renderCards(result) {
 
     const injectBtn = document.createElement('button');
     injectBtn.type = 'button';
-    injectBtn.className = `rl-btn ${opt.recommended ? 'rl-btn--primary' : 'rl-btn--ghost'}`;
-    injectBtn.textContent = blockPublic ? 'Inyectar igual' : opt.recommended ? 'Usar recomendada' : 'Inyectar';
+    injectBtn.className = 'rl-btn rl-btn--primary';
+    injectBtn.textContent = blockPublic
+      ? 'Inyectar igual'
+      : opt.recommended
+        ? 'Usar recomendada'
+        : 'Inyectar';
     injectBtn.addEventListener('click', async () => {
       injectBtn.disabled = true;
       try {
@@ -1077,10 +1110,21 @@ function renderCards(result) {
       }
     });
 
-    actions.append(copyBtn, injectBtn);
+    row.append(copyBtn, injectBtn);
+    group.append(lab, row);
+    actions.appendChild(group);
     card.appendChild(actions);
     els.cards.appendChild(card);
   }
+
+  const defense = buildDefensePlaybook({
+    complaint: normalized.originalText || currentComplaint?.text || '',
+    companyName: currentComplaint?.companyName,
+  });
+  const pb = document.createElement('details');
+  pb.className = 'rl-disclosure rl-cfg-panel';
+  pb.innerHTML = `<summary>Playbook de defensa</summary><div class="rl-playbook">${formatPlaybookHtml(defense)}</div>`;
+  els.cards.appendChild(pb);
 }
 
 async function appendHistory(entry) {
@@ -1401,6 +1445,21 @@ function fillRivalFilterOptions(alerts, competitors = []) {
   }
 }
 
+async function applyNotificationFocus() {
+  const focus = await consumeFocusAlert();
+  activateTab('comp');
+  if (focus?.alertId) {
+    expandedAlertId = focus.alertId;
+  }
+  await refreshAlerts();
+  if (focus?.alertId) {
+    requestAnimationFrame(() => {
+      const node = els.feed?.querySelector(`[data-alert-id="${CSS.escape(focus.alertId)}"]`);
+      node?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }
+}
+
 async function refreshAlerts() {
   await ensureCompetitorsReady();
   await fillRivalSelect();
@@ -1449,12 +1508,13 @@ async function refreshPageRivalBanner() {
   }
 }
 
-function renderRivalReport(report, perception = null) {
+function renderRivalReport(report, perception = null, playbook = null) {
   const panel = els.rivalReportPanel;
   if (!panel || !report) return;
   panel.hidden = false;
   const themes = (report.themes || []).map((t) => t.label || t).join(' · ');
   const perc = perception;
+  const empty = !report.mentionCount;
 
   panel.innerHTML = `
     <div class="rl-rival-report__head">
@@ -1462,7 +1522,12 @@ function renderRivalReport(report, perception = null) {
       <button type="button" class="rl-btn rl-btn--ghost" data-close-report>Cerrar</button>
     </div>
     ${
-      perc
+      empty
+        ? `<p class="rl-empty rl-empty--sm">Sin menciones live de este rival. Escaneá fuentes o abrí su página y usá <strong>captar</strong>.</p>`
+        : ''
+    }
+    ${
+      perc && !empty
         ? `
     <p class="rl-rival-voice">${escapeHtml(perc.voiceLine)}</p>
     <div class="rl-rival-kpis" aria-label="KPIs del rival">
@@ -1512,10 +1577,18 @@ function renderRivalReport(report, perception = null) {
       · ${escapeHtml(String(report.mentionCount ?? 0))} menciones · ${escapeHtml(report.model || '')}
       ${themes ? ` · ${escapeHtml(themes)}` : ''}
     </p>
-    <p class="rl-muted rl-alert__section-label">Conclusiones IA</p>
+    <p class="rl-muted rl-alert__section-label">Conclusiones</p>
     <ul>${(report.conclusions || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
     <p class="rl-muted rl-alert__section-label">Ángulos de captación</p>
     <ul>${(report.opportunities || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+    ${
+      playbook
+        ? `<details class="rl-disclosure rl-cfg-panel" open>
+      <summary>Playbook de captación</summary>
+      <div class="rl-playbook">${formatPlaybookHtml(playbook)}</div>
+    </details>`
+        : ''
+    }
     <details class="rl-disclosure">
       <summary>Informe markdown</summary>
       <pre class="rl-rival-report__md">${escapeHtml(report.reportMarkdown || '')}</pre>
@@ -1527,7 +1600,7 @@ function renderRivalReport(report, perception = null) {
     </div>
   `;
 
-  if (perc) {
+  if (perc && !empty) {
     renderHBars(panel.querySelector('[data-ficha-themes]'), perc.topThemes, 'Sin temas');
     renderHBars(panel.querySelector('[data-ficha-channels]'), perc.topChannels, 'Sin canales');
     renderRiskBars(panel.querySelector('[data-ficha-severity]'), perc.bySeverity);
@@ -1612,15 +1685,17 @@ async function gatherMentionsForRival(competitorName, extraMentions = []) {
       text: a.originalComplaint,
       sourceUrl: a.sourceUrl,
       channel: a.channel,
+      competitorName,
     })),
   ];
-  // dedupe by text prefix
   const seen = new Set();
   const unique = [];
   for (const m of mentions) {
-    const key = String(m.text || '')
-      .slice(0, 80)
-      .toLowerCase();
+    const key = mentionDedupeKey({
+      text: m.text,
+      sourceUrl: m.sourceUrl,
+      competitorName,
+    });
     if (!key || seen.has(key)) continue;
     seen.add(key);
     unique.push(m);
@@ -1670,9 +1745,6 @@ async function generateRivalReport(competitorName, extraMentions = []) {
 
   // dedupe again
   mentions = await gatherMentionsForRival(name, mentions);
-  if (!mentions.length) {
-    mentions = [{ text: `Public dissatisfaction mentions about ${name}`, sourceUrl: '', channel: 'manual' }];
-  }
 
   const allowOffline = detection?.offlineFallback !== false;
   let report = null;
@@ -1721,16 +1793,24 @@ async function generateRivalReport(competitorName, extraMentions = []) {
     days: statsRangeDays(),
   });
 
+  const playbook = buildCapturePlaybook({
+    complaint: mentions.map((m) => m.text).join('\n') || name,
+    competitorName: name,
+    companyName: cfg?.company?.companyName,
+    whatTheySell: cfg?.company?.whatTheySell,
+    lang: report.language === 'en' ? 'en' : 'es',
+  });
+
   const stored = await storageGet([STORAGE.rivalReports]);
   const map = stored[STORAGE.rivalReports] && typeof stored[STORAGE.rivalReports] === 'object'
     ? stored[STORAGE.rivalReports]
     : {};
-  map[name] = { ...report, perception };
+  map[name] = { ...report, perception, playbook };
   await storageSet({ [STORAGE.rivalReports]: map });
   await storageSet({ [STORAGE.pendingRivalReport]: null });
 
   if (els.fichaRivalSelect) els.fichaRivalSelect.value = name;
-  renderRivalReport(report, perception);
+  renderRivalReport(report, perception, playbook);
   return report;
 }
 
@@ -1852,10 +1932,13 @@ async function scanCompetitorMarket() {
 
     const data = await storageGet([STORAGE.alerts]);
     const existing = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+    const existingIds = new Set(existing.map((a) => a.alertId));
     const kept = existing.filter((a) => !a._synthetic && !a._demo && a._source !== 'synthetic');
     const byId = new Map(kept.map((a) => [a.alertId, a]));
+    const fresh = [];
     for (const opp of opportunities) {
       if (opp._synthetic) continue;
+      if (!existingIds.has(opp.alertId)) fresh.push(opp);
       byId.set(opp.alertId, { ...byId.get(opp.alertId), ...opp });
     }
     const merged = [...byId.values()]
@@ -1863,8 +1946,15 @@ async function scanCompetitorMarket() {
       .slice(0, 100);
     await storageSet({ [STORAGE.alerts]: merged });
 
+    if (fresh.length) {
+      await notifyNewCompetitorAlerts(fresh);
+      const uid = cfg?.userId || 'local-user';
+      void upsertAlertsToCloud(fresh, uid);
+    } else {
+      await refreshCompetitorBadge();
+    }
     const parts = [];
-    if (stats.hn) parts.push(`${stats.hn} Hacker News`);
+    if (stats.hn) parts.push(`${stats.hn} HN`);
     if (stats.reddit) {
       parts.push(
         `${stats.reddit} Reddit${stats.providers?.reddit === 'oauth' ? ' (OAuth)' : ''}`,
@@ -1873,19 +1963,23 @@ async function scanCompetitorMarket() {
     if (stats.news) {
       const newsMode = stats.providers?.news === 'newsapi' ? 'NewsAPI' : 'RSS';
       parts.push(
-        `${stats.news} noticias/${newsMode}${stats.ownNews ? ` (${stats.ownNews} tu marca)` : ''}`,
+        `${stats.news} news/${newsMode}${stats.ownNews ? ` (${stats.ownNews} marca)` : ''}`,
       );
     }
-    if (stats.page) parts.push(`${stats.page} en página`);
+    if (stats.page) parts.push(`${stats.page} página`);
+    if (stats.skippedDupes) parts.push(`${stats.skippedDupes} dupes`);
     const namesLabel = (scannedNames || []).slice(0, 4).join(', ') || '—';
+    const errHint =
+      errors?.length > 0
+        ? ` · ${errors.slice(0, 2).join(' · ')}${errors.length > 2 ? '…' : ''}`
+        : '';
     if (els.scanStatus) {
       if (parts.length) {
-        els.scanStatus.textContent = `Listo: ${parts.join(' · ')} · rivales: ${namesLabel}`;
+        els.scanStatus.textContent = `Listo: ${parts.join(' · ')} · rivales: ${namesLabel}${errHint}`;
       } else {
-        const hint = errors?.length ? ` (${errors[0]})` : '';
         els.scanStatus.textContent =
-          `Sin menciones para: ${namesLabel}.${hint} ` +
-          `En Config poné marcas reales (Shopify, Stripe, AWS…) y volvé a escanear.`;
+          `Sin menciones para: ${namesLabel}.${errHint || ''} ` +
+          `En Config: marcas reales + Reddit OAuth / NewsAPI, y volvé a escanear.`;
       }
     }
     await refreshAlerts();
@@ -1916,17 +2010,19 @@ async function fillRivalSelect() {
 }
 
 async function prependOpportunity(opp) {
-  const data = await storageGet([STORAGE.alerts]);
+  const data = await storageGet([STORAGE.alerts, STORAGE.config]);
   const list = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
   await storageSet({
     [STORAGE.alerts]: [opp, ...list.filter((a) => a.alertId !== opp.alertId)].slice(0, 100),
   });
-  // No auto-expandir: el usuario abre con clic
   expandedAlertId = null;
+  const userId = data[STORAGE.config]?.userId || opp.userId || 'local-user';
+  void upsertAlertToCloud(opp, userId);
 }
 
 function sourceLabel(alert) {
   if (alert._brandScope === 'own') return 'prensa · tu marca';
+  if (alert._source === 'appsync') return 'aws';
   if (alert._source === 'hackernews') return 'hn';
   if (alert._source === 'reddit') return 'reddit';
   if (alert._source === 'news') return 'noticias';
@@ -1936,10 +2032,40 @@ function sourceLabel(alert) {
   return '';
 }
 
+async function refreshNotifyModeUi() {
+  const modeEl = document.getElementById('cfg-notify-mode');
+  const wrap = document.getElementById('cfg-notify-autoscan-wrap');
+  const select = document.getElementById('cfg-notify-autoscan');
+  const cloud = await hasAppSyncCloud();
+  // También mirar el form por si aún no guardó
+  const gql = document.getElementById('cfg-gql')?.value?.trim();
+  const rt = document.getElementById('cfg-rt')?.value?.trim();
+  const key = document.getElementById('cfg-key')?.value?.trim();
+  const formCloud = Boolean(gql && rt && key);
+  const useCloud = cloud || formCloud;
+
+  if (modeEl) {
+    modeEl.classList.remove('is-error');
+    modeEl.textContent = useCloud
+      ? 'Modo AWS: datos en DynamoDB · alertas vía AppSync (auto-scan local off).'
+      : 'Modo local: sin AppSync → cache chrome.storage + auto-scan fallback.';
+  }
+  if (select) select.disabled = useCloud;
+  if (wrap) wrap.style.opacity = useCloud ? '0.55' : '1';
+}
+
 function truncateText(text, max = 90) {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
   if (t.length <= max) return t;
   return `${t.slice(0, max)}…`;
+}
+
+function sevShort(severity) {
+  const s = String(severity || 'LOW').toUpperCase();
+  if (s === 'CRITICAL') return 'Crítica';
+  if (s === 'HIGH') return 'Alta';
+  if (s === 'MEDIUM') return 'Media';
+  return 'Baja';
 }
 
 function setAlertExpanded(node, open) {
@@ -2015,22 +2141,23 @@ function renderAlertCard(alert, company = null) {
             ${
               alert._brandScope === 'own'
                 ? '<span class="rl-badge rl-badge--own">Tu marca</span>'
-                : ''
+                : `<span class="rl-badge rl-badge--${escapeHtml(String(alert.severity || 'LOW').toLowerCase())}">${escapeHtml(sevShort(alert.severity))}</span>`
             }
-            <span class="rl-badge rl-badge--${escapeHtml(String(alert.severity || 'HIGH').toLowerCase())}">
-              ${escapeHtml(alert.status || 'NEW')}
-            </span>
           </span>
-          <span class="rl-alert__snippet">${escapeHtml(truncateText(alert.originalComplaint, 88))}</span>
-          <span class="rl-alert__meta">${escapeHtml(
-            [src, alert.frustrationScore != null ? `score ${alert.frustrationScore}` : '']
-              .filter(Boolean)
-              .join(' · '),
-          )}</span>
+          <span class="rl-alert__snippet">${escapeHtml(truncateText(alert.originalComplaint, 100))}</span>
         </span>
         <span class="rl-alert__chevron" data-chevron aria-hidden="true">${isOpen ? '▾' : '▸'}</span>
       </button>
       <div class="rl-alert__body" data-alert-body ${isOpen ? '' : 'hidden'}>
+        <p class="rl-alert__meta-row">
+          <span class="rl-badge rl-badge--status">${escapeHtml(alert.status || 'NEW')}</span>
+          ${src ? `<span class="rl-muted">${escapeHtml(src)}</span>` : ''}
+          ${
+            alert.themeId
+              ? `<span class="rl-badge rl-badge--theme">${escapeHtml(alert.themeId)}</span>`
+              : ''
+          }
+        </p>
         <p class="rl-alert__complaint">${escapeHtml(alert.originalComplaint || '')}</p>
         <p class="rl-muted rl-alert__links">
           ${
@@ -2039,12 +2166,19 @@ function renderAlertCard(alert, company = null) {
               : ''
           }
           <a href="${escapeHtml(alert.sourceUrl || '#')}" target="_blank" rel="noopener">Fuente</a>
-          ${c.weaknessNotes ? ` · <span title="${escapeHtml(c.weaknessNotes)}">debilidad</span>` : ''}
         </p>
-        <p class="rl-muted rl-alert__section-label">Pitch</p>
+        <p class="rl-muted rl-alert__section-label">Elegí tono</p>
         <div class="rl-pitch-tabs" data-pitch-tabs></div>
         <div class="rl-pitch-preview" data-pitch-preview></div>
-        <div class="rl-card-actions rl-card-actions--compact" data-alert-actions></div>
+        <div class="rl-action-bar rl-action-bar--primary" data-alert-actions-primary></div>
+        <details class="rl-disclosure rl-cfg-panel rl-alert__more">
+          <summary>Pipeline y herramientas</summary>
+          <div class="rl-action-bar rl-action-bar--nested" data-alert-actions-more></div>
+        </details>
+        <details class="rl-disclosure rl-cfg-panel">
+          <summary>Playbook</summary>
+          <div class="rl-playbook" data-alert-playbook></div>
+        </details>
       </div>
     `;
 
@@ -2101,6 +2235,22 @@ function renderAlertCard(alert, company = null) {
     let selectedPitch = pitches.find((p) => p.recommended) || pitches[0];
     const tabsEl = node.querySelector('[data-pitch-tabs]');
     const previewEl = node.querySelector('[data-pitch-preview]');
+    const playbookEl = node.querySelector('[data-alert-playbook]');
+    if (playbookEl) {
+      const pb =
+        alert._brandScope === 'own'
+          ? buildDefensePlaybook({
+              complaint: alert.originalComplaint,
+              companyName: company?.companyName,
+            })
+          : buildCapturePlaybook({
+              complaint: alert.originalComplaint,
+              competitorName: alert.competitorName,
+              companyName: company?.companyName,
+              whatTheySell: company?.whatTheySell,
+            });
+      playbookEl.innerHTML = formatPlaybookHtml(pb);
+    }
 
     const renderPitchUi = () => {
       if (!tabsEl || !previewEl) return;
@@ -2126,25 +2276,42 @@ function renderAlertCard(alert, company = null) {
     };
     renderPitchUi();
 
-    const actions = node.querySelector('[data-alert-actions]');
-    if (actions) {
-      const copy = document.createElement('button');
-      copy.type = 'button';
-      copy.className = 'rl-btn rl-btn--primary';
-      copy.textContent = 'Copiar';
+    const actionsPrimary = node.querySelector('[data-alert-actions-primary]');
+    const actionsMore = node.querySelector('[data-alert-actions-more]');
+    if (actionsPrimary && actionsMore) {
+      const mkBtn = (label, className = 'rl-btn rl-btn--ghost') => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = className;
+        b.textContent = label;
+        return b;
+      };
+      const mkGroup = (label, rowEl) => {
+        const g = document.createElement('div');
+        g.className = 'rl-action-bar__group';
+        if (label) {
+          const lab = document.createElement('p');
+          lab.className = 'rl-action-bar__label';
+          lab.textContent = label;
+          g.appendChild(lab);
+        }
+        g.appendChild(rowEl);
+        return g;
+      };
+
+      const rowPrimary = document.createElement('div');
+      rowPrimary.className = 'rl-action-bar__row';
+      const copy = mkBtn('Copiar', 'rl-btn rl-btn--soft');
       copy.addEventListener('click', async (e) => {
         e.stopPropagation();
         await navigator.clipboard.writeText(selectedPitch?.body || alert.salesPitch || '');
-        copy.textContent = '✓';
+        const prev = copy.textContent;
+        copy.textContent = 'Copiado';
         setTimeout(() => {
-          copy.textContent = 'Copiar';
+          copy.textContent = prev;
         }, 1000);
       });
-
-      const inject = document.createElement('button');
-      inject.type = 'button';
-      inject.className = 'rl-btn rl-btn--ghost';
-      inject.textContent = 'Inyectar';
+      const inject = mkBtn('Inyectar pitch', 'rl-btn rl-btn--primary');
       inject.addEventListener('click', async (e) => {
         e.stopPropagation();
         inject.disabled = true;
@@ -2159,31 +2326,29 @@ function renderAlertCard(alert, company = null) {
           inject.disabled = false;
         }
       });
+      rowPrimary.append(copy, inject);
+      actionsPrimary.append(mkGroup('', rowPrimary));
 
-      const mkStatusBtn = (label, status) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'rl-btn rl-btn--ghost';
-        b.textContent = label;
+      const rowStatus = document.createElement('div');
+      rowStatus.className = 'rl-action-bar__row rl-action-bar__row--seg';
+      const mkStatusBtn = (label, status, extraClass = '') => {
+        const b = mkBtn(label, `rl-btn ${extraClass}`.trim());
         b.addEventListener('click', async (e) => {
           e.stopPropagation();
           await updateAlertStatus(alert.alertId, status);
         });
         return b;
       };
-
-      actions.append(
-        copy,
-        inject,
+      rowStatus.append(
         mkStatusBtn('Contactado', 'CONTACTED'),
-        mkStatusBtn('Ganado', 'WON'),
-        mkStatusBtn('Descartar', 'DISMISSED'),
+        mkStatusBtn('Ganado', 'WON', 'rl-btn--ok'),
+        mkStatusBtn('Descartar', 'DISMISSED', 'rl-btn--warn'),
       );
 
-      const crmBtn = document.createElement('button');
-      crmBtn.type = 'button';
-      crmBtn.className = 'rl-btn rl-btn--ghost';
-      crmBtn.textContent = 'CRM';
+      const rowTools = document.createElement('div');
+      rowTools.className = 'rl-action-bar__row rl-action-bar__row--3';
+
+      const crmBtn = mkBtn('CRM', 'rl-btn rl-btn--ghost rl-btn--sm');
       crmBtn.title = 'Enviar a webhook / HubSpot';
       crmBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -2194,7 +2359,7 @@ function renderAlertCard(alert, company = null) {
           const results = await pushOpportunityToCrm(alert, {
             companyName: cfgData[STORAGE.config]?.company?.companyName,
           });
-          crmBtn.textContent = results.some((r) => r.ok) ? '✓ CRM' : 'CRM ✗';
+          crmBtn.textContent = results.some((r) => r.ok) ? 'OK' : 'Error';
           if (els.scanStatus) {
             els.scanStatus.classList.toggle('is-error', !results.some((r) => r.ok));
             els.scanStatus.textContent = formatPushSummary(results);
@@ -2207,10 +2372,7 @@ function renderAlertCard(alert, company = null) {
         }
       });
 
-      const shareBtn = document.createElement('button');
-      shareBtn.type = 'button';
-      shareBtn.className = 'rl-btn rl-btn--ghost';
-      shareBtn.textContent = 'Share';
+      const shareBtn = mkBtn('Compartir', 'rl-btn rl-btn--ghost rl-btn--sm');
       shareBtn.title = 'Crear link / token compartible';
       shareBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -2234,20 +2396,16 @@ function renderAlertCard(alert, company = null) {
           });
         } finally {
           shareBtn.disabled = false;
-          shareBtn.textContent = 'Share';
+          shareBtn.textContent = 'Compartir';
         }
       });
 
-      actions.append(crmBtn, shareBtn);
-
-      const reportBtn = document.createElement('button');
-      reportBtn.type = 'button';
-      reportBtn.className = 'rl-btn rl-btn--ghost';
-      reportBtn.textContent = 'Informe IA';
+      const reportBtn = mkBtn('Informe', 'rl-btn rl-btn--ghost rl-btn--sm');
+      reportBtn.title = 'Informe IA del rival';
       reportBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         reportBtn.disabled = true;
-        reportBtn.textContent = 'Analizando…';
+        reportBtn.textContent = '…';
         try {
           await generateRivalReport(alert.competitorName, [
             {
@@ -2258,10 +2416,12 @@ function renderAlertCard(alert, company = null) {
           ]);
         } finally {
           reportBtn.disabled = false;
-          reportBtn.textContent = 'Informe IA';
+          reportBtn.textContent = 'Informe';
         }
       });
-      actions.append(reportBtn);
+
+      rowTools.append(crmBtn, shareBtn, reportBtn);
+      actionsMore.append(mkGroup('Pipeline', rowStatus), mkGroup('Herramientas', rowTools));
     }
 
     els.feed.appendChild(node);
@@ -2276,7 +2436,7 @@ const CAPTURE_STATUS_LABELS = {
 };
 
 async function updateAlertStatus(alertId, status) {
-  const data = await storageGet([STORAGE.alerts]);
+  const data = await storageGet([STORAGE.alerts, STORAGE.config]);
   const list = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
   const prev = list.find((a) => a.alertId === alertId);
   const next = list.map((a) => (a.alertId === alertId ? { ...a, status } : a));
@@ -2295,10 +2455,13 @@ async function updateAlertStatus(alertId, status) {
       sourceUrl: prev.sourceUrl || '',
       alertId: prev.alertId,
     });
+    const userId = data[STORAGE.config]?.userId || prev.userId || 'local-user';
+    void updateAlertStatusInCloud(alertId, userId, status);
   }
 
   await refreshAlerts();
   await refreshKpis();
+  await refreshCompetitorBadge();
 }
 
 function emptyCompetitorDraft() {
@@ -2557,6 +2720,15 @@ async function loadConfigForm() {
   document.getElementById('cfg-newsapi').checked = Boolean(scanCreds.newsapi?.enabled);
   document.getElementById('cfg-newsapi-key').value = scanCreds.newsapi?.apiKey || '';
 
+  const notify = await loadNotifyPrefs();
+  document.getElementById('cfg-notify-enabled').checked = notify.enabled !== false;
+  document.getElementById('cfg-notify-desktop').checked = notify.desktop !== false;
+  document.getElementById('cfg-notify-badge').checked = notify.badge !== false;
+  document.getElementById('cfg-notify-own').checked = notify.ownBrand !== false;
+  document.getElementById('cfg-notify-severity').value = notify.minSeverity || 'MEDIUM';
+  document.getElementById('cfg-notify-autoscan').value = String(notify.autoScanMinutes ?? 30);
+  await refreshNotifyModeUi();
+
   const label = document.getElementById('auth-user-label');
   if (label && session) {
     label.textContent =
@@ -2737,6 +2909,20 @@ els.form?.addEventListener('submit', async (ev) => {
       },
     });
 
+    await saveNotifyPrefs({
+      enabled: document.getElementById('cfg-notify-enabled')?.checked,
+      desktop: document.getElementById('cfg-notify-desktop')?.checked,
+      badge: document.getElementById('cfg-notify-badge')?.checked,
+      ownBrand: document.getElementById('cfg-notify-own')?.checked,
+      minSeverity: document.getElementById('cfg-notify-severity')?.value || 'MEDIUM',
+      autoScanMinutes: Number(document.getElementById('cfg-notify-autoscan')?.value || 0),
+    });
+    try {
+      await chrome.runtime.sendMessage({ type: 'RL_SYNC_NOTIFY_ALARM' });
+    } catch {
+      /* ignore */
+    }
+
     // Pedir host opcional para webhook custom si está activo
     const whUrl = document.getElementById('cfg-crm-webhook-url')?.value?.trim();
     if (document.getElementById('cfg-crm-webhook')?.checked && whUrl) {
@@ -2761,7 +2947,10 @@ els.form?.addEventListener('submit', async (ev) => {
 
     await chrome.runtime.sendMessage({ type: 'RL_START_SUBSCRIPTION', userId });
     await fillRivalSelect();
-    els.status.textContent = 'Configuración guardada. Competidores listos para captación.';
+    await refreshNotifyModeUi();
+    els.status.textContent = appsync.graphqlUrl
+      ? 'Guardado. Alertas de competencia vía AWS AppSync.'
+      : 'Configuración guardada. Competidores listos para captación.';
   } catch (err) {
     els.status.classList.add('is-error');
     els.status.textContent =
@@ -2929,6 +3118,9 @@ chrome.runtime.onMessage.addListener((message) => {
       void generateRivalReport(message.payload.competitorName, message.payload.pageMentions || []);
     }
   }
+  if (message?.type === 'RL_FOCUS_COMP_TAB') {
+    void applyNotificationFocus();
+  }
   if (message?.type === 'RL_PAGE_RIVALS_DETECTED') {
     void storageSet({ [STORAGE.pageRivals]: message.payload }).then(() => refreshPageRivalBanner());
   }
@@ -2976,9 +3168,26 @@ async function enterApp(session) {
 
   await loadUiZoom();
   await loadConfigForm();
+
+  // Hidratar DynamoDB → cache local cuando hay AppSync
+  if (session?.userId && (await hasAppSyncCloud())) {
+    try {
+      const sync = await hydrateFromCloud(session.userId);
+      if (els.scanStatus && sync.ok) {
+        els.scanStatus.textContent = `Cloud sync: ${sync.alerts} alertas · config ${
+          sync.config ? 'OK' : '—'
+        }`;
+      }
+    } catch (err) {
+      console.warn('[RL] hydrateFromCloud', err);
+    }
+  }
+
   await fillRivalSelect();
   await refreshAlerts();
   await refreshKpis();
+  await refreshCompetitorBadge();
+  await applyNotificationFocus();
   await consumePendingRivalReport();
 
   const pending = await storageGet([STORAGE.pending]);

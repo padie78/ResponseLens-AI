@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "ResponseLens AI",
-  "version": "0.7.1",
+  "version": "0.10.1",
   "description": "Control de daños reputacionales e inteligencia competitiva para equipos de soporte, marketing y ventas.",
   "permissions": [
     "sidePanel",
     "activeTab",
     "scripting",
     "storage",
-    "notifications"
+    "notifications",
+    "alarms"
   ],
   "optional_host_permissions": [
     "https://*/*",

@@ -17,11 +17,20 @@ Estados: NEW → CONTACTED / WON / DISMISSED.
 
 ## Escaneo de competencia (valor MVP)
 - Botón **Escanear ahora**: HN + Reddit (**OAuth** si hay keys) + noticias (**NewsAPI** o Google News RSS) + import de pestaña.
+- Scoring de frustración más estricto (sin inflar MEDIUM vacío); dedupe por URL/texto; aliases del rival en queries.
 - Config → **Fuentes profesionales (API)**: Reddit OAuth + NewsAPI. Detalle: `docs/product-sources.md`.
-- Noticias: rivales **y** tu marca (badge “Tu marca” si hay menciones negativas/críticas).
-- **Sin simulados**: si no hay hits, el feed queda vacío (mensaje claro).
+- Noticias: rivales **y** tu marca (badge “Tu marca”).
+- **Sin simulados / sin phantom** en ficha: vacío = vacío.
 - Cron Lambda `competitor_scan`: HN + Reddit (OAuth/env) + NewsAPI cuando hay env vars.
 - Detección en página también en Reddit; chip **captar · Rival**.
+
+## Datos cloud (DynamoDB / AppSync)
+- **Fuente de verdad:** DynamoDB single-table (`USER#` / `ALERT#`).
+- Extensión: cache local + hydrate `getUserConfig` / `listCompetitorAlerts` al entrar.
+- Escaneo / captura / cron → `upsertCompetitorAlert` (persist) + `publishCompetitorAlert` (WS).
+- Pipeline Contactado/Ganado/Descartar → `updateCompetitorAlert`.
+- Config empresa/rivales → `saveUserConfig`.
+- Secretos (API keys CRM, Reddit, NewsAPI), detection UI y zoom: solo local.
 
 ## CRM / Share (v0.6)
 - Config → Integraciones: webhook + HubSpot + auto-push.

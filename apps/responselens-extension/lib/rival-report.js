@@ -5,15 +5,7 @@
 
 import { detectReplyLanguage, buildLocalTriage } from './local-fallback.js';
 import { lookupCompetitorProfile, scoreFrustration } from './competitor-opportunity.js';
-
-const THEME_RULES = [
-  { id: 'reliability', re: /\b(outage|downtime|ca[ií]da|falla|crash|timeout|500|unstable|inestable)\b/i, es: 'Confiabilidad / uptime', en: 'Reliability / uptime' },
-  { id: 'support', re: /\b(support|soporte|ticket|respuesta|ignore|ghost)\b/i, es: 'Soporte al cliente', en: 'Customer support' },
-  { id: 'pricing', re: /\b(price|precio|caro|expensive|billing|cobro|charge|refund|reembolso)\b/i, es: 'Precio / facturación', en: 'Pricing / billing' },
-  { id: 'product', re: /\b(bug|feature|ui|ux|product|producto|lento|slow|broken|roto)\b/i, es: 'Producto / UX', en: 'Product / UX' },
-  { id: 'trust', re: /\b(scam|estafa|fraude|trust|confianza|lie|mentir)\b/i, es: 'Confianza / reputación', en: 'Trust / reputation' },
-  { id: 'churn', re: /\b(switch|cambio|cancel|me voy|leaving|alternative|alternativa)\b/i, es: 'Intención de cambio', en: 'Switch intent' },
-];
+import { detectThemes } from './theme-rules.js';
 
 /**
  * @param {{
@@ -48,7 +40,7 @@ export function buildLocalRivalReport(input) {
   const avgFrustration =
     mentions.length > 0
       ? mentions.reduce((s, m) => s + scoreFrustration(m.text), 0) / mentions.length
-      : scoreFrustration(corpus);
+      : 0;
 
   const conclusions = buildConclusions({
     lang,
@@ -89,8 +81,8 @@ export function buildLocalRivalReport(input) {
     language: lang,
     mentionCount: mentions.length,
     avgFrustration: Number(avgFrustration.toFixed(2)),
-    riskLevel: triage.riskLevel,
-    themes,
+    riskLevel: mentions.length ? triage.riskLevel : 'LOW',
+    themes: mentions.length ? themes : [],
     conclusions,
     opportunities,
     reportMarkdown,
@@ -98,22 +90,6 @@ export function buildLocalRivalReport(input) {
     generatedAt: new Date().toISOString(),
     sources: mentions.map((m) => m.sourceUrl).filter(Boolean).slice(0, 8),
   };
-}
-
-function detectThemes(text, lang) {
-  const hit = [];
-  for (const rule of THEME_RULES) {
-    if (rule.re.test(text)) {
-      hit.push({ id: rule.id, label: lang === 'en' ? rule.en : rule.es });
-    }
-  }
-  if (!hit.length) {
-    hit.push({
-      id: 'general',
-      label: lang === 'en' ? 'General dissatisfaction' : 'Insatisfacción general',
-    });
-  }
-  return hit;
 }
 
 function buildConclusions({
@@ -131,6 +107,21 @@ function buildConclusions({
   const offer = whatTheySell || (lang === 'en' ? 'a more stable alternative' : 'una alternativa más estable');
   const themeLabels = themes.map((t) => t.label).join(', ');
   const weak = profile?.weaknessNotes || '';
+
+  if (!mentionCount) {
+    if (lang === 'en') {
+      return [
+        `No live negative mentions found for ${rival} in this run.`,
+        `Scan again with Reddit OAuth / NewsAPI, or open the rival’s public threads and use captar.`,
+        weak ? `Stored profile weakness (not live): ${weak}` : `Add weakness notes in Config to prep playbooks.`,
+      ];
+    }
+    return [
+      `Sin menciones negativas live de ${rival} en esta pasada.`,
+      `Re-escaneá con Reddit OAuth / NewsAPI, o abrí hilos públicos del rival y usá captar.`,
+      weak ? `Debilidad en ficha (no live): ${weak}` : `Agregá notas de debilidad en Config para preparar playbooks.`,
+    ];
+  }
 
   if (lang === 'en') {
     return [
@@ -163,6 +154,24 @@ function buildOpportunities({ lang, rival, themes, companyName, whatTheySell, pr
   const brand = companyName;
   const theme = themes[0]?.label || (lang === 'en' ? 'reliability' : 'confiabilidad');
   const industry = profile?.industry || '';
+  const mentionThemes = themes.filter((t) => t.id !== 'general');
+
+  if (!mentionThemes.length && themes[0]?.id === 'general') {
+    if (lang === 'en') {
+      return [
+        `No live angles yet — run Escanear or open ${rival} threads and captar real complaints.`,
+        whatTheySell
+          ? `When signal appears, map "${whatTheySell}" to the top complaint theme.`
+          : `Fill “what you sell” in Config so pitches sharpen automatically.`,
+      ];
+    }
+    return [
+      `Sin ángulos live aún — corré Escanear o abrí hilos de ${rival} y captá quejas reales.`,
+      whatTheySell
+        ? `Cuando haya señal, mapeá "${whatTheySell}" al tema dominante de la queja.`
+        : `Completá “qué vende” en Config para afilar pitches automáticamente.`,
+    ];
+  }
 
   if (lang === 'en') {
     return [

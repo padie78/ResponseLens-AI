@@ -3,18 +3,10 @@
  */
 
 import { scoreFrustration } from './competitor-opportunity.js';
+import { mentionDedupeKey } from './mention-dedupe.js';
+import { THEME_RULES } from './theme-rules.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-const THEME_RULES = [
-  { id: 'reliability', re: /\b(outage|downtime|ca[ií]da|falla|crash|timeout|500|unstable|inestable)\b/i, label: 'Confiabilidad' },
-  { id: 'support', re: /\b(support|soporte|ticket|respuesta|ignore|ghost|abysmal)\b/i, label: 'Soporte' },
-  { id: 'pricing', re: /\b(price|precio|caro|expensive|billing|cobro|charge|refund|reembolso)\b/i, label: 'Precio' },
-  { id: 'product', re: /\b(bug|feature|ui|ux|product|producto|lento|slow|broken|roto)\b/i, label: 'Producto' },
-  { id: 'trust', re: /\b(scam|estafa|fraude|trust|confianza|lie|mentir)\b/i, label: 'Confianza' },
-  { id: 'churn', re: /\b(switch|cambio|cancel|me voy|leaving|alternative|alternativa)\b/i, label: 'Churn' },
-];
-
 function parseAt(value) {
   if (!value) return null;
   const t = Date.parse(value);
@@ -78,7 +70,11 @@ export function computeRivalPerception(opts) {
   const items = [];
   for (const row of [...fromMentions, ...fromAlerts]) {
     if (!row.text) continue;
-    const key = row.text.slice(0, 90).toLowerCase();
+    const key = mentionDedupeKey({
+      text: row.text,
+      sourceUrl: row.sourceUrl,
+      competitorName: name,
+    });
     if (seen.has(key)) continue;
     seen.add(key);
     items.push(row);

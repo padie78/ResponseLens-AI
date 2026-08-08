@@ -171,6 +171,28 @@ input PublishCompetitorAlertInput {
   notes: String
 }
 
+input UpsertCompetitorAlertInput {
+  alertId: ID!
+  userId: ID!
+  competitorName: String!
+  originalComplaint: String!
+  sourceUrl: String!
+  channel: String
+  severity: AlertSeverity!
+  frustrationScore: Float
+  salesPitch: String!
+  detectedAt: AWSDateTime!
+  status: AlertWorkflowStatus
+  notes: String
+}
+
+input UpdateCompetitorAlertInput {
+  alertId: ID!
+  userId: ID!
+  status: AlertWorkflowStatus
+  notes: String
+}
+
 input AnalyzeRivalReportInput {
   userId: ID!
   competitorName: String!
@@ -223,6 +245,15 @@ type Mutation {
   Data source NONE (passthrough) — dispara la subscription WebSocket.
   """
   publishCompetitorAlert(input: PublishCompetitorAlertInput!): CompetitorAlert! @aws_api_key @aws_cognito_user_pools
+
+  """
+  Persiste la alerta en DynamoDB (y publica realtime si el publisher tiene AppSync).
+  Usada por la extensión y por flujos cloud.
+  """
+  upsertCompetitorAlert(input: UpsertCompetitorAlertInput!): CompetitorAlert! @aws_api_key @aws_cognito_user_pools
+
+  """Actualiza estado / notas del pipeline de captación en DynamoDB."""
+  updateCompetitorAlert(input: UpdateCompetitorAlertInput!): CompetitorAlert! @aws_api_key @aws_cognito_user_pools
 }
 
 type Subscription {

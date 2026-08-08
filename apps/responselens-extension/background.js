@@ -4,6 +4,15 @@
  */
 
 import { matchPatternsForHost, normalizePlatformPrefs } from './lib/platforms.js';
+import {
+  notifyNewCompetitorAlerts,
+  refreshCompetitorBadge,
+  resolveAutoScanMode,
+  setFocusAlert,
+} from './lib/notify.js';
+import { runCompetitorScan } from './lib/competitor-scan.js';
+import { loadScanCredentials } from './lib/scan-credentials.js';
+import { defaultCompetitorSeed } from './lib/competitor-opportunity.js';
 
 const STORAGE_KEYS = {
   config: 'rl_user_config',
@@ -13,6 +22,9 @@ const STORAGE_KEYS = {
   history: 'rl_reply_history',
   detection: 'rl_detection',
 };
+
+const SCAN_ALARM = 'rl-competitor-scan';
+
 
 /** @type {WebSocket | null} */
 let realtimeSocket = null;
@@ -111,6 +123,8 @@ enableSidePanelOnClick();
 getLocal([STORAGE_KEYS.detection]).then((data) => {
   void syncCustomPlatformScripts(data[STORAGE_KEYS.detection] || {});
 });
+void syncCompetitorScanAlarm();
+void refreshCompetitorBadge();
 
 chrome.runtime.onInstalled.addListener(async () => {
   await enableSidePanelOnClick();
@@ -152,10 +166,50 @@ chrome.runtime.onInstalled.addListener(async () => {
       },
     });
   }
+  await syncCompetitorScanAlarm();
+  await refreshCompetitorBadge();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   enableSidePanelOnClick();
+  void syncCompetitorScanAlarm();
+  void refreshCompetitorBadge();
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm?.name === SCAN_ALARM) {
+    void runBackgroundCompetitorScan();
+  }
+});
+
+chrome.notifications.onClicked.addListener(async (notificationId) => {
+  try {
+    await chrome.notifications.clear(notificationId);
+  } catch {
+    /* ignore */
+  }
+  const m = String(notificationId || '').match(/^rl_(?:opp_|cap_)(.+)$/);
+  if (m?.[1] && !m[1].startsWith('batch_')) {
+    await setFocusAlert(m[1]);
+  } else {
+    await setFocusAlert(null);
+  }
+  await openSidePanel();
+  try {
+    await chrome.runtime.sendMessage({ type: 'RL_FOCUS_COMP_TAB' });
+  } catch {
+    /* sidepanel closed — will pick focus on open */
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (changes.rl_competitor_alerts || changes.rl_notify_prefs) {
+    void refreshCompetitorBadge();
+  }
+  if (changes.rl_notify_prefs || changes.rl_appsync) {
+    void syncCompetitorScanAlarm();
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -239,16 +293,19 @@ async function handleMessage(message, sender) {
         console.warn('[RL] auto CRM push', err);
       }
       try {
-        await chrome.notifications.create(`rl_cap_${alert.alertId}`, {
-          type: 'basic',
-          iconUrl: 'icons/icon48.png',
-          title: `Captación: ${alert.competitorName}`,
-          message: alert.requestRivalReport
-            ? 'Oportunidad + informe IA del rival en curso…'
-            : (alert.salesPitch || '').slice(0, 120),
-        });
+        await notifyNewCompetitorAlerts([alert]);
       } catch {
         /* optional */
+      }
+      try {
+        const { upsertAlertToCloud } = await import('./lib/cloud-sync.js');
+        const cfg = await getLocal([STORAGE_KEYS.config]);
+        await upsertAlertToCloud(
+          alert,
+          cfg[STORAGE_KEYS.config]?.userId || alert.userId || 'local-user',
+        );
+      } catch (err) {
+        console.warn('[RL] capture cloud upsert', err);
       }
       return { ok: true };
     }
@@ -410,6 +467,18 @@ async function handleMessage(message, sender) {
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
+    }
+
+    case 'RL_NOTIFY_NEW_ALERTS': {
+      const list = Array.isArray(message.alerts) ? message.alerts : [];
+      const result = await notifyNewCompetitorAlerts(list);
+      return { ok: true, ...result };
+    }
+
+    case 'RL_SYNC_NOTIFY_ALARM': {
+      await syncCompetitorScanAlarm();
+      await refreshCompetitorBadge();
+      return { ok: true };
     }
 
     case 'RL_SAVE_CONFIG': {
@@ -608,22 +677,23 @@ async function ensureRealtimeSubscription(userId) {
     }
 
     if (msg.type === 'data' && msg.payload?.data?.onNewCompetitorAlert) {
-      const alert = msg.payload.data.onNewCompetitorAlert;
+      const alert = {
+        ...msg.payload.data.onNewCompetitorAlert,
+        _source: 'appsync',
+      };
+      const data = await getLocal([STORAGE_KEYS.alerts]);
+      const list = Array.isArray(data[STORAGE_KEYS.alerts]) ? data[STORAGE_KEYS.alerts] : [];
+      const isNew = !list.some((a) => a.alertId === alert.alertId);
       await prependAlert(alert);
       try {
         await chrome.runtime.sendMessage({ type: 'RL_NEW_ALERT', payload: alert });
       } catch {
         /* sidepanel closed */
       }
-      try {
-        await chrome.notifications.create(`rl_${alert.alertId}`, {
-          type: 'basic',
-          iconUrl: 'icons/icon48.png',
-          title: `Oportunidad: ${alert.competitorName}`,
-          message: alert.salesPitch.slice(0, 120),
-        });
-      } catch {
-        /* notifications optional */
+      if (isNew) {
+        await notifyNewCompetitorAlerts([alert]);
+      } else {
+        await refreshCompetitorBadge();
       }
     }
 
@@ -643,6 +713,86 @@ async function prependAlert(alert) {
   const enriched = { status: 'NEW', ...alert };
   const next = [enriched, ...list.filter((a) => a.alertId !== alert.alertId)].slice(0, 100);
   await setLocal({ [STORAGE_KEYS.alerts]: next });
+  await refreshCompetitorBadge();
+}
+
+async function syncCompetitorScanAlarm() {
+  try {
+    await chrome.alarms.clear(SCAN_ALARM);
+  } catch {
+    /* ignore */
+  }
+  const mode = await resolveAutoScanMode();
+  // Con AppSync: las alertas las empuja Lambda → publishCompetitorAlert.
+  if (!mode.useLocal) {
+    if (mode.cloud) {
+      console.info('[RL] auto-scan local off — alertas vía AWS AppSync');
+    }
+    return;
+  }
+  await chrome.alarms.create(SCAN_ALARM, {
+    periodInMinutes: Math.min(Math.max(mode.minutes, 5), 180),
+    delayInMinutes: 1,
+  });
+}
+
+async function runBackgroundCompetitorScan() {
+  const mode = await resolveAutoScanMode();
+  if (!mode.useLocal) return;
+
+  const data = await getLocal([STORAGE_KEYS.config, STORAGE_KEYS.detection, STORAGE_KEYS.alerts]);
+  const cfg = data[STORAGE_KEYS.config] || {};
+  const competitors = cfg.competitors?.length ? cfg.competitors : defaultCompetitorSeed();
+  const platformPrefs = normalizePlatformPrefs(data[STORAGE_KEYS.detection]?.platforms);
+  const existing = Array.isArray(data[STORAGE_KEYS.alerts]) ? data[STORAGE_KEYS.alerts] : [];
+  const existingIds = new Set(existing.map((a) => a.alertId));
+
+  try {
+    const { opportunities } = await runCompetitorScan({
+      company: cfg.company,
+      userId: cfg.userId || 'local-user',
+      competitors,
+      pageMentions: [],
+      preferSyntheticFallback: false,
+      sources: {
+        ...(platformPrefs.scanSources || {}),
+        active_page: false,
+      },
+      credentials: await loadScanCredentials(),
+    });
+
+    const fresh = (opportunities || []).filter(
+      (o) => o && !o._synthetic && !existingIds.has(o.alertId),
+    );
+    if (!fresh.length) {
+      await refreshCompetitorBadge();
+      return;
+    }
+
+    const kept = existing.filter((a) => !a._synthetic && !a._demo && a._source !== 'synthetic');
+    const byId = new Map(kept.map((a) => [a.alertId, a]));
+    for (const opp of opportunities || []) {
+      if (opp._synthetic) continue;
+      byId.set(opp.alertId, { ...byId.get(opp.alertId), ...opp });
+    }
+    const merged = [...byId.values()]
+      .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime())
+      .slice(0, 100);
+    await setLocal({ [STORAGE_KEYS.alerts]: merged });
+
+    await notifyNewCompetitorAlerts(fresh);
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'RL_NEW_ALERT',
+        payload: fresh[0],
+        batch: fresh.length,
+      });
+    } catch {
+      /* sidepanel closed */
+    }
+  } catch (err) {
+    console.warn('[RL] background competitor scan', err);
+  }
 }
 
 function teardownRealtime() {

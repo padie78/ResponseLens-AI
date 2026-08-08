@@ -282,21 +282,53 @@
     const offer = companyProfile.whatTheySell || '';
     const snippet = complaint.slice(0, 100);
     const lang = detectLang(complaint);
+    const theme =
+      /\b(outage|downtime|ca[ií]da|falla|crash)\b/i.test(complaint)
+        ? 'reliability'
+        : /\b(support|soporte|ticket)\b/i.test(complaint)
+          ? 'support'
+          : /\b(price|precio|caro|billing|cobro|refund)\b/i.test(complaint)
+            ? 'pricing'
+            : /\b(scam|estafa|fraude)\b/i.test(complaint)
+              ? 'trust'
+              : /\b(switch|cambio|alternativa|me\s+voy)\b/i.test(complaint)
+                ? 'churn'
+                : 'general';
+    const hookEs = {
+      reliability: 'especialmente en uptime y estabilidad',
+      support: 'con soporte humano que sí responde',
+      pricing: 'con facturación predecible',
+      trust: 'con transparencia',
+      churn: 'si estás evaluando alternativas ahora',
+      general: 'sin fricción innecesaria',
+      product: 'con un producto más usable',
+    };
+    const hookEn = {
+      reliability: 'especially on uptime and stability',
+      support: 'with human support that actually replies',
+      pricing: 'with predictable billing',
+      trust: 'with transparency',
+      churn: 'if you are evaluating alternatives now',
+      general: 'without unnecessary friction',
+      product: 'with a more usable product',
+    };
     if (lang === 'en') {
       const offerEn = offer || 'a more stable alternative';
+      const hook = hookEn[theme] || hookEn.general;
       return (
         `Saw your comment about ${competitorName}. ` +
-        `If you're looking for ${offerEn}, ${brand} can help ` +
+        `If you're looking for ${offerEn} — ${hook}, ${brand} can help ` +
         `("${snippet}${complaint.length > 100 ? '…' : ''}"). ` +
-        `We can support a smooth transition.`
+        `Happy to support a smooth transition via DM.`
       );
     }
     const offerEs = offer || 'una alternativa más estable';
+    const hook = hookEs[theme] || hookEs.general;
     return (
       `Vi tu comentario sobre ${competitorName}. ` +
-      `Si buscas ${offerEs}, en ${brand} podemos ayudarte ` +
+      `Si buscas ${offerEs} — ${hook}, en ${brand} podemos ayudarte ` +
       `("${snippet}${complaint.length > 100 ? '…' : ''}"). ` +
-      `Te acompañamos en la transición sin fricción.`
+      `Te acompañamos en la transición (DM).`
     );
   }
 

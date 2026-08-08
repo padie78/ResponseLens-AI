@@ -155,11 +155,13 @@ resource "aws_appsync_resolver" "publish_competitor_alert" {
 
 locals {
   lambda_resolvers = {
-    "Query.getUserConfig"           = { type = "Query", field = "getUserConfig" }
-    "Query.listCompetitorAlerts"    = { type = "Query", field = "listCompetitorAlerts" }
-    "Mutation.analyzeReply"         = { type = "Mutation", field = "analyzeReply" }
-    "Mutation.analyzeRivalReport"   = { type = "Mutation", field = "analyzeRivalReport" }
-    "Mutation.saveUserConfig"       = { type = "Mutation", field = "saveUserConfig" }
+    "Query.getUserConfig"              = { type = "Query", field = "getUserConfig" }
+    "Query.listCompetitorAlerts"       = { type = "Query", field = "listCompetitorAlerts" }
+    "Mutation.analyzeReply"            = { type = "Mutation", field = "analyzeReply" }
+    "Mutation.analyzeRivalReport"      = { type = "Mutation", field = "analyzeRivalReport" }
+    "Mutation.saveUserConfig"          = { type = "Mutation", field = "saveUserConfig" }
+    "Mutation.upsertCompetitorAlert"   = { type = "Mutation", field = "upsertCompetitorAlert" }
+    "Mutation.updateCompetitorAlert"   = { type = "Mutation", field = "updateCompetitorAlert" }
   }
 }
 

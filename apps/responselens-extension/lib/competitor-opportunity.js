@@ -3,8 +3,16 @@
  * Incluye fichas de competidor (logo, web, industria, debilidades).
  */
 
+import { primaryTheme, themeHookSentence } from './theme-rules.js';
+
 const FRUSTRATION_RE =
-  /\b(falla|fall[oó]|ca[ií]da|outage|downtime|estafa|me\s+cambio|no\s+funciona|terrible|awful|scam|refund|horrible|pésim|basura|cobraron|chargeback)\b/i;
+  /\b(falla|fall[oó]|ca[ií]da|outage|downtime|estafa|me\s+cambio|no\s+funciona|terrible|awful|scam|refund|horrible|pésim|basura|cobraron|chargeback|broken|crash|lawsuit|demanda)\b/i;
+
+const INTENSITY_RE =
+  /\b(siempre|never|nunca|horas|days?|días|urgente|critical|crític|asap|100%|worst|pésim|basura)\b/i;
+
+const CHURN_RE =
+  /\b(me\s+cambio|switching|cancel|leaving|alternativa|alternative|chargeback|me\s+voy)\b/i;
 
 /** Catálogo demo con fichas enriquecidas (logo vía favicon del dominio). */
 export const COMPETITOR_CATALOG = {
@@ -41,9 +49,18 @@ export const COMPETITOR_CATALOG = {
 };
 
 export function scoreFrustration(text) {
-  const hits = String(text || '').match(new RegExp(FRUSTRATION_RE.source, 'gi'));
-  if (!hits?.length) return 0.4;
-  return Number(Math.min(0.35 + hits.length * 0.18, 0.97).toFixed(2));
+  const raw = String(text || '');
+  if (!raw.trim()) return 0;
+  const hits = raw.match(new RegExp(FRUSTRATION_RE.source, 'gi'));
+  if (!hits?.length) {
+    // Sin keywords: señal débil (antes devolvía 0.4 y inflaba severidad)
+    return INTENSITY_RE.test(raw) ? 0.22 : 0.08;
+  }
+  let score = 0.32 + hits.length * 0.14;
+  if (INTENSITY_RE.test(raw)) score += 0.08;
+  if (CHURN_RE.test(raw)) score += 0.1;
+  if (/\b(scam|estafa|lawsuit|demanda|fraude)\b/i.test(raw)) score += 0.12;
+  return Number(Math.min(score, 0.97).toFixed(2));
 }
 
 export function severityFromScore(score) {
@@ -132,7 +149,7 @@ export function craftSalesPitch({ companyName, whatTheySell, keyLinks, competito
 
 /**
  * Tres pitches de captación: suave (recomendado), directo y técnico.
- * Idioma alineado al de la queja (ES/EN).
+ * Idioma alineado al de la queja (ES/EN). Tema → hook de playbook.
  */
 export function craftSalesPitchVariants({
   companyName,
@@ -140,6 +157,7 @@ export function craftSalesPitchVariants({
   keyLinks,
   competitorName,
   complaint,
+  themeId = null,
 }) {
   const lang = detectComplaintLanguage(complaint);
   const brand =
@@ -152,6 +170,18 @@ export function craftSalesPitchVariants({
   const link = Array.isArray(keyLinks) && keyLinks[0] ? ` ${keyLinks[0]}` : '';
   const snippet = String(complaint || '').replace(/\s+/g, ' ').trim().slice(0, 90);
   const rival = competitorName || (lang === 'en' ? 'that provider' : 'ese proveedor');
+  const theme = themeId
+    ? { id: themeId }
+    : primaryTheme(complaint || '', lang);
+  const hook = themeHookSentence(theme.id, lang);
+  const themeLabel =
+    lang === 'en'
+      ? theme.id === 'general'
+        ? 'that friction'
+        : theme.id
+      : theme.id === 'general'
+        ? 'esa fricción'
+        : theme.id;
 
   if (lang === 'en') {
     return [
@@ -159,30 +189,33 @@ export function craftSalesPitchVariants({
         id: 'soft',
         label: 'Soft',
         recommended: true,
-        rationale: 'Empathetic and non-aggressive — best for public comments.',
+        themeId: theme.id,
+        rationale: `Empathetic · theme ${theme.id} — best for public comments.`,
         body:
           `Sorry you're dealing with this on ${rival}. ` +
-          `If you ever explore alternatives, at ${brand} we focus on ${offer}. ` +
+          `If you ever explore alternatives, at ${brand} we focus on ${offer} — ${hook}. ` +
           `Happy to help with a low-friction switch if useful.${link ? ` Info:${link}` : ''}`,
       },
       {
         id: 'direct',
         label: 'Direct',
         recommended: false,
+        themeId: theme.id,
         rationale: 'Clear value prop — good when people ask for alternatives.',
         body:
           `Saw your comment about ${rival} ("${snippet}${snippet.length >= 90 ? '…' : ''}"). ` +
-          `If you're looking for ${offer}, ${brand} solves that kind of friction. ` +
+          `If you're looking for ${offer} ${hook}, ${brand} solves that kind of ${themeLabel}. ` +
           `We can support the transition.${link ? ` →${link}` : ''}`,
       },
       {
         id: 'technical',
         label: 'Technical',
         recommended: false,
+        themeId: theme.id,
         rationale: 'Stability/support focused — fits HN / devops audiences.',
         body:
-          `If the pain with ${rival} is uptime/support, ${brand} prioritizes predictable ops and human response. ` +
-          `We offer ${offer}. Want a short migration checklist?${link ? ` ${link}` : ''}`,
+          `If the pain with ${rival} is ${themeLabel}, ${brand} prioritizes predictable ops and human response. ` +
+          `We offer ${offer} (${hook}). Want a short migration checklist?${link ? ` ${link}` : ''}`,
       },
     ];
   }
@@ -192,30 +225,33 @@ export function craftSalesPitchVariants({
       id: 'soft',
       label: 'Suave',
       recommended: true,
-      rationale: 'Empático y no agresivo: mejor para comentarios públicos (menos spam).',
+      themeId: theme.id,
+      rationale: `Empático · tema ${theme.id}: mejor para comentarios públicos.`,
       body:
         `Lamento lo que estás pasando con ${rival}. ` +
-        `Si en algún momento explorás alternativas, en ${brand} nos enfocamos en ${offer}. ` +
+        `Si en algún momento explorás alternativas, en ${brand} nos enfocamos en ${offer} — ${hook}. ` +
         `Podemos ayudarte a migrar sin fricción si te sirve.${link ? ` Info:${link}` : ''}`,
     },
     {
       id: 'direct',
       label: 'Directo',
       recommended: false,
+      themeId: theme.id,
       rationale: 'Clara propuesta de valor; útil en foros donde piden alternativas.',
       body:
         `Vi tu comentario sobre ${rival} ("${snippet}${snippet.length >= 90 ? '…' : ''}"). ` +
-        `Si buscás ${offer}, en ${brand} resolvemos justo ese tipo de fricción. ` +
+        `Si buscás ${offer} ${hook}, en ${brand} resolvemos justo ese tipo de ${themeLabel}. ` +
         `Te acompañamos en la transición.${link ? ` →${link}` : ''}`,
     },
     {
       id: 'technical',
       label: 'Técnico',
       recommended: false,
+      themeId: theme.id,
       rationale: 'Enfocado en estabilidad/soporte; bueno para audiencias HN / devops.',
       body:
-        `Si el dolor con ${rival} es uptime/soporte, en ${brand} priorizamos operación predecible y respuesta humana. ` +
-        `Ofrecemos ${offer}. Si querés, te paso un checklist de migración corta.${link ? ` ${link}` : ''}`,
+        `Si el dolor con ${rival} es ${themeLabel}, en ${brand} priorizamos operación predecible y respuesta humana. ` +
+        `Ofrecemos ${offer} (${hook}). Si querés, te paso un checklist de migración corta.${link ? ` ${link}` : ''}`,
     },
   ];
 }
@@ -258,6 +294,7 @@ export function buildOpportunity({
     competitorName: competitor.name,
     complaint,
   });
+  const themeId = salesPitches[0]?.themeId || primaryTheme(complaint || '', 'es').id;
 
   return {
     alertId:
@@ -271,6 +308,7 @@ export function buildOpportunity({
     channel: channel || 'manual',
     severity: severityFromScore(frustrationScore),
     frustrationScore,
+    themeId,
     salesPitches,
     salesPitch: salesPitches.find((p) => p.recommended)?.body || salesPitches[0].body,
     detectedAt: detectedAt || new Date().toISOString(),

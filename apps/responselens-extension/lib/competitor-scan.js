@@ -8,6 +8,7 @@
  */
 
 import { buildOpportunity, scoreFrustration } from './competitor-opportunity.js';
+import { mentionDedupeKey } from './mention-dedupe.js';
 import { hasNewsApi, hasRedditOAuth } from './scan-credentials.js';
 
 const NEGATIVE_HINT =
@@ -27,7 +28,22 @@ function stripHtml(html) {
 }
 
 function looksNegative(text) {
-  return NEGATIVE_HINT.test(text) || scoreFrustration(text) >= 0.35;
+  return NEGATIVE_HINT.test(text) || scoreFrustration(text) >= 0.32;
+}
+
+/** Nombres + aliases a consultar (máx 3 para no saturar APIs). */
+export function scanQueryNames(competitor) {
+  const primary = normalizeCompetitorNameForScan(competitor?.name || '');
+  if (!primary) return [];
+  const aliases = (competitor?.aliases || [])
+    .map((a) => normalizeCompetitorNameForScan(a))
+    .filter((a) => a && a.toLowerCase() !== primary.toLowerCase());
+  const uniq = [primary];
+  for (const a of aliases) {
+    if (!uniq.some((u) => u.toLowerCase() === a.toLowerCase())) uniq.push(a);
+    if (uniq.length >= 3) break;
+  }
+  return uniq;
 }
 
 /**
@@ -522,16 +538,25 @@ export async function runCompetitorScan({
     ownNews: 0,
     synthetic: 0,
     competitors: list.length,
+    skippedDupes: 0,
     providers: {
       reddit: useRedditOauth ? 'oauth' : 'public',
       news: useNewsApi ? 'newsapi' : 'google_rss',
     },
+    perCompetitor: {},
   };
   const seen = new Set();
 
   const pushOpp = (partial, flags = {}) => {
-    const key = `${partial.competitorName}::${String(partial.complaint).slice(0, 120)}`;
-    if (seen.has(key)) return;
+    const key = mentionDedupeKey({
+      text: partial.complaint,
+      sourceUrl: partial.sourceUrl,
+      competitorName: partial.competitorName,
+    });
+    if (seen.has(key)) {
+      stats.skippedDupes += 1;
+      return false;
+    }
     seen.add(key);
     const opp = buildOpportunity({
       ...partial,
@@ -542,10 +567,7 @@ export async function runCompetitorScan({
       alertId: partial.alertId || null,
       detectedAt: partial.detectedAt || null,
     });
-    if (flags.synthetic) {
-      opp._synthetic = true;
-      opp._source = 'synthetic';
-    } else if (flags.page) {
+    if (flags.page) {
       opp._source = 'page';
     } else if (flags.hn) {
       opp._source = 'hackernews';
@@ -559,65 +581,87 @@ export async function runCompetitorScan({
       opp._brandScope = 'own';
       opp.notes = [opp.notes, 'Mención de tu marca en prensa'].filter(Boolean).join(' · ');
     }
+    // Floor: descartar ruido casi nulo salvo página (usuario captó a mano)
+    if (!flags.page && (opp.frustrationScore || 0) < 0.28 && !looksNegative(partial.complaint)) {
+      stats.skippedDupes += 1;
+      return false;
+    }
     opportunities.push(opp);
+    return true;
   };
 
   if (enabled.active_page) {
     for (const raw of pageMentions) {
       if (!raw?.text || !raw?.competitorName) continue;
-      pushOpp(
-        {
-          alertId: raw.id ? `page_${raw.id}` : null,
-          competitorName: raw.competitorName,
-          complaint: raw.text,
-          sourceUrl: raw.sourceUrl || 'page://active-tab',
-          channel: raw.channel || 'web',
-          detectedAt: raw.detectedAt || new Date().toISOString(),
-        },
-        { page: true },
-      );
-      stats.page += 1;
+      if (
+        pushOpp(
+          {
+            alertId: raw.id ? `page_${raw.id}` : null,
+            competitorName: raw.competitorName,
+            complaint: raw.text,
+            sourceUrl: raw.sourceUrl || 'page://active-tab',
+            channel: raw.channel || 'web',
+            detectedAt: raw.detectedAt || new Date().toISOString(),
+          },
+          { page: true },
+        )
+      ) {
+        stats.page += 1;
+      }
     }
   }
 
   for (const competitor of list) {
     const originalName = competitor?.name;
     if (!originalName) continue;
-    const name = normalizeCompetitorNameForScan(originalName);
+    const queryNames = scanQueryNames(competitor);
+    const name = queryNames[0] || normalizeCompetitorNameForScan(originalName);
     scannedNames.push(name);
+    const tally = { hn: 0, reddit: 0, news: 0, errors: [] };
+    stats.perCompetitor[originalName] = tally;
 
     let hn = { mentions: [] };
     let reddit = { mentions: [] };
     let news = { mentions: [] };
 
-    if (enabled.hackernews) {
-      hn = await fetchHnMentions(name, { limit: 6 });
-      if (hn.error) errors.push(`${name}/HN: ${hn.error}`);
-    }
-
-    if (enabled.reddit_api) {
-      if (useRedditOauth) {
-        reddit = await fetchRedditOAuthMentions(name, {
-          limit: 6,
-          reddit: credentials.reddit,
-        });
-      } else {
-        reddit = await fetchRedditMentions(name, { limit: 4 });
+    for (const qName of queryNames) {
+      if (enabled.hackernews) {
+        const part = await fetchHnMentions(qName, { limit: 5 });
+        if (part.error) {
+          errors.push(`${qName}/HN: ${part.error}`);
+          tally.errors.push(part.error);
+        }
+        hn.mentions = [...(hn.mentions || []), ...(part.mentions || [])];
       }
-      if (reddit.error) errors.push(`${name}/Reddit: ${reddit.error}`);
-    }
 
-    if (enabled.news_portals) {
-      if (useNewsApi) {
-        news = await fetchNewsApiMentions(name, {
-          limit: 5,
-          apiKey: credentials.newsapi.apiKey,
-          brandScope: 'rival',
-        });
-      } else {
-        news = await fetchNewsMentions(name, { limit: 5, brandScope: 'rival' });
+      if (enabled.reddit_api) {
+        const part = useRedditOauth
+          ? await fetchRedditOAuthMentions(qName, {
+              limit: 5,
+              reddit: credentials.reddit,
+            })
+          : await fetchRedditMentions(qName, { limit: 3 });
+        if (part.error) {
+          errors.push(`${qName}/Reddit: ${part.error}`);
+          tally.errors.push(part.error);
+        }
+        reddit.mentions = [...(reddit.mentions || []), ...(part.mentions || [])];
       }
-      if (news.error) errors.push(`${name}/News: ${news.error}`);
+
+      if (enabled.news_portals) {
+        const part = useNewsApi
+          ? await fetchNewsApiMentions(qName, {
+              limit: 4,
+              apiKey: credentials.newsapi.apiKey,
+              brandScope: 'rival',
+            })
+          : await fetchNewsMentions(qName, { limit: 4, brandScope: 'rival' });
+        if (part.error) {
+          errors.push(`${qName}/News: ${part.error}`);
+          tally.errors.push(part.error);
+        }
+        news.mentions = [...(news.mentions || []), ...(part.mentions || [])];
+      }
     }
 
     const mentions = [
@@ -626,27 +670,31 @@ export async function runCompetitorScan({
       ...(news.mentions || []),
     ];
 
-    if (mentions.length) {
-      for (const m of mentions) {
-        const isHn = m.channel === 'hackernews';
-        const isNews = m.channel === 'news';
-        pushOpp(
-          {
-            alertId: m.id || null,
-            competitorName: originalName,
-            complaint: m.text,
-            sourceUrl: m.sourceUrl,
-            channel: m.channel,
-            detectedAt: m.detectedAt,
-          },
-          isHn ? { hn: true } : isNews ? { news: true } : { reddit: true },
-        );
-        if (isHn) stats.hn += 1;
-        else if (isNews) stats.news += 1;
-        else stats.reddit += 1;
+    for (const m of mentions) {
+      const isHn = m.channel === 'hackernews';
+      const isNews = m.channel === 'news';
+      const ok = pushOpp(
+        {
+          alertId: m.id || null,
+          competitorName: originalName,
+          complaint: m.text,
+          sourceUrl: m.sourceUrl,
+          channel: m.channel,
+          detectedAt: m.detectedAt,
+        },
+        isHn ? { hn: true } : isNews ? { news: true } : { reddit: true },
+      );
+      if (!ok) continue;
+      if (isHn) {
+        stats.hn += 1;
+        tally.hn += 1;
+      } else if (isNews) {
+        stats.news += 1;
+        tally.news += 1;
+      } else {
+        stats.reddit += 1;
+        tally.reddit += 1;
       }
-    } else if (preferSyntheticFallback) {
-      stats.synthetic += 0;
     }
   }
 
@@ -663,19 +711,22 @@ export async function runCompetitorScan({
       : await fetchNewsMentions(ownName, { limit: 5, brandScope: 'own' });
     if (ownNews.error) errors.push(`${ownName}/NewsOwn: ${ownNews.error}`);
     for (const m of ownNews.mentions || []) {
-      pushOpp(
-        {
-          alertId: m.id || null,
-          competitorName: ownName,
-          complaint: m.text,
-          sourceUrl: m.sourceUrl,
-          channel: 'news',
-          detectedAt: m.detectedAt,
-        },
-        { news: true, ownBrand: true },
-      );
-      stats.news += 1;
-      stats.ownNews += 1;
+      if (
+        pushOpp(
+          {
+            alertId: m.id || null,
+            competitorName: ownName,
+            complaint: m.text,
+            sourceUrl: m.sourceUrl,
+            channel: 'news',
+            detectedAt: m.detectedAt,
+          },
+          { news: true, ownBrand: true },
+        )
+      ) {
+        stats.news += 1;
+        stats.ownNews += 1;
+      }
     }
   }
 

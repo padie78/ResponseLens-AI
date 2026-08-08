@@ -30,12 +30,14 @@ resource "aws_lambda_function" "appsync_api" {
 
   environment {
     variables = {
-      CORE_TABLE_NAME = var.table_name
-      OPENAI_API_KEY  = var.openai_api_key
-      OPENAI_MODEL    = var.openai_model
-      LLM_PROVIDER    = var.llm_provider
-      GEMINI_API_KEY  = var.gemini_api_key
-      LOG_LEVEL       = "INFO"
+      CORE_TABLE_NAME     = var.table_name
+      OPENAI_API_KEY      = var.openai_api_key
+      OPENAI_MODEL        = var.openai_model
+      LLM_PROVIDER        = var.llm_provider
+      GEMINI_API_KEY      = var.gemini_api_key
+      LOG_LEVEL           = "INFO"
+      APPSYNC_GRAPHQL_URL = ""
+      APPSYNC_API_KEY     = ""
     }
   }
 }
