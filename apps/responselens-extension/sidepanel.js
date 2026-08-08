@@ -14,7 +14,8 @@ import {
   startLocalSession,
 } from './lib/auth.js';
 import { buildLocalReplyOptions } from './lib/local-fallback.js';
-import { computeOpsStats } from './lib/ops-stats.js';
+import { buildLocalRivalReport, normalizeRivalReport } from './lib/rival-report.js';
+import { computeAnalytics, computeOpsStats, topEntries } from './lib/ops-stats.js';
 import {
   buildDemoOpportunities,
   buildOpportunity,
@@ -43,11 +44,16 @@ const STORAGE = {
   history: 'rl_reply_history',
   detection: 'rl_detection',
   uiZoom: 'rl_ui_zoom',
+  rivalReports: 'rl_rival_reports',
+  pageRivals: 'rl_page_rivals',
+  pendingRivalReport: 'rl_pending_rival_report',
 };
 
 const ZOOM_STEPS = [100, 110, 125, 140, 160];
 const DEFAULT_ZOOM = 125;
 let uiZoom = DEFAULT_ZOOM;
+/** @type {string | null} */
+let expandedAlertId = null;
 
 const ANALYZE_MUTATION = `
   mutation AnalyzeReply($input: AnalyzeReplyInput!) {
@@ -72,6 +78,24 @@ const ANALYZE_MUTATION = `
         body
         rationale
       }
+    }
+  }
+`;
+
+const ANALYZE_RIVAL_MUTATION = `
+  mutation AnalyzeRivalReport($input: AnalyzeRivalReportInput!) {
+    analyzeRivalReport(input: $input) {
+      competitorName
+      mentionCount
+      avgFrustration
+      riskLevel
+      conclusions
+      opportunities
+      reportMarkdown
+      model
+      generatedAt
+      themes { id label }
+      sources
     }
   }
 `;
@@ -103,6 +127,7 @@ const els = {
   panels: {
     own: document.getElementById('panel-own'),
     comp: document.getElementById('panel-comp'),
+    stats: document.getElementById('panel-stats'),
     hist: document.getElementById('panel-hist'),
     cfg: document.getElementById('panel-cfg'),
   },
@@ -120,6 +145,17 @@ const els = {
   scanComp: document.getElementById('btn-scan-comp'),
   scanStatus: document.getElementById('comp-scan-status'),
   alertFilter: document.getElementById('alert-filter'),
+  alertFilterDate: document.getElementById('alert-filter-date'),
+  alertFilterPlatform: document.getElementById('alert-filter-platform'),
+  alertFilterRival: document.getElementById('alert-filter-rival'),
+  alertFilterSeverity: document.getElementById('alert-filter-severity'),
+  alertFilterQ: document.getElementById('alert-filter-q'),
+  filterCount: document.getElementById('comp-filter-count'),
+  rivalBanner: document.getElementById('rival-intel-banner'),
+  rivalBannerTitle: document.getElementById('rival-intel-title'),
+  rivalBannerSub: document.getElementById('rival-intel-sub'),
+  rivalBannerBtn: document.getElementById('btn-rival-intel'),
+  rivalReportPanel: document.getElementById('rival-report-panel'),
   manual: document.getElementById('own-manual'),
   compManual: document.getElementById('comp-manual'),
   rivalSelect: document.getElementById('comp-rival-select'),
@@ -131,8 +167,21 @@ const els = {
     replies: document.getElementById('kpi-replies'),
     alerts: document.getElementById('kpi-alerts'),
     critical: document.getElementById('kpi-critical'),
-    escalations: document.getElementById('kpi-escalations'),
+    winrate: document.getElementById('kpi-winrate'),
   },
+  statsRange: document.getElementById('stats-range'),
+  statsKpiGrid: document.getElementById('stats-kpi-grid'),
+  statsCompareSummary: document.getElementById('stats-compare-summary'),
+  chartCompare: document.getElementById('chart-compare'),
+  chartTrend: document.getElementById('chart-trend'),
+  chartStack: document.getElementById('chart-stack'),
+  chartFunnel: document.getElementById('chart-funnel'),
+  chartRisk: document.getElementById('chart-risk'),
+  chartSeverity: document.getElementById('chart-severity'),
+  chartRivals: document.getElementById('chart-rivals'),
+  chartChannels: document.getElementById('chart-channels'),
+  chartTones: document.getElementById('chart-tones'),
+  chartActions: document.getElementById('chart-actions'),
 };
 
 function nearestZoomStep(value) {
@@ -145,7 +194,10 @@ function nearestZoomStep(value) {
 
 function applyUiZoom(percent) {
   uiZoom = nearestZoomStep(percent);
-  document.documentElement.style.zoom = `${uiZoom}%`;
+  const scale = uiZoom / 100;
+  document.documentElement.style.setProperty('--rl-ui-zoom', String(scale));
+  // Evitar zoom en <html> (rompe scroll con overflow:hidden).
+  document.documentElement.style.zoom = '';
   if (els.zoomLabel) els.zoomLabel.textContent = `${uiZoom}%`;
   if (els.zoomOut) els.zoomOut.disabled = uiZoom <= ZOOM_STEPS[0];
   if (els.zoomIn) els.zoomIn.disabled = uiZoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1];
@@ -168,12 +220,14 @@ function activateTab(name) {
     tab.setAttribute('aria-selected', on ? 'true' : 'false');
   }
   for (const [key, panel] of Object.entries(els.panels)) {
+    if (!panel) continue;
     const on = key === name;
     panel.classList.toggle('is-visible', on);
     panel.hidden = !on;
   }
-  if (name === 'hist') renderHistory();
-  if (name === 'comp') refreshAlerts();
+  if (name === 'hist') void renderHistory();
+  if (name === 'comp') void refreshAlerts().catch((err) => console.error('[RL] refreshAlerts', err));
+  if (name === 'stats') void renderStats().catch((err) => console.error('[RL] renderStats', err));
 }
 
 els.tabs.forEach((tab) => {
@@ -229,8 +283,290 @@ async function refreshKpis() {
   els.kpis.replies.textContent = String(stats.repliesThisWeek);
   els.kpis.alerts.textContent = String(stats.openAlerts);
   els.kpis.critical.textContent = String(stats.criticalOpen);
-  els.kpis.escalations.textContent = String(stats.escalations);
+  if (els.kpis.winrate) els.kpis.winrate.textContent = `${stats.winRate}%`;
+  if (!els.panels.stats?.hidden) renderStats();
 }
+
+function statsRangeDays() {
+  const n = Number(els.statsRange?.value || 14);
+  return Number.isFinite(n) && n > 0 ? n : 14;
+}
+
+async function renderStats() {
+  if (!els.statsKpiGrid) return;
+  const data = await storageGet([STORAGE.history, STORAGE.alerts, STORAGE.config]);
+  const companyName = data[STORAGE.config]?.company?.companyName || 'Tu marca';
+  const analytics = computeAnalytics({
+    history: data[STORAGE.history] || [],
+    alerts: data[STORAGE.alerts] || [],
+    days: statsRangeDays(),
+  });
+
+  const { own, comp, comparison, pipeline, series } = analytics;
+
+  els.statsKpiGrid.innerHTML = [
+    kpiTile(own.repliesInWindow, 'Propios', sparkFromSeries(series, 'own')),
+    kpiTile(comp.mentionsInWindow, 'Rivales', sparkFromSeries(series, 'comp')),
+    kpiTile(`${comparison.ownSharePct}%`, 'Share'),
+    kpiTile(`${comp.winRate}%`, 'Win'),
+    kpiTile(comp.open, 'Abiertas'),
+    kpiTile(comp.won, 'Ganados'),
+    kpiTile(own.escalationsWindow, 'Escalados'),
+    kpiTile(own.avgRiskScore || '—', 'Riesgo'),
+  ].join('');
+
+  if (els.statsCompareSummary) {
+    els.statsCompareSummary.textContent = `${companyName} ${comparison.ownSharePct}%`;
+  }
+
+  renderDonutShare(els.chartCompare, comparison.ownInWindow, comparison.compInWindow, companyName);
+  renderTrendChart(els.chartTrend, series);
+  renderStackedBars(els.chartStack, series);
+  renderFunnel(els.chartFunnel, pipeline);
+  renderRiskBars(els.chartRisk, own.riskCounts);
+  renderRiskBars(els.chartSeverity, comp.severityCounts || {});
+  renderHBars(els.chartRivals, topEntries(comp.byCompetitor, 5), 'Sin rivales');
+  renderHBars(els.chartChannels, mergeChannelMaps(own.byChannel, comp.byChannel), 'Sin canales');
+  renderHBars(els.chartTones, topEntries(own.byTone, 5), 'Sin tonos');
+  renderHBars(
+    els.chartActions,
+    topEntries(own.byAction, 5).map((e) => ({
+      name: ACTION_LABELS[e.name] || e.name.replace(/^ESCALATE_/, '').slice(0, 14),
+      count: e.count,
+    })),
+    'Sin acciones',
+  );
+}
+
+function kpiTile(value, label, sparkSvg = '') {
+  return `<div class="rl-kpi rl-kpi--compact">${
+    sparkSvg ? `<div class="rl-kpi__spark" aria-hidden="true">${sparkSvg}</div>` : ''
+  }<span>${escapeHtml(String(value))}</span><small>${escapeHtml(label)}</small></div>`;
+}
+
+function sparkFromSeries(series, key) {
+  if (!series?.length) return '';
+  const vals = series.map((d) => Number(d[key]) || 0);
+  const max = Math.max(1, ...vals);
+  const w = 48;
+  const h = 16;
+  const pts = vals
+    .map((v, i) => {
+      const x = vals.length <= 1 ? w / 2 : (i / (vals.length - 1)) * w;
+      const y = h - (v / max) * (h - 2) - 1;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+  const stroke = key === 'own' ? 'var(--rl-accent)' : '#c2410c';
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><polyline fill="none" stroke="${stroke}" stroke-width="1.5" points="${pts}" /></svg>`;
+}
+
+function mergeChannelMaps(ownMap, compMap) {
+  /** @type {Record<string, number>} */
+  const all = {};
+  for (const [k, v] of Object.entries(ownMap || {})) all[k] = (all[k] || 0) + v;
+  for (const [k, v] of Object.entries(compMap || {})) all[k] = (all[k] || 0) + v;
+  return topEntries(all, 6);
+}
+
+function renderDonutShare(el, ownN, compN, ownLabel) {
+  if (!el) return;
+  const total = Math.max(ownN + compN, 1);
+  const ownPct = ownN / total;
+  const r = 34;
+  const c = 2 * Math.PI * r;
+  const ownLen = ownPct * c;
+  el.innerHTML = `
+    <div class="rl-donut-wrap">
+      <svg viewBox="0 0 100 100" width="80" height="80" aria-hidden="true">
+        <circle cx="50" cy="50" r="${r}" fill="none" stroke="#c2410c" stroke-width="11" />
+        <circle cx="50" cy="50" r="${r}" fill="none" stroke="var(--rl-accent)" stroke-width="11"
+          stroke-dasharray="${ownLen.toFixed(2)} ${(c - ownLen).toFixed(2)}"
+          transform="rotate(-90 50 50)" />
+        <text x="50" y="48" text-anchor="middle" class="rl-donut-value">${Math.round(ownPct * 100)}%</text>
+        <text x="50" y="60" text-anchor="middle" class="rl-donut-sub">propios</text>
+      </svg>
+      <div class="rl-donut-legend">
+        <div><i class="rl-swatch rl-swatch--own"></i> ${escapeHtml(ownLabel)} <strong>${ownN}</strong></div>
+        <div><i class="rl-swatch rl-swatch--comp"></i> Rivales <strong>${compN}</strong></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCompareBars(el, ownN, compN, ownLabel) {
+  renderDonutShare(el, ownN, compN, ownLabel);
+}
+
+function renderTrendChart(el, series) {
+  if (!el) return;
+  if (!series?.length) {
+    el.innerHTML = '<p class="rl-empty rl-empty--sm">Sin actividad.</p>';
+    return;
+  }
+  const w = 320;
+  const h = 100;
+  const padL = 22;
+  const padR = 6;
+  const padT = 8;
+  const padB = 20;
+  const maxY = Math.max(1, ...series.map((d) => Math.max(d.own, d.comp)));
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+  const n = series.length;
+  const xAt = (i) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const yAt = (v) => padT + innerH - (v / maxY) * innerH;
+
+  const ownPts = series.map((d, i) => `${xAt(i).toFixed(1)},${yAt(d.own).toFixed(1)}`).join(' ');
+  const compPts = series.map((d, i) => `${xAt(i).toFixed(1)},${yAt(d.comp).toFixed(1)}`).join(' ');
+
+  const grid = [0, 1]
+    .map((p) => {
+      const y = padT + innerH * (1 - p);
+      return `<line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" class="rl-chart-grid" />`;
+    })
+    .join('');
+
+  const labels = series
+    .filter((_, i) => i === 0 || i === n - 1 || i === Math.floor(n / 2))
+    .map((d) => {
+      const i = series.indexOf(d);
+      return `<text x="${xAt(i)}" y="${h - 4}" text-anchor="middle" class="rl-chart-label">${escapeHtml(d.label)}</text>`;
+    })
+    .join('');
+
+  el.innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      ${grid}
+      <text x="2" y="${padT + 8}" class="rl-chart-label">${maxY}</text>
+      <polyline fill="none" stroke="var(--rl-accent)" stroke-width="2" points="${ownPts}" />
+      <polyline fill="none" stroke="#c2410c" stroke-width="2" stroke-dasharray="4 3" points="${compPts}" />
+      ${labels}
+    </svg>
+  `;
+}
+
+function renderStackedBars(el, series) {
+  if (!el) return;
+  if (!series?.length) {
+    el.innerHTML = '<p class="rl-empty rl-empty--sm">Sin actividad.</p>';
+    return;
+  }
+  const sample = series.length > 14 ? series.filter((_, i) => i % 2 === 0 || i === series.length - 1) : series;
+  const max = Math.max(1, ...sample.map((d) => d.own + d.comp));
+  const w = 320;
+  const h = 100;
+  const padL = 4;
+  const padR = 4;
+  const padT = 8;
+  const padB = 20;
+  const gap = 2;
+  const barW = Math.max(3, (w - padL - padR - gap * (sample.length - 1)) / sample.length);
+  const bars = sample
+    .map((d, i) => {
+      const x = padL + i * (barW + gap);
+      const ownH = (d.own / max) * (h - padT - padB);
+      const compH = (d.comp / max) * (h - padT - padB);
+      const yComp = h - padB - compH;
+      const yOwn = yComp - ownH;
+      return `
+        <rect x="${x.toFixed(1)}" y="${yOwn.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(ownH, 0).toFixed(1)}" fill="var(--rl-accent)" rx="1" />
+        <rect x="${x.toFixed(1)}" y="${yComp.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(compH, 0).toFixed(1)}" fill="#c2410c" rx="1" />
+      `;
+    })
+    .join('');
+  const labelIdx = [0, Math.floor(sample.length / 2), sample.length - 1];
+  const labels = labelIdx
+    .filter((i, idx, arr) => arr.indexOf(i) === idx && sample[i])
+    .map((i) => {
+      const x = padL + i * (barW + gap) + barW / 2;
+      return `<text x="${x.toFixed(1)}" y="${h - 4}" text-anchor="middle" class="rl-chart-label">${escapeHtml(sample[i].label)}</text>`;
+    })
+    .join('');
+  el.innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      ${bars}
+      ${labels}
+    </svg>
+  `;
+}
+
+function renderFunnel(el, pipeline) {
+  if (!el) return;
+  const steps = [
+    { key: 'open', label: 'Abiertas', value: pipeline.open, tone: 'warn' },
+    { key: 'contacted', label: 'Contact.', value: pipeline.contacted, tone: 'own' },
+    { key: 'won', label: 'Ganadas', value: pipeline.won, tone: 'ok' },
+    { key: 'dismissed', label: 'Descart.', value: pipeline.dismissed, tone: 'muted' },
+  ];
+  const max = Math.max(1, ...steps.map((s) => s.value));
+  el.innerHTML = `<div class="rl-funnel rl-funnel--dense">${steps
+    .map(
+      (s) => `
+      <div class="rl-funnel__row">
+        <span class="rl-funnel__label">${escapeHtml(s.label)}</span>
+        <div class="rl-funnel__track">
+          <div class="rl-funnel__bar rl-funnel__bar--${s.tone}" style="width:${Math.round((s.value / max) * 100)}%"></div>
+        </div>
+        <strong class="rl-funnel__n">${s.value}</strong>
+      </div>`,
+    )
+    .join('')}</div>`;
+}
+
+function renderRiskBars(el, riskCounts) {
+  if (!el) return;
+  const order = [
+    { key: 'CRITICAL', label: 'Crít.', tone: 'danger' },
+    { key: 'HIGH', label: 'Alto', tone: 'warn' },
+    { key: 'MEDIUM', label: 'Med.', tone: 'own' },
+    { key: 'LOW', label: 'Bajo', tone: 'ok' },
+  ];
+  const total = order.reduce((s, o) => s + (riskCounts[o.key] || 0), 0);
+  if (!total) {
+    el.innerHTML = '<p class="rl-empty rl-empty--sm">Sin datos.</p>';
+    return;
+  }
+  el.innerHTML = `<div class="rl-funnel rl-funnel--dense">${order
+    .map((o) => {
+      const v = riskCounts[o.key] || 0;
+      const pct = Math.round((v / total) * 100);
+      return `
+      <div class="rl-funnel__row">
+        <span class="rl-funnel__label">${escapeHtml(o.label)}</span>
+        <div class="rl-funnel__track">
+          <div class="rl-funnel__bar rl-funnel__bar--${o.tone}" style="width:${pct}%"></div>
+        </div>
+        <strong class="rl-funnel__n">${v}</strong>
+      </div>`;
+    })
+    .join('')}</div>`;
+}
+
+function renderHBars(el, entries, emptyMsg) {
+  if (!el) return;
+  if (!entries?.length) {
+    el.innerHTML = `<p class="rl-empty rl-empty--sm">${escapeHtml(emptyMsg)}</p>`;
+    return;
+  }
+  const max = Math.max(1, ...entries.map((e) => e.count));
+  el.innerHTML = `<div class="rl-funnel rl-funnel--dense">${entries
+    .map(
+      (e) => `
+      <div class="rl-funnel__row">
+        <span class="rl-funnel__label" title="${escapeHtml(e.name)}">${escapeHtml(e.name)}</span>
+        <div class="rl-funnel__track">
+          <div class="rl-funnel__bar rl-funnel__bar--comp" style="width:${Math.round((e.count / max) * 100)}%"></div>
+        </div>
+        <strong class="rl-funnel__n">${e.count}</strong>
+      </div>`,
+    )
+    .join('')}</div>`;
+}
+
+els.statsRange?.addEventListener('change', () => {
+  void renderStats();
+});
 
 function renderTriage(triage) {
   if (!triage) {
@@ -360,6 +696,7 @@ function renderCards(result) {
           complaintId,
         });
         await appendHistory({
+          kind: 'propios',
           at: new Date().toISOString(),
           tone: opt.tone,
           label: opt.recommended ? `${opt.label} (recomendada)` : opt.label,
@@ -393,7 +730,15 @@ async function appendHistory(entry) {
   if (!els.panels.hist.hidden) renderHistory();
 }
 
+/** @type {string | null} */
+let expandedHistoryId = null;
+
+function historyItemId(item, idx) {
+  return item.id || item.alertId || item.at || `hist_${idx}`;
+}
+
 async function renderHistory() {
+  if (!els.histList) return;
   const data = await storageGet([STORAGE.history]);
   const list = data[STORAGE.history] || [];
   els.histList.innerHTML = '';
@@ -402,31 +747,107 @@ async function renderHistory() {
       '<div class="rl-empty">Aún no hay actividad. Las inyecciones de Propios y los cambios de Competencia (Contactado / Ganado / Descartar) aparecen acá.</div>';
     return;
   }
-  for (const item of list) {
-    const node = document.createElement('article');
-    node.className = 'rl-alert';
+
+  if (
+    expandedHistoryId &&
+    !list.some((item, idx) => historyItemId(item, idx) === expandedHistoryId)
+  ) {
+    expandedHistoryId = null;
+  }
+
+  list.forEach((item, idx) => {
+    const id = historyItemId(item, idx);
     const isCap = item.kind === 'captacion';
+    const isOpen = expandedHistoryId === id;
     const title = isCap
       ? `${item.label || 'Captación'} · ${item.competitorName || ''}`
       : item.label || item.tone || 'Respuesta';
     const badge = isCap ? item.status || '—' : item.riskLevel || '—';
+    const kindLabel = isCap ? 'competencia' : 'propios';
+    const fullBody = item.body || item.originalText || '';
+    const snippet = truncateText(fullBody, 100);
+    const metaLine = [
+      (item.at || '').replace('T', ' ').slice(0, 16),
+      item.channel || kindLabel,
+      isCap ? null : ACTION_LABELS[item.recommendedAction] || item.recommendedAction || null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    const node = document.createElement('article');
+    node.className = `rl-alert rl-alert--accordion${isOpen ? ' is-expanded' : ''}`;
+    node.dataset.histId = id;
+
     node.innerHTML = `
-      <header>
-        <strong>${escapeHtml(title)}</strong>
-        <span class="rl-badge">${escapeHtml(badge)}</span>
-      </header>
-      <p class="rl-muted">${escapeHtml(item.at || '')} · ${escapeHtml(item.channel || (isCap ? 'competencia' : ''))}</p>
-      <p>${escapeHtml((item.body || item.originalText || '').slice(0, 220))}${
-        (item.body || item.originalText || '').length > 220 ? '…' : ''
-      }</p>
-      <p class="rl-muted">${escapeHtml(
-        isCap
-          ? item.sourceUrl || ''
-          : ACTION_LABELS[item.recommendedAction] || item.recommendedAction || '',
-      )}</p>
+      <button type="button" class="rl-alert__summary rl-alert__summary--hist" data-hist-toggle aria-expanded="${
+        isOpen ? 'true' : 'false'
+      }">
+        <span class="rl-hist-kind rl-hist-kind--${isCap ? 'cap' : 'own'}" aria-hidden="true">${
+          isCap ? 'C' : 'P'
+        }</span>
+        <span class="rl-alert__summary-text">
+          <span class="rl-alert__title-row">
+            <strong>${escapeHtml(title)}</strong>
+            <span class="rl-badge">${escapeHtml(badge)}</span>
+          </span>
+          <span class="rl-alert__snippet">${escapeHtml(snippet || 'Sin detalle')}</span>
+          <span class="rl-alert__meta">${escapeHtml(metaLine)}</span>
+        </span>
+        <span class="rl-alert__chevron" data-chevron aria-hidden="true">${isOpen ? '▾' : '▸'}</span>
+      </button>
+      <div class="rl-alert__body" data-hist-body ${isOpen ? '' : 'hidden'}>
+        ${
+          item.originalText && item.body && item.originalText !== item.body
+            ? `<p class="rl-muted rl-alert__section-label">Original</p>
+               <p class="rl-alert__complaint">${escapeHtml(item.originalText)}</p>`
+            : ''
+        }
+        <p class="rl-muted rl-alert__section-label">${isCap ? 'Pitch / acción' : 'Respuesta'}</p>
+        <p class="rl-alert__complaint">${escapeHtml(fullBody || '—')}</p>
+        <p class="rl-muted rl-alert__links">
+          ${escapeHtml(item.at || '')}
+          ${item.channel ? ` · ${escapeHtml(item.channel)}` : ''}
+          ${
+            isCap
+              ? item.sourceUrl
+                ? ` · <a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener">Fuente</a>`
+                : ''
+              : ` · ${escapeHtml(ACTION_LABELS[item.recommendedAction] || item.recommendedAction || '')}`
+          }
+          ${item.model ? ` · ${escapeHtml(item.model)}` : ''}
+        </p>
+      </div>
     `;
+
+    const toggle = node.querySelector('[data-hist-toggle]');
+    toggle?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const willOpen = !node.classList.contains('is-expanded');
+      els.histList.querySelectorAll('.rl-alert.is-expanded').forEach((el) => {
+        if (el === node) return;
+        el.classList.remove('is-expanded');
+        const body = el.querySelector('[data-hist-body]');
+        if (body) body.hidden = true;
+        el.querySelector('[data-hist-toggle]')?.setAttribute('aria-expanded', 'false');
+        const chev = el.querySelector('[data-chevron]');
+        if (chev) chev.textContent = '▸';
+      });
+      expandedHistoryId = willOpen ? id : null;
+      node.classList.toggle('is-expanded', willOpen);
+      const body = node.querySelector('[data-hist-body]');
+      if (body) body.hidden = !willOpen;
+      toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      const chev = toggle.querySelector('[data-chevron]');
+      if (chev) chev.textContent = willOpen ? '▾' : '▸';
+      if (willOpen) {
+        requestAnimationFrame(() => {
+          node.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+      }
+    });
+
     els.histList.appendChild(node);
-  }
+  });
 }
 
 async function analyzeComplaint(payload) {
@@ -509,17 +930,325 @@ function matchesAlertFilter(alert, filter) {
   return status === filter;
 }
 
+function alertDetectedTs(alert) {
+  const t = Date.parse(alert.detectedAt || alert.createdAt || alert.at || '');
+  return Number.isFinite(t) ? t : null;
+}
+
+function alertPlatformKey(alert) {
+  if (alert._source === 'hackernews') return 'hackernews';
+  if (alert._source === 'reddit') return 'reddit';
+  if (alert._source === 'page') return 'page';
+  if (alert._demo) return 'manual';
+  if (alert._synthetic) return 'manual';
+  const ch = String(alert.channel || '').toLowerCase();
+  const url = String(alert.sourceUrl || '').toLowerCase();
+  if (ch === 'manual' || url.startsWith('manual://')) return 'manual';
+  if (ch.includes('reddit') || url.includes('reddit.com')) return 'reddit';
+  if (ch.includes('hn') || url.includes('ycombinator') || url.includes('hn.algolia')) return 'hackernews';
+  if (ch.includes('amazon') || url.includes('amazon.')) return 'amazon';
+  if (ch.includes('ebay') || url.includes('ebay.')) return 'ebay';
+  if (ch.includes('youtube') || url.includes('youtube.') || url.includes('youtu.be')) return 'youtube';
+  if (ch === 'x' || ch.includes('twitter') || url.includes('x.com') || url.includes('twitter.com')) return 'x';
+  if (url) return 'page';
+  return 'manual';
+}
+
+function getCompFilterState() {
+  return {
+    status: els.alertFilter?.value || 'OPEN',
+    days: els.alertFilterDate?.value || 'all',
+    platform: els.alertFilterPlatform?.value || 'all',
+    rival: els.alertFilterRival?.value || 'all',
+    severity: els.alertFilterSeverity?.value || 'all',
+    q: (els.alertFilterQ?.value || '').trim().toLowerCase(),
+  };
+}
+
+function matchesCompFilters(alert, filters) {
+  if (!matchesAlertFilter(alert, filters.status)) return false;
+
+  if (filters.days && filters.days !== 'all') {
+    const days = Number(filters.days);
+    const ts = alertDetectedTs(alert);
+    if (ts == null) return false;
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+    if (filters.days === '1') {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      if (ts < start.getTime()) return false;
+    } else if (ts < since) {
+      return false;
+    }
+  }
+
+  if (filters.platform && filters.platform !== 'all') {
+    if (alertPlatformKey(alert) !== filters.platform) return false;
+  }
+
+  if (filters.rival && filters.rival !== 'all') {
+    if (String(alert.competitorName || '').trim() !== filters.rival) return false;
+  }
+
+  if (filters.severity && filters.severity !== 'all') {
+    const sev = String(alert.severity || 'MEDIUM').toUpperCase();
+    if (filters.severity === 'HIGH') {
+      if (sev !== 'HIGH' && sev !== 'CRITICAL') return false;
+    } else if (sev !== filters.severity) {
+      return false;
+    }
+  }
+
+  if (filters.q) {
+    const hay = `${alert.competitorName || ''} ${alert.originalComplaint || ''} ${alert.salesPitch || ''}`.toLowerCase();
+    if (!hay.includes(filters.q)) return false;
+  }
+
+  return true;
+}
+
+function fillRivalFilterOptions(alerts, competitors = []) {
+  const sel = els.alertFilterRival;
+  if (!sel) return;
+  const current = sel.value || 'all';
+  const names = new Set();
+  for (const c of competitors || []) {
+    if (c?.name) names.add(String(c.name).trim());
+  }
+  for (const a of alerts || []) {
+    if (a?.competitorName) names.add(String(a.competitorName).trim());
+  }
+  const sorted = [...names].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  sel.innerHTML =
+    `<option value="all">Todos</option>` +
+    sorted.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  if (current && (current === 'all' || sorted.includes(current))) {
+    sel.value = current;
+  }
+}
+
 async function refreshAlerts() {
   await ensureCompetitorsReady();
   await fillRivalSelect();
   const data = await storageGet([STORAGE.alerts, STORAGE.config]);
-  const filter = els.alertFilter?.value || 'OPEN';
-  let alerts = data[STORAGE.alerts] || [];
-  alerts = alerts.filter((a) => matchesAlertFilter(a, filter));
+  const all = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+  fillRivalFilterOptions(all, data[STORAGE.config]?.competitors || []);
+  const filters = getCompFilterState();
+  const alerts = all.filter((a) => matchesCompFilters(a, filters));
+  if (els.filterCount) {
+    els.filterCount.textContent =
+      alerts.length === all.length
+        ? `${alerts.length} oportunidad${alerts.length === 1 ? '' : 'es'}`
+        : `${alerts.length} de ${all.length} (filtrado)`;
+  }
   const company = data[STORAGE.config]?.company || null;
   renderAlerts(alerts, company);
+  await refreshPageRivalBanner();
   await refreshKpis();
 }
+
+/** @type {null | { competitorName: string, mentions?: object[] }} */
+let pendingIntelRival = null;
+
+async function refreshPageRivalBanner() {
+  const data = await storageGet([STORAGE.pageRivals]);
+  const page = data[STORAGE.pageRivals];
+  if (!els.rivalBanner) return;
+  if (!page?.rivals?.length) {
+    els.rivalBanner.hidden = true;
+    pendingIntelRival = null;
+    return;
+  }
+  const top = [...page.rivals].sort((a, b) => (b.mentions?.length || 0) - (a.mentions?.length || 0))[0];
+  pendingIntelRival = {
+    competitorName: top.name,
+    mentions: top.mentions || [],
+  };
+  els.rivalBanner.hidden = false;
+  if (els.rivalBannerTitle) {
+    els.rivalBannerTitle.textContent = `Rival en página: ${top.name}`;
+  }
+  if (els.rivalBannerSub) {
+    const n = page.rivals.reduce((s, r) => s + (r.mentions?.length || 0), 0);
+    els.rivalBannerSub.textContent = `${page.rivals.length} rival(es) · ${n} mención(es) · ${page.channel || 'web'}`;
+  }
+}
+
+function renderRivalReport(report) {
+  const panel = els.rivalReportPanel;
+  if (!panel || !report) return;
+  panel.hidden = false;
+  const themes = (report.themes || []).map((t) => t.label || t).join(' · ');
+  panel.innerHTML = `
+    <div class="rl-rival-report__head">
+      <h3>Informe IA · ${escapeHtml(report.competitorName)}</h3>
+      <button type="button" class="rl-btn rl-btn--ghost" data-close-report>Cerrar</button>
+    </div>
+    <p class="rl-rival-report__meta">
+      ${escapeHtml(report.riskLevel || '')} · frustración ${escapeHtml(String(report.avgFrustration ?? '—'))}
+      · ${escapeHtml(String(report.mentionCount ?? 0))} menciones · ${escapeHtml(report.model || '')}
+      ${themes ? ` · ${escapeHtml(themes)}` : ''}
+    </p>
+    <p class="rl-muted rl-alert__section-label">Conclusiones</p>
+    <ul>${(report.conclusions || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+    <p class="rl-muted rl-alert__section-label">Ángulos de captación</p>
+    <ul>${(report.opportunities || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+    <p class="rl-muted rl-alert__section-label">Reporte</p>
+    <pre class="rl-rival-report__md">${escapeHtml(report.reportMarkdown || '')}</pre>
+    <div class="rl-rival-report__actions">
+      <button type="button" class="rl-btn rl-btn--primary" data-copy-report>Copiar informe</button>
+    </div>
+  `;
+  panel.querySelector('[data-close-report]')?.addEventListener('click', () => {
+    panel.hidden = true;
+  });
+  panel.querySelector('[data-copy-report]')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    await navigator.clipboard.writeText(report.reportMarkdown || '');
+    if (btn) {
+      btn.textContent = '✓ Copiado';
+      setTimeout(() => {
+        btn.textContent = 'Copiar informe';
+      }, 1200);
+    }
+  });
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function gatherMentionsForRival(competitorName, extraMentions = []) {
+  const data = await storageGet([STORAGE.alerts, STORAGE.pageRivals]);
+  const alerts = (data[STORAGE.alerts] || []).filter(
+    (a) => String(a.competitorName || '').trim() === competitorName,
+  );
+  const pageRival = (data[STORAGE.pageRivals]?.rivals || []).find(
+    (r) => r.name === competitorName,
+  );
+  const mentions = [
+    ...extraMentions,
+    ...(pageRival?.mentions || []),
+    ...alerts.map((a) => ({
+      text: a.originalComplaint,
+      sourceUrl: a.sourceUrl,
+      channel: a.channel,
+    })),
+  ];
+  // dedupe by text prefix
+  const seen = new Set();
+  const unique = [];
+  for (const m of mentions) {
+    const key = String(m.text || '')
+      .slice(0, 80)
+      .toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(m);
+  }
+  return unique;
+}
+
+async function generateRivalReport(competitorName, extraMentions = []) {
+  const name = String(competitorName || '').trim();
+  if (!name) return null;
+  activateTab('comp');
+  if (els.rivalReportPanel) {
+    els.rivalReportPanel.hidden = false;
+    els.rivalReportPanel.innerHTML = `<p class="rl-muted">Analizando a ${escapeHtml(name)} en menciones públicas…</p>`;
+  }
+
+  const {
+    [STORAGE.config]: cfg,
+    [STORAGE.appsync]: appsync,
+    [STORAGE.detection]: detection,
+  } = await storageGet([STORAGE.config, STORAGE.appsync, STORAGE.detection]);
+
+  let mentions = await gatherMentionsForRival(name, extraMentions);
+
+  // Enriquecer con escaneo rápido HN/Reddit de ese rival
+  try {
+    const scan = await runCompetitorScan({
+      company: cfg?.company,
+      userId: cfg?.userId || 'local-user',
+      competitors: [{ name, aliases: lookupCompetitorProfile(name, cfg?.competitors)?.aliases || [] }],
+      pageMentions: [],
+      preferSyntheticFallback: false,
+      sources: { hackernews: true, reddit_api: true, active_page: false },
+    });
+    for (const opp of scan.opportunities || []) {
+      if (opp._synthetic) continue;
+      mentions.push({
+        text: opp.originalComplaint,
+        sourceUrl: opp.sourceUrl,
+        channel: opp.channel || opp._source,
+      });
+    }
+  } catch (err) {
+    console.warn('[RL] rival scan enrich', err);
+  }
+
+  // dedupe again
+  mentions = await gatherMentionsForRival(name, mentions);
+  if (!mentions.length) {
+    mentions = [{ text: `Public dissatisfaction mentions about ${name}`, sourceUrl: '', channel: 'manual' }];
+  }
+
+  const allowOffline = detection?.offlineFallback !== false;
+  let report = null;
+
+  if (appsync?.graphqlUrl && appsync?.apiKey) {
+    try {
+      const data = await gqlRequest({
+        url: appsync.graphqlUrl,
+        apiKey: appsync.apiKey,
+        query: ANALYZE_RIVAL_MUTATION,
+        variables: {
+          input: {
+            userId: cfg?.userId || 'local-user',
+            competitorName: name,
+            mentions: mentions.map((m) => m.text).slice(0, 10),
+            channel: mentions[0]?.channel || 'web',
+            sourceUrl: mentions[0]?.sourceUrl || '',
+            companyName: cfg?.company?.companyName,
+            whatTheySell: cfg?.company?.whatTheySell,
+            brandVoiceNotes: cfg?.company?.brandVoiceNotes,
+          },
+        },
+      });
+      report = normalizeRivalReport(data.analyzeRivalReport, name);
+    } catch (err) {
+      console.warn('[RL] analyzeRivalReport cloud failed', err);
+      if (!allowOffline) throw err;
+    }
+  }
+
+  if (!report) {
+    report = buildLocalRivalReport({
+      competitorName: name,
+      mentions,
+      companyName: cfg?.company?.companyName,
+      whatTheySell: cfg?.company?.whatTheySell,
+      competitors: cfg?.competitors || [],
+    });
+  }
+
+  const stored = await storageGet([STORAGE.rivalReports]);
+  const map = stored[STORAGE.rivalReports] && typeof stored[STORAGE.rivalReports] === 'object'
+    ? stored[STORAGE.rivalReports]
+    : {};
+  map[name] = report;
+  await storageSet({ [STORAGE.rivalReports]: map });
+  await storageSet({ [STORAGE.pendingRivalReport]: null });
+
+  renderRivalReport(report);
+  return report;
+}
+
+async function consumePendingRivalReport() {
+  const data = await storageGet([STORAGE.pendingRivalReport]);
+  const pending = data[STORAGE.pendingRivalReport];
+  if (!pending?.competitorName) return;
+  await generateRivalReport(pending.competitorName, pending.mentions || []);
+}
+
 
 /** Asegura perfil/rivales; no auto-inyecta demos (evita confusión). */
 async function ensureCompetitorsReady() {
@@ -652,18 +1381,58 @@ async function prependOpportunity(opp) {
   await storageSet({
     [STORAGE.alerts]: [opp, ...list.filter((a) => a.alertId !== opp.alertId)].slice(0, 100),
   });
+  // No auto-expandir: el usuario abre con clic
+  expandedAlertId = null;
+}
+
+function sourceLabel(alert) {
+  if (alert._source === 'hackernews') return 'hn';
+  if (alert._source === 'reddit') return 'reddit';
+  if (alert._source === 'page') return 'página';
+  if (alert._demo) return 'ejemplo';
+  if (alert._synthetic) return 'simulado';
+  return '';
+}
+
+function truncateText(text, max = 90) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}…`;
+}
+
+function setAlertExpanded(node, open) {
+  node.classList.toggle('is-expanded', open);
+  const body = node.querySelector('[data-alert-body]');
+  const toggle = node.querySelector('[data-alert-toggle]');
+  if (body) {
+    body.hidden = !open;
+    body.setAttribute('aria-hidden', open ? 'false' : 'true');
+  }
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const chev = toggle.querySelector('[data-chevron]');
+    if (chev) chev.textContent = open ? '▾' : '▸';
+  }
+}
+
+function collapseAllAlerts(exceptId = null) {
+  if (!els.feed) return;
+  els.feed.querySelectorAll('.rl-alert--accordion').forEach((el) => {
+    if (exceptId && el.dataset.alertId === exceptId) return;
+    setAlertExpanded(el, false);
+  });
 }
 
 function renderAlerts(alerts, company = null) {
+  if (!els.feed) return;
   els.feed.innerHTML = '';
   if (!alerts?.length) {
     els.feed.innerHTML = `
       <div class="rl-empty">
         Todavía no hay oportunidades.<br/>
-        Pulsá <strong>Escanear ahora</strong> para buscar quejas de tus rivales en Hacker News / Reddit
-        (e importar las detectadas en la pestaña abierta).
+        Pulsá <strong>Escanear</strong> para buscar quejas de tus rivales.
         <button type="button" class="rl-btn rl-btn--primary" id="btn-empty-scan" style="margin-top:12px">
-          Escanear ahora
+          Escanear
         </button>
       </div>`;
     document.getElementById('btn-empty-scan')?.addEventListener('click', () => {
@@ -672,51 +1441,64 @@ function renderAlerts(alerts, company = null) {
     return;
   }
 
+  // Si no hay expandida válida, no abrir ninguna (lista compacta).
+  if (expandedAlertId && !alerts.some((a) => a.alertId === expandedAlertId)) {
+    expandedAlertId = null;
+  }
+
   for (const alert of alerts) {
+    try {
+      renderAlertCard(alert, company);
+    } catch (err) {
+      console.error('[RL] renderAlertCard', alert?.alertId, err);
+    }
+  }
+}
+
+function renderAlertCard(alert, company = null) {
     const c = alert.competitor || lookupCompetitorProfile(alert.competitorName) || {};
     const logo = c.logoUrl || lookupCompetitorProfile(alert.competitorName)?.logoUrl;
+    const isOpen = expandedAlertId === alert.alertId;
+    const src = sourceLabel(alert);
     const node = document.createElement('article');
-    node.className = 'rl-alert';
+    node.className = `rl-alert rl-alert--accordion${isOpen ? ' is-expanded' : ''}`;
     node.dataset.alertId = alert.alertId;
 
-    const social = (c.socialHandles || [])
-      .map((h) => `<span class="rl-chip rl-chip--muted">${escapeHtml(h)}</span>`)
-      .join('');
-
     node.innerHTML = `
-      <div class="rl-comp-card">
-        <img class="rl-comp-logo" src="${escapeHtml(logo || '')}" alt="" width="40" height="40" />
-        <div class="rl-comp-meta">
-          <header>
-            <strong>${escapeHtml(alert.competitorName)}</strong>
+      <button type="button" class="rl-alert__summary" data-alert-toggle aria-expanded="${isOpen ? 'true' : 'false'}">
+        <img class="rl-comp-logo rl-comp-logo--sm" src="${escapeHtml(logo || '')}" alt="" width="28" height="28" decoding="async" />
+        <span class="rl-alert__summary-text">
+          <span class="rl-alert__title-row">
+            <strong>${escapeHtml(alert.competitorName || 'Rival')}</strong>
             <span class="rl-badge rl-badge--${escapeHtml(String(alert.severity || 'HIGH').toLowerCase())}">
-              ${escapeHtml(alert.severity || 'HIGH')} · ${escapeHtml(alert.status || 'NEW')}
+              ${escapeHtml(alert.status || 'NEW')}
             </span>
-          </header>
-          ${c.industry ? `<p class="rl-comp-industry">${escapeHtml(c.industry)}</p>` : ''}
-          ${c.description ? `<p class="rl-muted">${escapeHtml(c.description)}</p>` : ''}
-          ${c.weaknessNotes ? `<p class="rl-comp-weak"><strong>Debilidad:</strong> ${escapeHtml(c.weaknessNotes)}</p>` : ''}
-          <div class="rl-chips">${social}</div>
-          <p class="rl-muted">
-            ${
-              c.websiteUrl
-                ? `<a href="${escapeHtml(c.websiteUrl)}" target="_blank" rel="noopener">Sitio</a> · `
-                : ''
-            }
-            <a href="${escapeHtml(alert.sourceUrl)}" target="_blank" rel="noopener">Fuente queja</a>
-            · score ${escapeHtml(String(alert.frustrationScore ?? '—'))}
-            ${alert._demo ? ' · ejemplo' : ''}
-            ${alert._synthetic ? ' · simulado' : ''}
-            ${alert._source === 'hackernews' ? ' · hn' : ''}
-            ${alert._source === 'reddit' ? ' · reddit' : ''}
-            ${alert._source === 'page' ? ' · página' : ''}
-          </p>
-        </div>
+          </span>
+          <span class="rl-alert__snippet">${escapeHtml(truncateText(alert.originalComplaint, 88))}</span>
+          <span class="rl-alert__meta">${escapeHtml(
+            [src, alert.frustrationScore != null ? `score ${alert.frustrationScore}` : '']
+              .filter(Boolean)
+              .join(' · '),
+          )}</span>
+        </span>
+        <span class="rl-alert__chevron" data-chevron aria-hidden="true">${isOpen ? '▾' : '▸'}</span>
+      </button>
+      <div class="rl-alert__body" data-alert-body ${isOpen ? '' : 'hidden'}>
+        <p class="rl-alert__complaint">${escapeHtml(alert.originalComplaint || '')}</p>
+        <p class="rl-muted rl-alert__links">
+          ${
+            c.websiteUrl
+              ? `<a href="${escapeHtml(c.websiteUrl)}" target="_blank" rel="noopener">Sitio</a> · `
+              : ''
+          }
+          <a href="${escapeHtml(alert.sourceUrl || '#')}" target="_blank" rel="noopener">Fuente</a>
+          ${c.weaknessNotes ? ` · <span title="${escapeHtml(c.weaknessNotes)}">debilidad</span>` : ''}
+        </p>
+        <p class="rl-muted rl-alert__section-label">Pitch</p>
+        <div class="rl-pitch-tabs" data-pitch-tabs></div>
+        <div class="rl-pitch-preview" data-pitch-preview></div>
+        <div class="rl-card-actions rl-card-actions--compact" data-alert-actions></div>
       </div>
-      <p class="rl-muted">Queja del cliente del rival</p>
-      <p>${escapeHtml(alert.originalComplaint)}</p>
-      <p class="rl-muted">Pitches de captación (elegí uno)</p>
-      <div class="rl-pitch-list" data-pitch-root="1"></div>
     `;
 
     const img = node.querySelector('.rl-comp-logo');
@@ -727,7 +1509,21 @@ function renderAlerts(alerts, company = null) {
       });
     }
 
-    const pitchRoot = node.querySelector('[data-pitch-root]');
+    const toggle = node.querySelector('[data-alert-toggle]');
+    toggle?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const willOpen = !node.classList.contains('is-expanded');
+      collapseAllAlerts(willOpen ? alert.alertId : null);
+      expandedAlertId = willOpen ? alert.alertId : null;
+      setAlertExpanded(node, willOpen);
+      if (willOpen) {
+        requestAnimationFrame(() => {
+          node.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+      }
+    });
+
     let pitches = Array.isArray(alert.salesPitches) ? alert.salesPitches : null;
     if (!pitches?.length) {
       pitches = craftSalesPitchVariants({
@@ -737,96 +1533,131 @@ function renderAlerts(alerts, company = null) {
         competitorName: alert.competitorName,
         complaint: alert.originalComplaint,
       });
-      // Rehidratar con pitch histórico como "suave" si existía
       if (alert.salesPitch && pitches[0]) {
         pitches = pitches.map((p, i) =>
           i === 0 ? { ...p, body: alert.salesPitch, recommended: true } : { ...p, recommended: false },
         );
       }
     }
+    if (!pitches?.length) {
+      pitches = [
+        {
+          id: 'soft',
+          label: 'Suave',
+          recommended: true,
+          body: alert.salesPitch || '',
+          rationale: '',
+        },
+      ];
+    }
 
     let selectedPitch = pitches.find((p) => p.recommended) || pitches[0];
+    const tabsEl = node.querySelector('[data-pitch-tabs]');
+    const previewEl = node.querySelector('[data-pitch-preview]');
 
-    const renderPitchCards = () => {
-      if (!pitchRoot) return;
-      pitchRoot.innerHTML = '';
-      for (const pitch of pitches) {
-        const isSel = selectedPitch?.id === pitch.id;
-        const card = document.createElement('div');
-        card.className = `rl-pitch${isSel ? ' is-selected' : ''}${pitch.recommended ? ' is-recommended' : ''}`;
-        card.innerHTML = `
-          <div class="rl-pitch__head">
-            <strong>${escapeHtml(pitch.label)}</strong>
-            ${pitch.recommended ? '<span class="rl-rec-badge">Recomendada</span>' : ''}
-          </div>
-          ${pitch.rationale ? `<p class="rl-rationale">${escapeHtml(pitch.rationale)}</p>` : ''}
-          <p><em>${escapeHtml(pitch.body)}</em></p>
-        `;
-        card.addEventListener('click', () => {
-          selectedPitch = pitch;
-          renderPitchCards();
+    const renderPitchUi = () => {
+      if (!tabsEl || !previewEl) return;
+      tabsEl.innerHTML = pitches
+        .map((p) => {
+          const on = selectedPitch?.id === p.id;
+          return `<button type="button" class="rl-pitch-tab${on ? ' is-active' : ''}${
+            p.recommended ? ' is-rec' : ''
+          }" data-pitch-id="${escapeHtml(p.id)}">${escapeHtml(p.label)}</button>`;
+        })
+        .join('');
+      previewEl.innerHTML = `
+        ${selectedPitch?.rationale ? `<p class="rl-rationale">${escapeHtml(selectedPitch.rationale)}</p>` : ''}
+        <p><em>${escapeHtml(selectedPitch?.body || '')}</em></p>
+      `;
+      tabsEl.querySelectorAll('[data-pitch-id]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          selectedPitch = pitches.find((p) => p.id === btn.getAttribute('data-pitch-id')) || selectedPitch;
+          renderPitchUi();
         });
-        pitchRoot.appendChild(card);
-      }
-    };
-    renderPitchCards();
-
-    const actions = document.createElement('div');
-    actions.className = 'rl-card-actions rl-card-actions--3';
-
-    const copy = document.createElement('button');
-    copy.type = 'button';
-    copy.className = 'rl-btn rl-btn--primary';
-    copy.textContent = 'Copiar pitch';
-    copy.addEventListener('click', async () => {
-      const text = selectedPitch?.body || alert.salesPitch;
-      await navigator.clipboard.writeText(text);
-      copy.textContent = '✓ Copiado';
-      setTimeout(() => {
-        copy.textContent = 'Copiar pitch';
-      }, 1200);
-    });
-
-    const inject = document.createElement('button');
-    inject.type = 'button';
-    inject.className = 'rl-btn rl-btn--ghost';
-    inject.textContent = 'Inyectar en página';
-    inject.addEventListener('click', async () => {
-      inject.disabled = true;
-      try {
-        const text = selectedPitch?.body || alert.salesPitch;
-        await chrome.runtime.sendMessage({
-          type: 'RL_INJECT_REPLY',
-          text,
-          complaintId: null,
-        });
-        await updateAlertStatus(alert.alertId, 'CONTACTED');
-      } finally {
-        inject.disabled = false;
-      }
-    });
-
-    const mkStatusBtn = (label, status) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'rl-btn rl-btn--ghost';
-      b.textContent = label;
-      b.addEventListener('click', async () => {
-        await updateAlertStatus(alert.alertId, status);
       });
-      return b;
     };
+    renderPitchUi();
 
-    actions.append(
-      copy,
-      inject,
-      mkStatusBtn('Contactado', 'CONTACTED'),
-      mkStatusBtn('Ganado', 'WON'),
-      mkStatusBtn('Descartar', 'DISMISSED'),
-    );
-    node.appendChild(actions);
+    const actions = node.querySelector('[data-alert-actions]');
+    if (actions) {
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'rl-btn rl-btn--primary';
+      copy.textContent = 'Copiar';
+      copy.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await navigator.clipboard.writeText(selectedPitch?.body || alert.salesPitch || '');
+        copy.textContent = '✓';
+        setTimeout(() => {
+          copy.textContent = 'Copiar';
+        }, 1000);
+      });
+
+      const inject = document.createElement('button');
+      inject.type = 'button';
+      inject.className = 'rl-btn rl-btn--ghost';
+      inject.textContent = 'Inyectar';
+      inject.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        inject.disabled = true;
+        try {
+          await chrome.runtime.sendMessage({
+            type: 'RL_INJECT_REPLY',
+            text: selectedPitch?.body || alert.salesPitch,
+            complaintId: null,
+          });
+          await updateAlertStatus(alert.alertId, 'CONTACTED');
+        } finally {
+          inject.disabled = false;
+        }
+      });
+
+      const mkStatusBtn = (label, status) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'rl-btn rl-btn--ghost';
+        b.textContent = label;
+        b.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await updateAlertStatus(alert.alertId, status);
+        });
+        return b;
+      };
+
+      actions.append(
+        copy,
+        inject,
+        mkStatusBtn('Contactado', 'CONTACTED'),
+        mkStatusBtn('Ganado', 'WON'),
+        mkStatusBtn('Descartar', 'DISMISSED'),
+      );
+
+      const reportBtn = document.createElement('button');
+      reportBtn.type = 'button';
+      reportBtn.className = 'rl-btn rl-btn--ghost';
+      reportBtn.textContent = 'Informe IA';
+      reportBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        reportBtn.disabled = true;
+        reportBtn.textContent = 'Analizando…';
+        try {
+          await generateRivalReport(alert.competitorName, [
+            {
+              text: alert.originalComplaint,
+              sourceUrl: alert.sourceUrl,
+              channel: alert.channel,
+            },
+          ]);
+        } finally {
+          reportBtn.disabled = false;
+          reportBtn.textContent = 'Informe IA';
+        }
+      });
+      actions.append(reportBtn);
+    }
+
     els.feed.appendChild(node);
-  }
 }
 
 const CAPTURE_STATUS_LABELS = {
@@ -885,52 +1716,76 @@ function renderCompetitorEditor(competitors) {
     .map((c, idx) => {
       const aliases = Array.isArray(c.aliases) ? c.aliases.join(', ') : '';
       const social = Array.isArray(c.socialHandles) ? c.socialHandles.join(', ') : '';
+      const title = (c.name || '').trim() || `Competidor ${idx + 1}`;
+      const open = !c.name; // nuevos vacíos abiertos para editar
       return `
-      <article class="rl-comp-form" data-idx="${idx}">
-        <div class="rl-comp-form__head">
-          <strong>Competidor ${idx + 1}</strong>
-          <button type="button" class="rl-btn rl-btn--ghost rl-btn--danger-text" data-remove="${idx}">
-            Quitar
-          </button>
+      <article class="rl-comp-form${open ? ' is-expanded' : ''}" data-idx="${idx}">
+        <button type="button" class="rl-comp-form__toggle" data-comp-toggle aria-expanded="${open ? 'true' : 'false'}">
+          <span class="rl-comp-form__chevron" aria-hidden="true">${open ? '▾' : '▸'}</span>
+          <strong>${escapeHtml(title)}</strong>
+          <span class="rl-muted">${escapeHtml(c.industry || '')}</span>
+        </button>
+        <div class="rl-comp-form__body" data-comp-body ${open ? '' : 'hidden'}>
+          <div class="rl-comp-form__head">
+            <span class="rl-muted">Editar ficha</span>
+            <button type="button" class="rl-btn rl-btn--ghost rl-btn--danger-text" data-remove="${idx}">
+              Quitar
+            </button>
+          </div>
+          <label>
+            Nombre *
+            <input data-field="name" value="${escapeHtml(c.name || '')}" maxlength="120" required placeholder="Shopify" />
+          </label>
+          <label>
+            Aliases (separados por coma)
+            <input data-field="aliases" value="${escapeHtml(aliases)}" maxlength="200" placeholder="rival cloud, rivalcloud" />
+          </label>
+          <label>
+            Sitio web
+            <input data-field="websiteUrl" type="url" value="${escapeHtml(c.websiteUrl || '')}" maxlength="300" placeholder="https://…" />
+          </label>
+          <label>
+            Logo URL (opcional)
+            <input data-field="logoUrl" type="url" value="${escapeHtml(c.logoUrl && !String(c.logoUrl).includes('google.com/s2/favicons') ? c.logoUrl : '')}" maxlength="400" placeholder="https://…/logo.png" />
+          </label>
+          <label>
+            Industria
+            <input data-field="industry" value="${escapeHtml(c.industry || '')}" maxlength="120" placeholder="Cloud / IaaS" />
+          </label>
+          <label>
+            Descripción
+            <textarea data-field="description" rows="2" maxlength="400" placeholder="Qué vende / posicionamiento">${escapeHtml(c.description || '')}</textarea>
+          </label>
+          <label>
+            Debilidades conocidas
+            <textarea data-field="weaknessNotes" rows="2" maxlength="400" placeholder="Soporte lento, cobros duplicados…">${escapeHtml(c.weaknessNotes || '')}</textarea>
+          </label>
+          <label>
+            Redes (coma)
+            <input data-field="socialHandles" value="${escapeHtml(social)}" maxlength="200" placeholder="@rivalcloud" />
+          </label>
         </div>
-        <label>
-          Nombre *
-          <input data-field="name" value="${escapeHtml(c.name || '')}" maxlength="120" required placeholder="Shopify" />
-        </label>
-        <label>
-          Aliases (separados por coma)
-          <input data-field="aliases" value="${escapeHtml(aliases)}" maxlength="200" placeholder="rival cloud, rivalcloud" />
-        </label>
-        <label>
-          Sitio web
-          <input data-field="websiteUrl" type="url" value="${escapeHtml(c.websiteUrl || '')}" maxlength="300" placeholder="https://…" />
-        </label>
-        <label>
-          Logo URL (opcional)
-          <input data-field="logoUrl" type="url" value="${escapeHtml(c.logoUrl && !String(c.logoUrl).includes('google.com/s2/favicons') ? c.logoUrl : '')}" maxlength="400" placeholder="https://…/logo.png" />
-        </label>
-        <label>
-          Industria
-          <input data-field="industry" value="${escapeHtml(c.industry || '')}" maxlength="120" placeholder="Cloud / IaaS" />
-        </label>
-        <label>
-          Descripción
-          <textarea data-field="description" rows="2" maxlength="400" placeholder="Qué vende / posicionamiento">${escapeHtml(c.description || '')}</textarea>
-        </label>
-        <label>
-          Debilidades conocidas
-          <textarea data-field="weaknessNotes" rows="2" maxlength="400" placeholder="Soporte lento, cobros duplicados…">${escapeHtml(c.weaknessNotes || '')}</textarea>
-        </label>
-        <label>
-          Redes (coma)
-          <input data-field="socialHandles" value="${escapeHtml(social)}" maxlength="200" placeholder="@rivalcloud" />
-        </label>
       </article>`;
     })
     .join('');
 
-  root.querySelectorAll('[data-remove]').forEach((btn) => {
+  root.querySelectorAll('[data-comp-toggle]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      const card = btn.closest('.rl-comp-form');
+      if (!card) return;
+      const open = !card.classList.contains('is-expanded');
+      card.classList.toggle('is-expanded', open);
+      const body = card.querySelector('[data-comp-body]');
+      if (body) body.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      const chev = btn.querySelector('.rl-comp-form__chevron');
+      if (chev) chev.textContent = open ? '▾' : '▸';
+    });
+  });
+
+  root.querySelectorAll('[data-remove]').forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
       const current = collectCompetitorsFromForm();
       const idx = Number(btn.getAttribute('data-remove'));
       current.splice(idx, 1);
@@ -1154,7 +2009,7 @@ document.getElementById('btn-add-competitor')?.addEventListener('click', () => {
   cards[cards.length - 1]?.querySelector('[data-field="name"]')?.focus();
 });
 
-els.form.addEventListener('submit', async (ev) => {
+els.form?.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   els.status.classList.remove('is-error');
   els.status.textContent = 'Guardando…';
@@ -1238,7 +2093,7 @@ els.form.addEventListener('submit', async (ev) => {
   }
 });
 
-els.manual.addEventListener('submit', async (ev) => {
+els.manual?.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const text = document.getElementById('manual-text').value.trim();
   if (!text) return;
@@ -1274,13 +2129,36 @@ els.compManual?.addEventListener('submit', async (ev) => {
   await refreshAlerts();
 });
 
-els.refresh.addEventListener('click', refreshAlerts);
-els.alertFilter.addEventListener('change', refreshAlerts);
+els.refresh?.addEventListener('click', () => {
+  void refreshAlerts();
+});
+els.alertFilter?.addEventListener('change', () => {
+  void refreshAlerts();
+});
+els.alertFilterDate?.addEventListener('change', () => {
+  void refreshAlerts();
+});
+els.alertFilterPlatform?.addEventListener('change', () => {
+  void refreshAlerts();
+});
+els.alertFilterRival?.addEventListener('change', () => {
+  void refreshAlerts();
+});
+els.alertFilterSeverity?.addEventListener('change', () => {
+  void refreshAlerts();
+});
+let filterQTimer = 0;
+els.alertFilterQ?.addEventListener('input', () => {
+  window.clearTimeout(filterQTimer);
+  filterQTimer = window.setTimeout(() => {
+    void refreshAlerts();
+  }, 220);
+});
 els.scanComp?.addEventListener('click', () => {
   void scanCompetitorMarket();
 });
 
-els.loadDemo.addEventListener('click', async () => {
+els.loadDemo?.addEventListener('click', async () => {
   const { [STORAGE.config]: cfg, [STORAGE.alerts]: existing } = await storageGet([
     STORAGE.config,
     STORAGE.alerts,
@@ -1303,6 +2181,8 @@ els.loadDemo.addEventListener('click', async () => {
   const demos = buildDemoOpportunities(cfg?.company, cfg?.userId || 'local-user', competitors);
   const rest = (existing || []).filter((a) => !String(a.alertId || '').startsWith('demo-'));
   await storageSet({ [STORAGE.alerts]: [...demos, ...rest] });
+  // Lista colapsada: el usuario abre con un clic
+  expandedAlertId = null;
   els.alertFilter.value = 'OPEN';
   await refreshAlerts();
   activateTab('comp');
@@ -1328,13 +2208,37 @@ els.exportHist.addEventListener('click', async () => {
   URL.revokeObjectURL(url);
 });
 
+els.rivalBannerBtn?.addEventListener('click', async () => {
+  const name = pendingIntelRival?.competitorName;
+  if (!name) return;
+  els.rivalBannerBtn.disabled = true;
+  els.rivalBannerBtn.textContent = 'Analizando…';
+  try {
+    await generateRivalReport(name, pendingIntelRival?.mentions || []);
+  } finally {
+    els.rivalBannerBtn.disabled = false;
+    els.rivalBannerBtn.textContent = 'Informe IA';
+  }
+});
+
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === 'RL_PENDING_COMPLAINT' && message.payload) {
     analyzeComplaint(message.payload);
   }
   if (message?.type === 'RL_NEW_ALERT' || message?.type === 'RL_CAPTURE_OPPORTUNITY') {
-    refreshAlerts();
+    expandedAlertId = null;
+    void refreshAlerts();
     activateTab('comp');
+    if (message.type === 'RL_CAPTURE_OPPORTUNITY' && message.payload?.requestRivalReport) {
+      void generateRivalReport(message.payload.competitorName, message.payload.pageMentions || []);
+    }
+  }
+  if (message?.type === 'RL_PAGE_RIVALS_DETECTED') {
+    void storageSet({ [STORAGE.pageRivals]: message.payload }).then(() => refreshPageRivalBanner());
+  }
+  if (message?.type === 'RL_REQUEST_RIVAL_REPORT' && message.payload?.competitorName) {
+    activateTab('comp');
+    void generateRivalReport(message.payload.competitorName, message.payload.mentions || []);
   }
 });
 
@@ -1379,6 +2283,7 @@ async function enterApp(session) {
   await fillRivalSelect();
   await refreshAlerts();
   await refreshKpis();
+  await consumePendingRivalReport();
 
   const pending = await storageGet([STORAGE.pending]);
   if (pending[STORAGE.pending]) {

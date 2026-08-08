@@ -1,5 +1,5 @@
 import type { ComplaintTriage, ReplyOption } from '@responselens/domain';
-import type { AnalyzeReplyInputDto } from '../dto';
+import type { AnalyzeReplyInputDto, AnalyzeRivalReportInputDto, RivalReportDto } from '../dto';
 
 export interface LlmReplyResult {
   options: ReplyOption[];
@@ -9,4 +9,5 @@ export interface LlmReplyResult {
 
 export interface IReplyLlmPort {
   generateReplyOptions(input: AnalyzeReplyInputDto): Promise<LlmReplyResult>;
+  generateRivalReport?(input: AnalyzeRivalReportInputDto): Promise<RivalReportDto>;
 }

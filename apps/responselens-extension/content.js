@@ -432,8 +432,63 @@
     node.setAttribute(RL_BTN_ATTR, '1');
   }
 
+  let lastRivalNotifyKey = '';
+  let rivalNotifyTimer = 0;
+
+  function collectRivalMentionsFromDom() {
+    /** @type {Record<string, { name: string, mentions: object[] }>} */
+    const byRival = {};
+    for (const node of document.querySelectorAll(`[${RL_ATTR}].rl-highlight--capture`)) {
+      if (!(node instanceof HTMLElement)) continue;
+      const text = normalizeText(node.innerText || node.textContent);
+      const competitorName =
+        node.getAttribute('data-rl-competitor') || findCompetitorInText(text);
+      if (!text || !competitorName) continue;
+      if (!byRival[competitorName]) {
+        byRival[competitorName] = { name: competitorName, mentions: [] };
+      }
+      if (byRival[competitorName].mentions.length >= 8) continue;
+      byRival[competitorName].mentions.push({
+        text,
+        sourceUrl: location.href,
+        channel: detectChannel(),
+        detectedAt: new Date().toISOString(),
+      });
+    }
+    return Object.values(byRival);
+  }
+
+  function notifyRivalsDetected() {
+    window.clearTimeout(rivalNotifyTimer);
+    rivalNotifyTimer = window.setTimeout(() => {
+      const rivals = collectRivalMentionsFromDom();
+      if (!rivals.length) return;
+      const key = rivals
+        .map((r) => `${r.name}:${r.mentions.length}`)
+        .sort()
+        .join('|');
+      if (key === lastRivalNotifyKey) return;
+      lastRivalNotifyKey = key;
+      chrome.runtime
+        .sendMessage({
+          type: 'RL_PAGE_RIVALS_DETECTED',
+          payload: {
+            href: location.href,
+            channel: detectChannel(),
+            rivals,
+            detectedAt: new Date().toISOString(),
+          },
+        })
+        .catch(() => {});
+    }, 900);
+  }
+
   function attachCaptureButton(node, meta) {
     if (node.getAttribute('data-rl-cap') === '1') return;
+    const wrap = document.createElement('span');
+    wrap.className = 'rl-cap-actions';
+    wrap.setAttribute(RL_BTN_ATTR, '1');
+
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'rl-action-btn rl-action-btn--capture';
@@ -446,6 +501,8 @@
         ev.preventDefault();
         ev.stopPropagation();
         const frustration = scoreSeverity(meta.text) === 'low' ? 0.55 : 0.8;
+        const rivals = collectRivalMentionsFromDom();
+        const same = rivals.find((r) => r.name === meta.competitorName);
         chrome.runtime.sendMessage({
           type: 'RL_CAPTURE_OPPORTUNITY',
           payload: {
@@ -469,13 +526,47 @@
             salesPitch: craftPitch(meta.competitorName, meta.text),
             detectedAt: new Date().toISOString(),
             status: 'NEW',
+            requestRivalReport: true,
+            pageMentions: same?.mentions || [{ text: meta.text, sourceUrl: location.href, channel: detectChannel() }],
           },
         });
-        showToast(`Oportunidad creada: ${meta.competitorName}`);
+        showToast(`Captado + informe IA: ${meta.competitorName}`);
       },
       true,
     );
-    node.appendChild(btn);
+
+    const reportBtn = document.createElement('button');
+    reportBtn.type = 'button';
+    reportBtn.className = 'rl-action-btn rl-action-btn--report';
+    reportBtn.title = 'ResponseLens — Informe IA del rival';
+    reportBtn.setAttribute('aria-label', 'Generar informe IA del rival');
+    reportBtn.textContent = '📊';
+    reportBtn.addEventListener(
+      'click',
+      (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const rivals = collectRivalMentionsFromDom();
+        const same = rivals.find((r) => r.name === meta.competitorName);
+        chrome.runtime.sendMessage({
+          type: 'RL_REQUEST_RIVAL_REPORT',
+          payload: {
+            competitorName: meta.competitorName,
+            href: location.href,
+            channel: detectChannel(),
+            mentions: same?.mentions || [
+              { text: meta.text, sourceUrl: location.href, channel: detectChannel() },
+            ],
+            openPanel: true,
+          },
+        });
+        showToast(`Analizando rival: ${meta.competitorName}`);
+      },
+      true,
+    );
+
+    wrap.append(btn, reportBtn);
+    node.appendChild(wrap);
     node.setAttribute('data-rl-cap', '1');
   }
 
@@ -551,6 +642,7 @@
       markComplaint(node);
     }
     reportBadge(document.querySelectorAll(`[${RL_ATTR}]`).length);
+    notifyRivalsDetected();
   }
 
   function scheduleScan() {

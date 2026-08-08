@@ -198,6 +198,22 @@ async function handleMessage(message, sender) {
         100,
       );
       await setLocal({ [STORAGE_KEYS.alerts]: next });
+      if (alert.requestRivalReport) {
+        await setLocal({
+          rl_pending_rival_report: {
+            competitorName: alert.competitorName,
+            mentions: alert.pageMentions || [
+              {
+                text: alert.originalComplaint,
+                sourceUrl: alert.sourceUrl,
+                channel: alert.channel,
+              },
+            ],
+            alertId: alert.alertId,
+            at: new Date().toISOString(),
+          },
+        });
+      }
       const tabId = sender?.tab?.id;
       await openSidePanel(tabId, sender?.tab?.windowId);
       try {
@@ -210,10 +226,52 @@ async function handleMessage(message, sender) {
           type: 'basic',
           iconUrl: 'icons/icon48.png',
           title: `Captación: ${alert.competitorName}`,
-          message: (alert.salesPitch || '').slice(0, 120),
+          message: alert.requestRivalReport
+            ? 'Oportunidad + informe IA del rival en curso…'
+            : (alert.salesPitch || '').slice(0, 120),
         });
       } catch {
         /* optional */
+      }
+      return { ok: true };
+    }
+
+    case 'RL_PAGE_RIVALS_DETECTED': {
+      const payload = message.payload;
+      if (!payload?.rivals?.length) return { ok: true };
+      await setLocal({
+        rl_page_rivals: {
+          ...payload,
+          at: new Date().toISOString(),
+        },
+      });
+      try {
+        await chrome.runtime.sendMessage({ type: 'RL_PAGE_RIVALS_DETECTED', payload });
+      } catch {
+        /* side panel closed */
+      }
+      return { ok: true };
+    }
+
+    case 'RL_REQUEST_RIVAL_REPORT': {
+      const payload = message.payload;
+      if (!payload?.competitorName) return { ok: false, error: 'missing_rival' };
+      await setLocal({
+        rl_pending_rival_report: {
+          competitorName: payload.competitorName,
+          mentions: payload.mentions || [],
+          href: payload.href,
+          channel: payload.channel,
+          at: new Date().toISOString(),
+        },
+      });
+      if (payload.openPanel !== false) {
+        await openSidePanel(sender?.tab?.id, sender?.tab?.windowId);
+      }
+      try {
+        await chrome.runtime.sendMessage({ type: 'RL_REQUEST_RIVAL_REPORT', payload });
+      } catch {
+        /* side panel closed */
       }
       return { ok: true };
     }

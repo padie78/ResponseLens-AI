@@ -1,6 +1,7 @@
 import type { AppSyncResolverHandler } from 'aws-lambda';
 import {
   analyzeReply,
+  analyzeRivalReport,
   getUserConfig,
   listCompetitorAlerts,
   saveUserConfig,
@@ -19,6 +20,11 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
   switch (op) {
     case 'analyzeReply':
       return analyzeReply.execute(args.input as Parameters<typeof analyzeReply.execute>[0]);
+
+    case 'analyzeRivalReport':
+      return analyzeRivalReport.execute(
+        args.input as Parameters<typeof analyzeRivalReport.execute>[0],
+      );
 
     case 'getUserConfig':
       return getUserConfig.execute({ userId: String(args.userId) });

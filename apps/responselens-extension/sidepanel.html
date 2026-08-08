@@ -87,10 +87,10 @@
         </div>
       </div>
       <div id="ops-kpis" class="rl-kpis" aria-label="Indicadores operativos">
-        <div class="rl-kpi"><span id="kpi-replies">0</span><small>Respuestas</small></div>
+        <div class="rl-kpi"><span id="kpi-replies">0</span><small>Respuestas 7d</small></div>
         <div class="rl-kpi"><span id="kpi-alerts">0</span><small>Abiertas</small></div>
         <div class="rl-kpi"><span id="kpi-critical">0</span><small>Críticas</small></div>
-        <div class="rl-kpi"><span id="kpi-escalations">0</span><small>Escalados</small></div>
+        <div class="rl-kpi"><span id="kpi-winrate">0%</span><small>Win rate</small></div>
       </div>
     </header>
 
@@ -100,6 +100,9 @@
       </button>
       <button class="rl-tab" role="tab" aria-selected="false" data-tab="comp">
         <span class="rl-tab__label">Competencia</span>
+      </button>
+      <button class="rl-tab" role="tab" aria-selected="false" data-tab="stats">
+        <span class="rl-tab__label">Stats</span>
       </button>
       <button class="rl-tab" role="tab" aria-selected="false" data-tab="hist">
         <span class="rl-tab__label">Historial</span>
@@ -138,8 +141,21 @@
       <!-- Módulo B -->
       <section id="panel-comp" class="rl-panel" role="tabpanel" hidden>
         <div class="rl-panel-head">
-          <h2>Oportunidades de Captación</h2>
+          <h2>Oportunidades</h2>
           <div class="rl-head-actions">
+            <button type="button" id="btn-scan-comp" class="rl-btn rl-btn--primary" title="Busca quejas de rivales en Reddit + en la pestaña activa">
+              Escanear
+            </button>
+            <button type="button" id="btn-load-demo" class="rl-btn rl-btn--ghost" title="Cargar ejemplos listos">
+              Ejemplos
+            </button>
+            <button type="button" id="btn-refresh-alerts" class="rl-btn rl-btn--ghost" title="Actualizar">↻</button>
+          </div>
+        </div>
+
+        <div class="rl-filters" id="comp-filters" aria-label="Filtros de oportunidades">
+          <label class="rl-filter">
+            <span>Estado</span>
             <select id="alert-filter" class="rl-select" aria-label="Filtro de estado">
               <option value="OPEN">Abiertas</option>
               <option value="ALL">Todas</option>
@@ -147,45 +163,187 @@
               <option value="WON">Ganadas</option>
               <option value="DISMISSED">Descartadas</option>
             </select>
-            <button type="button" id="btn-scan-comp" class="rl-btn rl-btn--primary" title="Busca quejas de rivales en Reddit + en la pestaña activa">
-              Escanear ahora
-            </button>
-            <button type="button" id="btn-load-demo" class="rl-btn rl-btn--ghost" title="Cargar ejemplos listos">
-              Ejemplos
-            </button>
-            <button type="button" id="btn-refresh-alerts" class="rl-btn rl-btn--ghost">Actualizar</button>
-          </div>
+          </label>
+          <label class="rl-filter">
+            <span>Fecha</span>
+            <select id="alert-filter-date" class="rl-select" aria-label="Filtro de fecha">
+              <option value="all">Todas</option>
+              <option value="1">Hoy</option>
+              <option value="7" selected>7 días</option>
+              <option value="14">14 días</option>
+              <option value="30">30 días</option>
+            </select>
+          </label>
+          <label class="rl-filter">
+            <span>Plataforma</span>
+            <select id="alert-filter-platform" class="rl-select" aria-label="Filtro de plataforma">
+              <option value="all">Todas</option>
+              <option value="hackernews">Hacker News</option>
+              <option value="reddit">Reddit</option>
+              <option value="page">Página</option>
+              <option value="amazon">Amazon</option>
+              <option value="ebay">eBay</option>
+              <option value="youtube">YouTube</option>
+              <option value="x">X / Twitter</option>
+              <option value="manual">Manual</option>
+            </select>
+          </label>
+          <label class="rl-filter">
+            <span>Rival</span>
+            <select id="alert-filter-rival" class="rl-select" aria-label="Filtro de competidor">
+              <option value="all">Todos</option>
+            </select>
+          </label>
+          <label class="rl-filter">
+            <span>Severidad</span>
+            <select id="alert-filter-severity" class="rl-select" aria-label="Filtro de severidad">
+              <option value="all">Todas</option>
+              <option value="HIGH">Alta / crítica</option>
+              <option value="MEDIUM">Media</option>
+              <option value="LOW">Baja</option>
+            </select>
+          </label>
+          <label class="rl-filter rl-filter--grow">
+            <span>Buscar</span>
+            <input id="alert-filter-q" type="search" maxlength="120" placeholder="Texto en queja…" aria-label="Buscar en quejas" />
+          </label>
         </div>
+        <p id="comp-filter-count" class="rl-filter-count" aria-live="polite"></p>
 
-        <p class="rl-comp-intro">
-          <strong>Competencia</strong> busca clientes enfadados con tus rivales (Hacker News / Reddit + la pestaña abierta).
-          Configurá los rivales en <em>Config</em>, abrí la plataforma en Chrome, pulsá <strong>Escanear ahora</strong> y usá el pitch.
-          La extensión <strong>no abre páginas sola</strong> salvo que uses “Abrir plataformas” en Config.
-        </p>
+        <details class="rl-disclosure">
+          <summary>Cómo funciona</summary>
+          <p class="rl-comp-intro">
+            Busca clientes enfadados con tus rivales (HN / Reddit + pestaña abierta).
+            Configurá rivales en <em>Config</em>, abrí la plataforma y pulsá <strong>Escanear</strong>.
+          </p>
+        </details>
+
         <p id="comp-scan-status" class="rl-status" aria-live="polite"></p>
+        <div id="rival-intel-banner" class="rl-intel-banner" hidden>
+          <div class="rl-intel-banner__text">
+            <strong id="rival-intel-title">Rival detectado en la página</strong>
+            <span id="rival-intel-sub" class="rl-muted"></span>
+          </div>
+          <button type="button" id="btn-rival-intel" class="rl-btn rl-btn--primary">Informe IA</button>
+        </div>
+        <div id="rival-report-panel" class="rl-rival-report" hidden></div>
 
-        <form id="comp-manual" class="rl-manual">
-          <label>
-            Competidor
-            <select id="comp-rival-select" class="rl-select" style="width:100%"></select>
-          </label>
-          <label>
-            Queja del cliente del rival (pegar desde X, Reddit, review…)
-            <textarea
-              id="comp-manual-text"
-              rows="3"
-              maxlength="4000"
-              placeholder="Ej: Llevan caídos todo el día, me cambio de Shopify…"
-            ></textarea>
-          </label>
-          <label>
-            Link fuente (opcional)
-            <input id="comp-manual-url" type="url" placeholder="https://…" />
-          </label>
-          <button type="submit" class="rl-btn rl-btn--primary">Generar oportunidad + pitch</button>
-        </form>
+        <details class="rl-disclosure" id="comp-manual-wrap">
+          <summary>Agregar oportunidad manual</summary>
+          <form id="comp-manual" class="rl-manual">
+            <label>
+              Competidor
+              <select id="comp-rival-select" class="rl-select" style="width:100%"></select>
+            </label>
+            <label>
+              Queja del cliente del rival
+              <textarea
+                id="comp-manual-text"
+                rows="2"
+                maxlength="4000"
+                placeholder="Ej: Llevan caídos todo el día…"
+              ></textarea>
+            </label>
+            <label>
+              Link fuente (opcional)
+              <input id="comp-manual-url" type="url" placeholder="https://…" />
+            </label>
+            <button type="submit" class="rl-btn rl-btn--primary">Generar + pitch</button>
+          </form>
+        </details>
 
         <div id="comp-feed" class="rl-feed"></div>
+      </section>
+
+      <!-- Stats / KPIs -->
+      <section id="panel-stats" class="rl-panel" role="tabpanel" hidden>
+        <div class="rl-panel-head rl-panel-head--tight">
+          <h2>Stats</h2>
+          <select id="stats-range" class="rl-select" aria-label="Ventana temporal">
+            <option value="7">7d</option>
+            <option value="14" selected>14d</option>
+            <option value="30">30d</option>
+          </select>
+        </div>
+
+        <div class="rl-stats-kpis rl-stats-kpis--compact" id="stats-kpi-grid" aria-label="KPIs detallados"></div>
+
+        <div class="rl-stats-grid">
+          <article class="rl-chart-card rl-chart-card--dense">
+            <header class="rl-chart-card__head">
+              <h3>Share</h3>
+              <span id="stats-compare-summary" class="rl-muted"></span>
+            </header>
+            <div id="chart-compare" class="rl-chart rl-chart--sm" role="img" aria-label="Share propios vs competencia"></div>
+          </article>
+
+          <article class="rl-chart-card rl-chart-card--dense">
+            <header class="rl-chart-card__head">
+              <h3>Embudo</h3>
+            </header>
+            <div id="chart-funnel" class="rl-chart rl-chart--sm" role="img" aria-label="Embudo de captación"></div>
+          </article>
+
+          <article class="rl-chart-card rl-chart-card--dense rl-chart-card--wide">
+            <header class="rl-chart-card__head">
+              <h3>Actividad diaria</h3>
+              <span class="rl-legend rl-legend--inline">
+                <span class="rl-legend__item"><i class="rl-swatch rl-swatch--own"></i> Propios</span>
+                <span class="rl-legend__item"><i class="rl-swatch rl-swatch--comp"></i> Rival</span>
+              </span>
+            </header>
+            <div id="chart-trend" class="rl-chart rl-chart--med" role="img" aria-label="Tendencia diaria"></div>
+          </article>
+
+          <article class="rl-chart-card rl-chart-card--dense rl-chart-card--wide">
+            <header class="rl-chart-card__head">
+              <h3>Barras apiladas</h3>
+            </header>
+            <div id="chart-stack" class="rl-chart rl-chart--med" role="img" aria-label="Volumen apilado diario"></div>
+          </article>
+
+          <article class="rl-chart-card rl-chart-card--dense">
+            <header class="rl-chart-card__head">
+              <h3>Riesgo</h3>
+            </header>
+            <div id="chart-risk" class="rl-chart rl-chart--sm" role="img" aria-label="Distribución de riesgo"></div>
+          </article>
+
+          <article class="rl-chart-card rl-chart-card--dense">
+            <header class="rl-chart-card__head">
+              <h3>Severidad rivales</h3>
+            </header>
+            <div id="chart-severity" class="rl-chart rl-chart--sm" role="img" aria-label="Severidad de alertas"></div>
+          </article>
+
+          <article class="rl-chart-card rl-chart-card--dense">
+            <header class="rl-chart-card__head">
+              <h3>Top rivales</h3>
+            </header>
+            <div id="chart-rivals" class="rl-chart rl-chart--sm" role="img" aria-label="Alertas por competidor"></div>
+          </article>
+
+          <article class="rl-chart-card rl-chart-card--dense">
+            <header class="rl-chart-card__head">
+              <h3>Canales</h3>
+            </header>
+            <div id="chart-channels" class="rl-chart rl-chart--sm" role="img" aria-label="Volumen por canal"></div>
+          </article>
+
+          <article class="rl-chart-card rl-chart-card--dense">
+            <header class="rl-chart-card__head">
+              <h3>Tonos usados</h3>
+            </header>
+            <div id="chart-tones" class="rl-chart rl-chart--sm" role="img" aria-label="Tonos de respuesta"></div>
+          </article>
+
+          <article class="rl-chart-card rl-chart-card--dense">
+            <header class="rl-chart-card__head">
+              <h3>Acciones</h3>
+            </header>
+            <div id="chart-actions" class="rl-chart rl-chart--sm" role="img" aria-label="Acciones recomendadas"></div>
+          </article>
+        </div>
       </section>
 
       <!-- Historial -->

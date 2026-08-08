@@ -1,4 +1,4 @@
-import type { AnalyzeReplyInputDto, IReplyLlmPort, LlmReplyResult } from '@responselens/application';
+import type { AnalyzeReplyInputDto, AnalyzeRivalReportInputDto, IReplyLlmPort, LlmReplyResult, RivalReportDto } from '@responselens/application';
 import {
   REPLY_TONE_LABELS,
   REPLY_TONES,
@@ -273,6 +273,75 @@ async function callGemini(system: string, user: string): Promise<{ raw: string; 
   return { raw: content, model };
 }
 
+const RIVAL_SYSTEM_PROMPT = `Eres el motor de inteligencia competitiva de ResponseLens AI.
+Tu ÚNICA salida debe ser un objeto JSON válido (UTF-8) SIN markdown fences ni texto extra.
+
+Contrato JSON:
+{
+  "competitorName": "string",
+  "mentionCount": 0,
+  "avgFrustration": 0.0,
+  "riskLevel": "LOW|MEDIUM|HIGH|CRITICAL",
+  "themes": [{ "id": "reliability", "label": "Confiabilidad" }],
+  "conclusions": ["...", "...", "..."],
+  "opportunities": ["...", "..."],
+  "reportMarkdown": "# Informe...\\n...",
+  "sources": ["url opcional"]
+}
+
+Reglas:
+- Idioma del informe = idioma dominante de las menciones.
+- conclusions: 4–6 bullets accionables (dolor del rival, ventana de captación).
+- opportunities: 3–5 ángulos de outreach (sin spam, sin inventar precios).
+- reportMarkdown: informe corto en Markdown (títulos + listas).
+- No inventes hechos no presentes en menciones o perfil; podés inferir temas.
+- avgFrustration entre 0 y 1.`;
+
+function buildRivalUserPrompt(input: AnalyzeRivalReportInputDto): string {
+  return [
+    'Generá un informe de inteligencia competitiva del rival a partir de menciones públicas negativas.',
+    `Rival: ${input.competitorName}`,
+    `Marca propia: ${input.companyName || 'n/a'}`,
+    `Qué vende la marca propia: ${input.whatTheySell || 'n/a'}`,
+    `Notas de voz: ${input.brandVoiceNotes || 'n/a'}`,
+    `Canal: ${input.channel || 'web'}`,
+    `URL: ${input.sourceUrl || 'n/a'}`,
+    '',
+    'Menciones:',
+    ...input.mentions.map((m, i) => `${i + 1}. ${m}`),
+  ].join('\n');
+}
+
+function normalizeRivalReport(parsed: unknown, input: AnalyzeRivalReportInputDto, model: string): RivalReportDto {
+  const obj = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
+  const conclusions = Array.isArray(obj.conclusions) ? obj.conclusions.map(String) : [];
+  const opportunities = Array.isArray(obj.opportunities) ? obj.opportunities.map(String) : [];
+  const themes = Array.isArray(obj.themes)
+    ? obj.themes.map((t) => {
+        if (typeof t === 'string') return { id: t, label: t };
+        const row = t as Record<string, unknown>;
+        return { id: String(row.id || row.label || ''), label: String(row.label || row.id || '') };
+      })
+    : [];
+  return {
+    competitorName: String(obj.competitorName || input.competitorName),
+    mentionCount: Number(obj.mentionCount) || input.mentions.length,
+    avgFrustration: Number(obj.avgFrustration) || 0.5,
+    riskLevel: String(obj.riskLevel || 'MEDIUM'),
+    conclusions: conclusions.length ? conclusions : ['Señales de fricción pública detectadas.'],
+    opportunities: opportunities.length ? opportunities : ['Outreach empático con propuesta de valor clara.'],
+    reportMarkdown: String(obj.reportMarkdown || `# Informe — ${input.competitorName}`),
+    model,
+    generatedAt: new Date().toISOString(),
+    themes,
+    sources: Array.isArray(obj.sources)
+      ? obj.sources.map(String)
+      : input.sourceUrl
+        ? [String(input.sourceUrl)]
+        : [],
+  };
+}
+
 export class OpenAiReplyLlmAdapter implements IReplyLlmPort {
   async generateReplyOptions(input: AnalyzeReplyInputDto): Promise<LlmReplyResult> {
     const provider = (process.env.LLM_PROVIDER || 'openai').toLowerCase();
@@ -294,6 +363,24 @@ export class OpenAiReplyLlmAdapter implements IReplyLlmPort {
       triage: normalizeTriage(parsed, input.text),
       model: llm.model,
     };
+  }
+
+  async generateRivalReport(input: AnalyzeRivalReportInputDto): Promise<RivalReportDto> {
+    const provider = (process.env.LLM_PROVIDER || 'openai').toLowerCase();
+    const user = buildRivalUserPrompt(input);
+    const llm =
+      provider === 'gemini'
+        ? await callGemini(RIVAL_SYSTEM_PROMPT, user)
+        : await callOpenAI(RIVAL_SYSTEM_PROMPT, user);
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stripCodeFences(llm.raw));
+    } catch (err) {
+      throw new Error(`LLM_INVALID_JSON: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    return normalizeRivalReport(parsed, input, llm.model);
   }
 }
 

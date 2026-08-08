@@ -4,7 +4,10 @@
 Cada análisis incluye `riskScore`, `riskLevel`, flags de escalado y acción recomendada (público / DM / legal / safety).
 
 ## Historial + KPIs
-Las inyecciones quedan en `rl_reply_history` (export CSV). Cabecera con respuestas/7d, alertas abiertas, críticas y escalados.
+Las inyecciones quedan en `rl_reply_history` (export CSV). Cabecera con respuestas/7d, alertas abiertas, críticas y win rate.
+
+## Stats (panel)
+Tab **Stats**: KPIs detallados, comparación Propios vs Competencia (barras + tendencia diaria), embudo de captación (abiertas → contactadas → ganadas/descartadas), distribución de riesgo, top rivales y canales. Ventana 7 / 14 / 30 días. Datos 100% locales (historial + alertas).
 
 ## Workflow de captación
 Estados: NEW → CONTACTED / WON / DISMISSED.
@@ -30,6 +33,7 @@ Si AppSync/LLM falla (o no está configurado), genera 3 tonos + triage heurísti
 ## IA en respuestas
 - Propios: 3 tonos + badge **Recomendada** (LLM o fallback heurístico).
 - Competencia: 3 pitches (Suave recomendado / Directo / Técnico); clic para elegir antes de copiar/inyectar.
+- **Informe IA del rival**: al abrir una plataforma con menciones de competencia, banner + botón 📊 en página / **Informe IA** en la alerta. Agrega quejas de la página + HN/Reddit y genera conclusiones + markdown (offline local; nube vía `analyzeRivalReport` tras deploy).
 
 ## Auth
 Login Cognito (email) o modo local. Ver `docs/auth.md`.

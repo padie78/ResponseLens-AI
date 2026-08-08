@@ -171,6 +171,36 @@ input PublishCompetitorAlertInput {
   notes: String
 }
 
+input AnalyzeRivalReportInput {
+  userId: ID!
+  competitorName: String!
+  mentions: [String!]!
+  channel: String
+  sourceUrl: String
+  companyName: String
+  whatTheySell: String
+  brandVoiceNotes: String
+}
+
+type RivalTheme {
+  id: String
+  label: String!
+}
+
+type RivalReport {
+  competitorName: String!
+  mentionCount: Int!
+  avgFrustration: Float
+  riskLevel: RiskLevel
+  conclusions: [String!]!
+  opportunities: [String!]!
+  reportMarkdown: String!
+  model: String!
+  generatedAt: AWSDateTime!
+  themes: [RivalTheme!]
+  sources: [String!]
+}
+
 # ─── Root operations ─────────────────────────────────────────────────────────
 
 type Query {
@@ -183,6 +213,8 @@ type Query {
 
 type Mutation {
   analyzeReply(input: AnalyzeReplyInput!): ReplyOptions! @aws_api_key @aws_cognito_user_pools
+
+  analyzeRivalReport(input: AnalyzeRivalReportInput!): RivalReport! @aws_api_key @aws_cognito_user_pools
 
   saveUserConfig(input: SaveUserConfigInput!): UserConfig! @aws_api_key @aws_cognito_user_pools
 
