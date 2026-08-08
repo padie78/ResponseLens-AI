@@ -3,6 +3,8 @@
  * Mantiene la subscription AppSync (WebSocket) y puentea Side Panel ↔ Content Script.
  */
 
+import { matchPatternsForHost, normalizePlatformPrefs } from './lib/platforms.js';
+
 const STORAGE_KEYS = {
   config: 'rl_user_config',
   alerts: 'rl_competitor_alerts',
@@ -23,6 +25,49 @@ async function getLocal(keys) {
 
 async function setLocal(obj) {
   return chrome.storage.local.set(obj);
+}
+
+/** Registra content scripts dinámicos para plataformas custom habilitadas. */
+async function syncCustomPlatformScripts(detection) {
+  const prefs = normalizePlatformPrefs(detection?.platforms);
+  const enabledCustoms = (prefs.custom || []).filter((c) => c.enabled && c.host);
+
+  let existing = [];
+  try {
+    existing = await chrome.scripting.getRegisteredContentScripts();
+  } catch {
+    existing = [];
+  }
+  const ours = existing.filter((s) => String(s.id || '').startsWith('rl-custom-'));
+  if (ours.length) {
+    try {
+      await chrome.scripting.unregisterContentScripts({
+        ids: ours.map((s) => s.id),
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  for (const c of enabledCustoms) {
+    const matches = matchPatternsForHost(c.host);
+    if (!matches.length) continue;
+    const id = `rl-custom-${c.id}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+    try {
+      await chrome.scripting.registerContentScripts([
+        {
+          id,
+          matches,
+          js: ['content.js'],
+          css: ['content.css'],
+          runAt: 'document_idle',
+          persistAcrossSessions: true,
+        },
+      ]);
+    } catch (err) {
+      console.warn('[RL] registerContentScripts', c.host, err);
+    }
+  }
 }
 
 async function openSidePanel(tabId, windowId) {
@@ -63,10 +108,14 @@ async function enableSidePanelOnClick() {
 
 // Importante: no solo en onInstalled — también al despertar el service worker
 enableSidePanelOnClick();
+getLocal([STORAGE_KEYS.detection]).then((data) => {
+  void syncCustomPlatformScripts(data[STORAGE_KEYS.detection] || {});
+});
 
 chrome.runtime.onInstalled.addListener(async () => {
   await enableSidePanelOnClick();
-  const existing = await getLocal([STORAGE_KEYS.config]);
+  const existing = await getLocal([STORAGE_KEYS.config, STORAGE_KEYS.detection]);
+  void syncCustomPlatformScripts(existing[STORAGE_KEYS.detection] || {});
   if (!existing[STORAGE_KEYS.config]?.competitors?.length) {
     // Semilla mínima de rivales reales (buscables en HN); el feed se llena con "Escanear ahora".
     await setLocal({
@@ -203,6 +252,7 @@ async function handleMessage(message, sender) {
 
     case 'RL_DETECTION_UPDATED': {
       await setLocal({ [STORAGE_KEYS.detection]: message.detection || {} });
+      await syncCustomPlatformScripts(message.detection || {});
       const tabs = await chrome.tabs.query({});
       await Promise.all(
         tabs.map((tab) =>
@@ -217,6 +267,26 @@ async function handleMessage(message, sender) {
         ),
       );
       return { ok: true };
+    }
+
+    case 'RL_REQUEST_PLATFORM_PERMISSION': {
+      const host = String(message.host || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, '')
+        .replace(/^www\./, '')
+        .split('/')[0];
+      if (!host) return { ok: false, error: 'invalid_host' };
+      const origins = matchPatternsForHost(host);
+      try {
+        const granted = await chrome.permissions.request({ origins });
+        return { ok: Boolean(granted), granted: Boolean(granted), origins };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
     }
 
     case 'RL_SAVE_CONFIG': {

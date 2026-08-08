@@ -206,11 +206,17 @@ export async function runCompetitorScan({
   competitors,
   pageMentions = [],
   preferSyntheticFallback = false,
+  sources = null,
 } = {}) {
   const list = Array.isArray(competitors) && competitors.length ? competitors : [];
   const opportunities = [];
   const errors = [];
   const scannedNames = [];
+  const enabled = {
+    hackernews: sources?.hackernews !== false,
+    reddit_api: sources?.reddit_api !== false,
+    active_page: sources?.active_page !== false,
+  };
   const stats = {
     hn: 0,
     reddit: 0,
@@ -246,20 +252,22 @@ export async function runCompetitorScan({
     opportunities.push(opp);
   };
 
-  for (const raw of pageMentions) {
-    if (!raw?.text || !raw?.competitorName) continue;
-    pushOpp(
-      {
-        alertId: raw.id ? `page_${raw.id}` : null,
-        competitorName: raw.competitorName,
-        complaint: raw.text,
-        sourceUrl: raw.sourceUrl || 'page://active-tab',
-        channel: raw.channel || 'web',
-        detectedAt: raw.detectedAt || new Date().toISOString(),
-      },
-      { page: true },
-    );
-    stats.page += 1;
+  if (enabled.active_page) {
+    for (const raw of pageMentions) {
+      if (!raw?.text || !raw?.competitorName) continue;
+      pushOpp(
+        {
+          alertId: raw.id ? `page_${raw.id}` : null,
+          competitorName: raw.competitorName,
+          complaint: raw.text,
+          sourceUrl: raw.sourceUrl || 'page://active-tab',
+          channel: raw.channel || 'web',
+          detectedAt: raw.detectedAt || new Date().toISOString(),
+        },
+        { page: true },
+      );
+      stats.page += 1;
+    }
   }
 
   for (const competitor of list) {
@@ -268,11 +276,18 @@ export async function runCompetitorScan({
     const name = normalizeCompetitorNameForScan(originalName);
     scannedNames.push(name);
 
-    const hn = await fetchHnMentions(name, { limit: 6 });
-    if (hn.error) errors.push(`${name}/HN: ${hn.error}`);
+    let hn = { mentions: [] };
+    let reddit = { mentions: [] };
 
-    const reddit = await fetchRedditMentions(name, { limit: 4 });
-    if (reddit.error) errors.push(`${name}/Reddit: ${reddit.error}`);
+    if (enabled.hackernews) {
+      hn = await fetchHnMentions(name, { limit: 6 });
+      if (hn.error) errors.push(`${name}/HN: ${hn.error}`);
+    }
+
+    if (enabled.reddit_api) {
+      reddit = await fetchRedditMentions(name, { limit: 4 });
+      if (reddit.error) errors.push(`${name}/Reddit: ${reddit.error}`);
+    }
 
     const mentions = [...(hn.mentions || []), ...(reddit.mentions || [])];
 
@@ -294,7 +309,6 @@ export async function runCompetitorScan({
         else stats.reddit += 1;
       }
     } else if (preferSyntheticFallback) {
-      // Desactivado en UI; se deja por si se reutiliza en demos internas.
       stats.synthetic += 0;
     }
   }
@@ -303,5 +317,5 @@ export async function runCompetitorScan({
     (a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime(),
   );
 
-  return { opportunities, stats, errors, scannedNames };
+  return { opportunities, stats, errors, scannedNames, enabledSources: enabled };
 }

@@ -3,6 +3,16 @@
  */
 
 import { gqlRequest } from './lib/appsync-client.js';
+import {
+  confirmSignUp,
+  getCognitoConfig,
+  getSession,
+  saveCognitoConfig,
+  signIn,
+  signOut,
+  signUp,
+  startLocalSession,
+} from './lib/auth.js';
 import { buildLocalReplyOptions } from './lib/local-fallback.js';
 import { computeOpsStats } from './lib/ops-stats.js';
 import {
@@ -14,6 +24,16 @@ import {
   lookupCompetitorProfile,
 } from './lib/competitor-opportunity.js';
 import { runCompetitorScan } from './lib/competitor-scan.js';
+import {
+  SCAN_SOURCES,
+  PAGE_PLATFORMS,
+  collectPlatformPrefsFromDom,
+  defaultPlatformPrefs,
+  listOpenUrlsForPrefs,
+  matchPatternsForHost,
+  normalizeHost,
+  normalizePlatformPrefs,
+} from './lib/platforms.js';
 
 const STORAGE = {
   config: 'rl_user_config',
@@ -560,12 +580,15 @@ async function scanCompetitorMarket() {
       ? cfg.competitors
       : defaultCompetitorSeed();
     const pageMentions = await collectPageMentions();
+    const detectionData = await storageGet([STORAGE.detection]);
+    const platformPrefs = normalizePlatformPrefs(detectionData[STORAGE.detection]?.platforms);
     const { opportunities, stats, errors, scannedNames } = await runCompetitorScan({
       company: cfg?.company,
       userId: cfg?.userId || 'local-user',
       competitors,
       pageMentions,
       preferSyntheticFallback: false,
+      sources: platformPrefs.scanSources,
     });
 
     const data = await storageGet([STORAGE.alerts]);
@@ -949,13 +972,90 @@ function parseKeywords(raw) {
     .filter(Boolean);
 }
 
+function renderPlatformPrefs(prefs) {
+  const p = normalizePlatformPrefs(prefs);
+  const scanRoot = document.getElementById('cfg-scan-sources');
+  const pageRoot = document.getElementById('cfg-page-platforms');
+  const customRoot = document.getElementById('cfg-custom-platforms');
+  if (!scanRoot || !pageRoot || !customRoot) return;
+
+  scanRoot.innerHTML = SCAN_SOURCES.map(
+    (s) => `
+    <label class="rl-check rl-platform-item">
+      <input type="checkbox" id="cfg-scan-${s.id}" ${p.scanSources[s.id] !== false ? 'checked' : ''} />
+      <span>
+        <strong>${s.label}</strong>
+        <small>${s.hint || ''}</small>
+      </span>
+    </label>`,
+  ).join('');
+
+  pageRoot.innerHTML = PAGE_PLATFORMS.map(
+    (plat) => `
+    <label class="rl-check rl-platform-item">
+      <input type="checkbox" id="cfg-page-${plat.id}" ${p.pageEnabled[plat.id] !== false ? 'checked' : ''} />
+      <span>
+        <strong>${plat.label}</strong>
+        <small>${plat.hosts.join(', ')}</small>
+      </span>
+    </label>`,
+  ).join('');
+
+  customRoot.innerHTML = (p.custom || [])
+    .map(
+      (c) => `
+    <article class="rl-custom-platform" data-custom-platform="${escapeHtml(c.id)}">
+      <label class="rl-check">
+        <input type="checkbox" data-field="enabled" ${c.enabled !== false ? 'checked' : ''} />
+        Activa
+      </label>
+      <label>
+        Nombre
+        <input data-field="label" value="${escapeHtml(c.label || c.host)}" maxlength="80" />
+      </label>
+      <label>
+        Dominio
+        <input data-field="host" value="${escapeHtml(c.host)}" maxlength="120" required />
+      </label>
+      <button type="button" class="rl-btn rl-btn--ghost" data-remove-platform="${escapeHtml(c.id)}">Quitar</button>
+    </article>`,
+    )
+    .join('');
+
+  customRoot.querySelectorAll('[data-remove-platform]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-remove-platform');
+      const next = collectPlatformPrefsFromDom();
+      next.custom = next.custom.filter((c) => c.id !== id);
+      renderPlatformPrefs(next);
+    });
+  });
+}
+
+async function requestOriginsForCustoms(customs) {
+  const origins = [];
+  for (const c of customs || []) {
+    if (!c.enabled || !c.host) continue;
+    origins.push(...matchPatternsForHost(c.host));
+  }
+  if (!origins.length) return { ok: true, granted: true };
+  try {
+    const granted = await chrome.permissions.request({ origins: [...new Set(origins)] });
+    return { ok: true, granted: Boolean(granted) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 async function loadConfigForm() {
   const data = await storageGet([STORAGE.config, STORAGE.appsync, STORAGE.detection]);
   const cfg = data[STORAGE.config] || {};
   const appsync = data[STORAGE.appsync] || {};
   const detection = data[STORAGE.detection] || {};
+  const session = await getSession();
+  const cognito = (await getCognitoConfig()) || {};
 
-  document.getElementById('cfg-user-id').value = cfg.userId || 'local-user';
+  document.getElementById('cfg-user-id').value = session?.userId || cfg.userId || 'local-user';
   document.getElementById('cfg-name').value = cfg.company?.companyName || '';
   document.getElementById('cfg-sells').value = cfg.company?.whatTheySell || '';
   document.getElementById('cfg-links').value = (cfg.company?.keyLinks || []).join('\n');
@@ -964,11 +1064,86 @@ async function loadConfigForm() {
   document.getElementById('cfg-gql').value = appsync.graphqlUrl || '';
   document.getElementById('cfg-rt').value = appsync.realtimeUrl || '';
   document.getElementById('cfg-key').value = appsync.apiKey || '';
+  document.getElementById('cfg-cog-region').value = cognito.region || '';
+  document.getElementById('cfg-cog-pool').value = cognito.userPoolId || '';
+  document.getElementById('cfg-cog-client').value = cognito.clientId || '';
   document.getElementById('cfg-sensitivity').value = detection.sensitivity || 'medium';
   document.getElementById('cfg-keywords').value = (detection.extraKeywords || []).join(', ');
   document.getElementById('cfg-ignore-hosts').value = (detection.ignoreHosts || []).join('\n');
   document.getElementById('cfg-offline').checked = detection.offlineFallback !== false;
+  renderPlatformPrefs(detection.platforms || defaultPlatformPrefs());
+
+  const label = document.getElementById('auth-user-label');
+  if (label && session) {
+    label.textContent =
+      session.mode === 'cognito'
+        ? session.email || session.userId
+        : `Modo local · ${session.userId}`;
+  }
 }
+
+document.getElementById('btn-add-platform')?.addEventListener('click', async () => {
+  const input = document.getElementById('cfg-new-platform-host');
+  const host = normalizeHost(input?.value);
+  if (!host) {
+    els.status?.classList.add('is-error');
+    if (els.status) els.status.textContent = 'Dominio inválido. Usá algo como trustpilot.com';
+    return;
+  }
+  const current = collectPlatformPrefsFromDom();
+  if (current.custom.some((c) => c.host === host) || PAGE_PLATFORMS.some((p) => p.hosts.includes(host))) {
+    if (els.status) {
+      els.status.classList.remove('is-error');
+      els.status.textContent = 'Esa plataforma ya está en la lista.';
+    }
+    return;
+  }
+  const perm = await requestOriginsForCustoms([{ host, enabled: true }]);
+  if (!perm.granted) {
+    if (els.status) {
+      els.status.classList.add('is-error');
+      els.status.textContent = 'Chrome no otorgó permiso para ese dominio.';
+    }
+    return;
+  }
+  current.custom.push({
+    id: `custom_${host.replace(/\./g, '_')}`,
+    label: host,
+    host,
+    enabled: true,
+  });
+  renderPlatformPrefs(current);
+  if (input) input.value = '';
+  if (els.status) {
+    els.status.classList.remove('is-error');
+    els.status.textContent = `Plataforma ${host} agregada. Guardá la config para activar el escaneo.`;
+  }
+});
+
+document.getElementById('btn-open-platforms')?.addEventListener('click', async () => {
+  // Preferir lo marcado en el formulario; si no, lo guardado
+  let prefs = collectPlatformPrefsFromDom();
+  const saved = await storageGet([STORAGE.detection]);
+  if (!document.getElementById('cfg-scan-hackernews')) {
+    prefs = normalizePlatformPrefs(saved[STORAGE.detection]?.platforms);
+  }
+  const urls = listOpenUrlsForPrefs(prefs);
+  if (!urls.length) {
+    if (els.status) {
+      els.status.classList.add('is-error');
+      els.status.textContent = 'No hay plataformas activas para abrir.';
+    }
+    return;
+  }
+  for (let i = 0; i < urls.length; i += 1) {
+    await chrome.tabs.create({ url: urls[i], active: i === 0 });
+  }
+
+  if (els.status) {
+    els.status.classList.remove('is-error');
+    els.status.textContent = `Se abrieron ${urls.length} pestaña(s). Entrá a comentarios/reviews para que el plugin detecte.`;
+  }
+});
 
 document.getElementById('btn-add-competitor')?.addEventListener('click', () => {
   const current = collectCompetitorsFromForm();
@@ -984,7 +1159,9 @@ els.form.addEventListener('submit', async (ev) => {
   els.status.classList.remove('is-error');
   els.status.textContent = 'Guardando…';
 
-  const userId = document.getElementById('cfg-user-id').value.trim();
+  const session = await getSession();
+  const userId = session?.userId || document.getElementById('cfg-user-id').value.trim();
+  document.getElementById('cfg-user-id').value = userId;
   const company = {
     companyName: document.getElementById('cfg-name').value.trim(),
     whatTheySell: document.getElementById('cfg-sells').value.trim(),
@@ -1006,6 +1183,12 @@ els.form.addEventListener('submit', async (ev) => {
     realtimeUrl: document.getElementById('cfg-rt').value.trim(),
     apiKey: document.getElementById('cfg-key').value.trim(),
   };
+  await saveCognitoConfig({
+    region: document.getElementById('cfg-cog-region').value.trim(),
+    userPoolId: document.getElementById('cfg-cog-pool').value.trim(),
+    clientId: document.getElementById('cfg-cog-client').value.trim(),
+  });
+  const platforms = collectPlatformPrefsFromDom();
   const detection = {
     sensitivity: document.getElementById('cfg-sensitivity').value,
     extraKeywords: parseKeywords(document.getElementById('cfg-keywords').value),
@@ -1015,11 +1198,19 @@ els.form.addEventListener('submit', async (ev) => {
       .map((s) => s.trim())
       .filter(Boolean),
     offlineFallback: document.getElementById('cfg-offline').checked,
+    platforms,
   };
 
   const config = { userId, company, competitors };
 
   try {
+    const perm = await requestOriginsForCustoms(platforms.custom);
+    if (platforms.custom.some((c) => c.enabled) && !perm.granted) {
+      els.status.classList.add('is-error');
+      els.status.textContent =
+        'Guardado local pendiente de permisos: aceptá el acceso a los dominios custom en el diálogo de Chrome.';
+    }
+
     await storageSet({
       [STORAGE.config]: config,
       [STORAGE.appsync]: appsync,
@@ -1147,7 +1338,42 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-(async function boot() {
+const authGate = document.getElementById('auth-gate');
+const appShell = document.getElementById('app-shell');
+const authStatus = document.getElementById('auth-status');
+let pendingConfirmEmail = '';
+
+function setAuthStatus(msg, isError = false) {
+  if (!authStatus) return;
+  authStatus.textContent = msg || '';
+  authStatus.classList.toggle('is-error', Boolean(isError));
+}
+
+function showAuthTab(name) {
+  document.querySelectorAll('.rl-auth-tab').forEach((t) => {
+    t.classList.toggle('is-active', t.dataset.authTab === name);
+  });
+  document.getElementById('auth-login-form').hidden = name !== 'login';
+  document.getElementById('auth-register-form').hidden = name !== 'register';
+}
+
+document.querySelectorAll('.rl-auth-tab').forEach((tab) => {
+  tab.addEventListener('click', () => showAuthTab(tab.dataset.authTab));
+});
+
+async function enterApp(session) {
+  if (authGate) authGate.hidden = true;
+  if (appShell) appShell.hidden = false;
+
+  // Sincronizar userId de sesión en config
+  const data = await storageGet([STORAGE.config]);
+  const cfg = data[STORAGE.config] || {};
+  if (session?.userId && cfg.userId !== session.userId) {
+    await storageSet({
+      [STORAGE.config]: { ...cfg, userId: session.userId },
+    });
+  }
+
   await loadUiZoom();
   await loadConfigForm();
   await fillRivalSelect();
@@ -1160,8 +1386,73 @@ chrome.runtime.onMessage.addListener((message) => {
     await storageSet({ [STORAGE.pending]: null });
   }
 
-  const { [STORAGE.config]: config } = await storageGet([STORAGE.config]);
-  if (config?.userId) {
-    chrome.runtime.sendMessage({ type: 'RL_START_SUBSCRIPTION', userId: config.userId });
+  if (session?.userId) {
+    chrome.runtime.sendMessage({ type: 'RL_START_SUBSCRIPTION', userId: session.userId });
+  }
+}
+
+document.getElementById('auth-login-form')?.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  setAuthStatus('Entrando…');
+  try {
+    const email = document.getElementById('auth-login-email').value.trim();
+    const password = document.getElementById('auth-login-pass').value;
+    const session = await signIn({ email, password });
+    await enterApp(session);
+  } catch (err) {
+    setAuthStatus(err instanceof Error ? err.message : String(err), true);
+  }
+});
+
+document.getElementById('auth-register-form')?.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  setAuthStatus('Procesando…');
+  const email = document.getElementById('auth-reg-email').value.trim();
+  const password = document.getElementById('auth-reg-pass').value;
+  const code = document.getElementById('auth-reg-code').value.trim();
+  const confirmWrap = document.getElementById('auth-confirm-wrap');
+  try {
+    if (pendingConfirmEmail && code) {
+      await confirmSignUp({ email: pendingConfirmEmail || email, code });
+      const session = await signIn({ email: pendingConfirmEmail || email, password });
+      await enterApp(session);
+      return;
+    }
+    await signUp({ email, password });
+    pendingConfirmEmail = email;
+    if (confirmWrap) confirmWrap.hidden = false;
+    document.getElementById('auth-reg-submit').textContent = 'Confirmar y entrar';
+    setAuthStatus('Te enviamos un código al email. Ingresalo y confirmá.');
+  } catch (err) {
+    setAuthStatus(err instanceof Error ? err.message : String(err), true);
+  }
+});
+
+document.getElementById('btn-auth-local')?.addEventListener('click', async () => {
+  setAuthStatus('Iniciando modo local…');
+  try {
+    const session = await startLocalSession();
+    await enterApp(session);
+  } catch (err) {
+    setAuthStatus(err instanceof Error ? err.message : String(err), true);
+  }
+});
+
+document.getElementById('btn-logout')?.addEventListener('click', async () => {
+  await signOut();
+  if (appShell) appShell.hidden = true;
+  if (authGate) authGate.hidden = false;
+  setAuthStatus('Sesión cerrada.');
+  showAuthTab('login');
+});
+
+(async function boot() {
+  await loadUiZoom();
+  const session = await getSession();
+  if (session?.userId) {
+    await enterApp(session);
+  } else {
+    if (authGate) authGate.hidden = false;
+    if (appShell) appShell.hidden = true;
   }
 })();

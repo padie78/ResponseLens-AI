@@ -62,6 +62,7 @@
     sensitivity: 'medium',
     extraKeywords: [],
     ignoreHosts: [],
+    platforms: null,
   };
   let markedCount = 0;
   /** @type {Array<{ name: string, aliases?: string[] }>} */
@@ -76,13 +77,14 @@
             sensitivity: data.rl_detection.sensitivity || 'medium',
             extraKeywords: data.rl_detection.extraKeywords || [],
             ignoreHosts: data.rl_detection.ignoreHosts || [],
+            platforms: data.rl_detection.platforms || null,
           };
         }
         if (data?.rl_user_config) {
           competitors = data.rl_user_config.competitors || [];
           companyProfile = data.rl_user_config.company || companyProfile;
         }
-        if (isHostIgnored()) {
+        if (isHostIgnored() || !isPlatformAllowed()) {
           reportBadge(0);
           return;
         }
@@ -91,6 +93,33 @@
     } catch {
       /* ignore */
     }
+  }
+
+  function isPlatformAllowed() {
+    const prefs = detection.platforms;
+    if (!prefs) return true;
+    const host = location.hostname.toLowerCase().replace(/^www\./, '');
+
+    const builtins = {
+      amazon: ['amazon.com', 'amazon.es'],
+      ebay: ['ebay.com', 'ebay.es'],
+      youtube: ['youtube.com'],
+      x: ['x.com', 'twitter.com'],
+      reddit: ['reddit.com'],
+    };
+    for (const [id, hosts] of Object.entries(builtins)) {
+      if (hosts.some((h) => host === h || host.endsWith(`.${h}`))) {
+        return prefs.pageEnabled?.[id] !== false;
+      }
+    }
+    const custom = Array.isArray(prefs.custom) ? prefs.custom : [];
+    const hit = custom.find(
+      (c) => c.enabled !== false && c.host && (host === c.host || host.endsWith(`.${c.host}`)),
+    );
+    // Dominio custom solo si está en la lista y enabled
+    if (hit) return true;
+    // Host desconocido (inyección custom): permitir si hay custom enabled matching — else if injected, allow
+    return custom.some((c) => c.enabled !== false && c.host && (host === c.host || host.endsWith(`.${c.host}`)));
   }
 
   function findCompetitorInText(text) {
@@ -493,7 +522,7 @@
   }
 
   function scan() {
-    if (isHostIgnored()) {
+    if (isHostIgnored() || !isPlatformAllowed()) {
       reportBadge(0);
       return;
     }
@@ -573,7 +602,17 @@
     }
 
     if (message.type === 'RL_DETECTION_UPDATED') {
-      if (message.detection) detection = { ...detection, ...message.detection };
+      if (message.detection) {
+        detection = {
+          ...detection,
+          ...message.detection,
+          platforms: message.detection.platforms ?? detection.platforms,
+        };
+      }
+      if (isHostIgnored() || !isPlatformAllowed()) {
+        reportBadge(0);
+        return false;
+      }
       scheduleScan();
       sendResponse({ ok: true });
       return false;

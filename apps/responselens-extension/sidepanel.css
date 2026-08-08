@@ -59,6 +59,107 @@ body {
   height: 100dvh;
 }
 
+.rl-auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: var(--rl-space-5);
+  background:
+    radial-gradient(900px 320px at 20% -10%, #dbeafe 0%, transparent 55%),
+    var(--rl-bg);
+  overflow-y: auto;
+}
+
+.rl-auth-gate[hidden] {
+  display: none !important;
+}
+
+.rl-auth-card {
+  width: min(100%, 400px);
+  padding: var(--rl-space-6) var(--rl-space-5);
+  border: 1px solid var(--rl-line);
+  border-radius: var(--rl-radius);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--rl-shadow-lg);
+  text-align: center;
+}
+
+.rl-auth-card h1 {
+  margin: var(--rl-space-3) 0 var(--rl-space-2);
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.rl-auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: var(--rl-space-4) 0;
+  padding: 4px;
+  border-radius: 12px;
+  background: #e8eef5;
+}
+
+.rl-auth-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+  padding: 10px;
+  font: 600 13px/1 var(--rl-font);
+  color: var(--rl-muted);
+  cursor: pointer;
+}
+
+.rl-auth-tab.is-active {
+  background: #fff;
+  color: var(--rl-ink);
+  box-shadow: var(--rl-shadow);
+}
+
+.rl-auth-form {
+  text-align: left;
+  margin-bottom: var(--rl-space-3);
+}
+
+#app-shell[hidden] {
+  display: none !important;
+}
+
+#app-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 400px at 10% -10%, #dbeafe 0%, transparent 55%),
+    linear-gradient(180deg, #f8fafc 0%, var(--rl-bg) 45%);
+  color: var(--rl-ink);
+  font: 14px/1.5 var(--rl-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  height: 100dvh;
+}
+
 /* ─── Header ─────────────────────────────────────────────── */
 
 .rl-header {
@@ -725,6 +826,61 @@ h2 {
   color: var(--rl-muted);
   font-size: 12px;
   font-weight: 500;
+}
+
+.rl-platform-grid {
+  display: grid;
+  gap: var(--rl-space-2);
+  margin: 0 0 var(--rl-space-4);
+}
+
+.rl-platform-item {
+  align-items: flex-start;
+  gap: var(--rl-space-3);
+  padding: var(--rl-space-3);
+  border: 1px solid var(--rl-line);
+  border-radius: var(--rl-radius-sm);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.rl-platform-item span {
+  display: grid;
+  gap: 2px;
+}
+
+.rl-platform-item strong {
+  font-size: 13px;
+}
+
+.rl-platform-item small {
+  color: var(--rl-muted);
+  font-size: 11px;
+}
+
+.rl-custom-platforms {
+  display: grid;
+  gap: var(--rl-space-3);
+  margin-bottom: var(--rl-space-3);
+}
+
+.rl-custom-platform {
+  display: grid;
+  gap: var(--rl-space-2);
+  padding: var(--rl-space-3);
+  border: 1px dashed var(--rl-line-strong);
+  border-radius: var(--rl-radius);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.rl-add-platform {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--rl-space-2);
+  margin-bottom: var(--rl-space-5);
+}
+
+.rl-add-platform input {
+  width: 100%;
 }
 
 .rl-check {

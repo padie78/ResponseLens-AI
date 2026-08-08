@@ -22,3 +22,19 @@ output "appsync_api_function_name" {
 output "competitor_scan_function_name" {
   value = module.lambdas.competitor_scan_function_name
 }
+
+output "cognito_user_pool_id" {
+  value = module.auth.user_pool_id
+}
+
+output "cognito_client_id" {
+  value = module.auth.user_pool_client_id
+}
+
+output "cognito_endpoint" {
+  value = module.auth.user_pool_endpoint
+}
+
+output "aws_region" {
+  value = data.aws_region.current.name
+}

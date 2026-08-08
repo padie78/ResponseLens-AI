@@ -16,6 +16,11 @@ Estados: NEW → CONTACTED / WON / DISMISSED.
 - Cron Lambda `competitor_scan` publica solo menciones live.
 - Detección en página también en Reddit; chip **captar · Rival**.
 
+## Plataformas configurables
+- Config → **Fuentes de escaneo**: HN / Reddit API / pestaña activa.
+- Config → **Plataformas en página**: Amazon, eBay, YouTube, X, Reddit (on/off).
+- **+ Agregar plataforma**: dominio custom (Chrome pide permiso; detecta con selectores genéricos).
+
 ## Detección configurable
 Sensibilidad, keywords extra, dominios ignorados y badge en el icono del plugin con el conteo de quejas en la página.
 
@@ -25,3 +30,6 @@ Si AppSync/LLM falla (o no está configurado), genera 3 tonos + triage heurísti
 ## IA en respuestas
 - Propios: 3 tonos + badge **Recomendada** (LLM o fallback heurístico).
 - Competencia: 3 pitches (Suave recomendado / Directo / Técnico); clic para elegir antes de copiar/inyectar.
+
+## Auth
+Login Cognito (email) o modo local. Ver `docs/auth.md`.

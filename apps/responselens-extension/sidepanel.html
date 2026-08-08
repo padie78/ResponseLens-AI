@@ -13,13 +13,65 @@
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
+    <div id="auth-gate" class="rl-auth-gate" hidden>
+      <div class="rl-auth-card">
+        <img class="rl-brand__mark" src="icons/icon48.png" alt="" width="40" height="40" />
+        <h1>ResponseLens AI</h1>
+        <p class="rl-muted">Iniciá sesión para sincronizar config, alertas e historial.</p>
+
+        <div class="rl-auth-tabs" role="tablist">
+          <button type="button" class="rl-auth-tab is-active" data-auth-tab="login">Entrar</button>
+          <button type="button" class="rl-auth-tab" data-auth-tab="register">Crear cuenta</button>
+        </div>
+
+        <form id="auth-login-form" class="rl-form rl-auth-form">
+          <label>
+            Email
+            <input id="auth-login-email" type="email" required autocomplete="username" />
+          </label>
+          <label>
+            Contraseña
+            <input id="auth-login-pass" type="password" required autocomplete="current-password" minlength="8" />
+          </label>
+          <button type="submit" class="rl-btn rl-btn--primary rl-btn--block">Entrar</button>
+        </form>
+
+        <form id="auth-register-form" class="rl-form rl-auth-form" hidden>
+          <label>
+            Email
+            <input id="auth-reg-email" type="email" required autocomplete="username" />
+          </label>
+          <label>
+            Contraseña
+            <input id="auth-reg-pass" type="password" required autocomplete="new-password" minlength="8" />
+          </label>
+          <label id="auth-confirm-wrap" hidden>
+            Código de verificación (email)
+            <input id="auth-reg-code" type="text" maxlength="8" inputmode="numeric" autocomplete="one-time-code" />
+          </label>
+          <button type="submit" class="rl-btn rl-btn--primary rl-btn--block" id="auth-reg-submit">
+            Crear cuenta
+          </button>
+        </form>
+
+        <button type="button" id="btn-auth-local" class="rl-btn rl-btn--ghost rl-btn--block">
+          Continuar en modo local (sin nube)
+        </button>
+        <p id="auth-status" class="rl-status" role="status"></p>
+        <p class="rl-hint">
+          Cognito se configura en Config (región, User Pool, Client) tras el deploy de Terraform.
+        </p>
+      </div>
+    </div>
+
+    <div id="app-shell" hidden>
     <header class="rl-header">
       <div class="rl-header__top">
         <div class="rl-brand">
           <img class="rl-brand__mark" src="icons/icon48.png" alt="" width="36" height="36" />
           <div>
             <strong>ResponseLens AI</strong>
-            <span class="rl-sub">Reputación &amp; captación competitiva</span>
+            <span class="rl-sub" id="auth-user-label">Reputación &amp; captación competitiva</span>
           </div>
         </div>
         <div class="rl-zoom" role="group" aria-label="Tamaño de interfaz">
@@ -107,7 +159,8 @@
 
         <p class="rl-comp-intro">
           <strong>Competencia</strong> busca clientes enfadados con tus rivales (Hacker News / Reddit + la pestaña abierta).
-          Configurá los rivales en <em>Config</em>, pulsá <strong>Escanear ahora</strong> y usá el pitch para contactarlos.
+          Configurá los rivales en <em>Config</em>, abrí la plataforma en Chrome, pulsá <strong>Escanear ahora</strong> y usá el pitch.
+          La extensión <strong>no abre páginas sola</strong> salvo que uses “Abrir plataformas” en Config.
         </p>
         <p id="comp-scan-status" class="rl-status" aria-live="polite"></p>
 
@@ -174,6 +227,28 @@
             + Agregar competidor
           </button>
 
+          <h2>Fuentes de escaneo (Competencia)</h2>
+          <p class="rl-hint" style="margin-top:-6px">
+            Qué usa el botón <strong>Escanear ahora</strong>.
+          </p>
+          <div id="cfg-scan-sources" class="rl-platform-grid"></div>
+
+          <h2>Plataformas en página</h2>
+          <p class="rl-hint" style="margin-top:-6px">
+            Dónde el content script busca comentarios negativos <strong>cuando vos abrís esa web</strong>.
+            La extensión no navega sola: usá el botón de abajo o abrí la pestaña a mano.
+            Podés agregar dominios nuevos (Chrome pedirá permiso al guardar).
+          </p>
+          <div id="cfg-page-platforms" class="rl-platform-grid"></div>
+          <div id="cfg-custom-platforms" class="rl-custom-platforms"></div>
+          <div class="rl-add-platform">
+            <input id="cfg-new-platform-host" type="text" maxlength="120" placeholder="ej. trustpilot.com" />
+            <button type="button" id="btn-add-platform" class="rl-btn rl-btn--ghost">+ Agregar plataforma</button>
+          </div>
+          <button type="button" id="btn-open-platforms" class="rl-btn rl-btn--primary rl-btn--block" style="margin-bottom:20px">
+            Abrir plataformas activas en Chrome
+          </button>
+
           <h2>Detección en página</h2>
           <label>
             Sensibilidad
@@ -197,8 +272,8 @@
           </label>
 
           <label>
-            User ID (MVP)
-            <input id="cfg-user-id" name="userId" required maxlength="64" />
+            User ID (de la sesión)
+            <input id="cfg-user-id" name="userId" required maxlength="64" readonly />
           </label>
 
           <fieldset class="rl-fieldset">
@@ -212,16 +287,34 @@
               <input id="cfg-rt" name="realtimeUrl" type="url" />
             </label>
             <label>
-              API Key
+              API Key (fallback / cron)
               <input id="cfg-key" name="apiKey" type="password" autocomplete="off" />
             </label>
           </fieldset>
 
+          <fieldset class="rl-fieldset">
+            <legend>Amazon Cognito</legend>
+            <label>
+              Región AWS
+              <input id="cfg-cog-region" name="cognitoRegion" placeholder="us-east-1" maxlength="32" />
+            </label>
+            <label>
+              User Pool ID
+              <input id="cfg-cog-pool" name="cognitoPool" placeholder="us-east-1_xxxxx" maxlength="64" />
+            </label>
+            <label>
+              App Client ID
+              <input id="cfg-cog-client" name="cognitoClient" maxlength="128" />
+            </label>
+          </fieldset>
+
           <button type="submit" class="rl-btn rl-btn--primary">Guardar</button>
+          <button type="button" id="btn-logout" class="rl-btn rl-btn--ghost rl-btn--block">Cerrar sesión</button>
           <p id="cfg-status" class="rl-status" role="status"></p>
         </form>
       </section>
     </main>
+    </div>
 
     <script type="module" src="sidepanel.js"></script>
   </body>

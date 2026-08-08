@@ -2,6 +2,8 @@ locals {
   name_prefix = "${var.project_name}-${var.environment}"
 }
 
+data "aws_region" "current" {}
+
 module "database" {
   source      = "./modules/database"
   name_prefix = local.name_prefix
@@ -32,14 +34,15 @@ module "lambdas" {
   competitor_scan_schedule = var.competitor_scan_schedule
 }
 
-module "api" {
-  source           = "./modules/api"
-  name_prefix      = local.name_prefix
-  graphql_api_name = var.appsync_graphql_api_name
-  appsync_api_arn  = module.lambdas.appsync_api_arn
-}
-
 module "auth" {
   source      = "./modules/auth"
   name_prefix = local.name_prefix
+}
+
+module "api" {
+  source               = "./modules/api"
+  name_prefix          = local.name_prefix
+  graphql_api_name     = var.appsync_graphql_api_name
+  appsync_api_arn      = module.lambdas.appsync_api_arn
+  cognito_user_pool_id = module.auth.user_pool_id
 }

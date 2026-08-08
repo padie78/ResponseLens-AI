@@ -1,18 +1,21 @@
 /**
- * Cliente GraphQL mínimo para AppSync (API_KEY) — fetch nativo.
+ * Cliente GraphQL AppSync — Cognito (Authorization) o API_KEY.
  */
 
+import { authHeaders, getSession } from './auth.js';
+
 export async function gqlRequest({ url, apiKey, query, variables }) {
-  if (!url || !apiKey) {
-    throw new Error('Missing AppSync url or apiKey');
+  if (!url) throw new Error('Missing AppSync url');
+
+  const session = await getSession();
+  const headers = authHeaders(session, apiKey);
+  if (!headers.Authorization && !headers['x-api-key']) {
+    throw new Error('Missing AppSync auth (login Cognito o API Key)');
   }
 
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-    },
+    headers,
     body: JSON.stringify({ query, variables: variables || {} }),
   });
 

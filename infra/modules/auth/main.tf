@@ -2,8 +2,55 @@ variable "name_prefix" {
   type = string
 }
 
-# Auth module stub — MVP usa API_KEY en AppSync.
-# Reservado para Cognito User Pools (B2B) en siguientes iteraciones.
-output "placeholder" {
-  value = "${var.name_prefix}-auth-stub"
+resource "aws_cognito_user_pool" "this" {
+  name = "${var.name_prefix}-users"
+
+  username_attributes      = ["email"]
+  auto_verified_attributes = ["email"]
+
+  password_policy {
+    minimum_length    = 8
+    require_lowercase = true
+    require_numbers   = true
+    require_symbols   = false
+    require_uppercase = true
+  }
+
+  account_recovery_setting {
+    recovery_mechanism {
+      name     = "verified_email"
+      priority = 1
+    }
+  }
+
+  mfa_configuration = "OFF"
+
+  tags = {
+    Project = var.name_prefix
+  }
+}
+
+resource "aws_cognito_user_pool_client" "extension" {
+  name         = "${var.name_prefix}-extension"
+  user_pool_id = aws_cognito_user_pool.this.id
+
+  generate_secret               = false
+  prevent_user_existence_errors = "ENABLED"
+  enable_token_revocation       = true
+
+  explicit_auth_flows = [
+    "ALLOW_USER_PASSWORD_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+    "ALLOW_USER_SRP_AUTH",
+  ]
+
+  access_token_validity  = 1
+  id_token_validity      = 1
+  refresh_token_validity = 30
+
+  token_validity_units {
+    access_token  = "hours"
+    id_token      = "hours"
+    refresh_token = "days"
+  }
 }

@@ -174,27 +174,28 @@ input PublishCompetitorAlertInput {
 # ─── Root operations ─────────────────────────────────────────────────────────
 
 type Query {
-  health: String! @aws_api_key
+  health: String! @aws_api_key @aws_cognito_user_pools
 
-  getUserConfig(userId: ID!): UserConfig @aws_api_key
+  getUserConfig(userId: ID!): UserConfig @aws_api_key @aws_cognito_user_pools
 
-  listCompetitorAlerts(userId: ID!, limit: Int): [CompetitorAlert!]! @aws_api_key
+  listCompetitorAlerts(userId: ID!, limit: Int): [CompetitorAlert!]! @aws_api_key @aws_cognito_user_pools
 }
 
 type Mutation {
-  analyzeReply(input: AnalyzeReplyInput!): ReplyOptions! @aws_api_key
+  analyzeReply(input: AnalyzeReplyInput!): ReplyOptions! @aws_api_key @aws_cognito_user_pools
 
-  saveUserConfig(input: SaveUserConfigInput!): UserConfig! @aws_api_key
+  saveUserConfig(input: SaveUserConfigInput!): UserConfig! @aws_api_key @aws_cognito_user_pools
 
   """
   Publicada por el cron Lambda de escaneo competitivo.
   Data source NONE (passthrough) — dispara la subscription WebSocket.
   """
-  publishCompetitorAlert(input: PublishCompetitorAlertInput!): CompetitorAlert! @aws_api_key
+  publishCompetitorAlert(input: PublishCompetitorAlertInput!): CompetitorAlert! @aws_api_key @aws_cognito_user_pools
 }
 
 type Subscription {
   onNewCompetitorAlert(userId: ID!): CompetitorAlert
     @aws_subscribe(mutations: ["publishCompetitorAlert"])
     @aws_api_key
+    @aws_cognito_user_pools
 }

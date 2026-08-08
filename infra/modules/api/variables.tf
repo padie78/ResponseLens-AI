@@ -6,7 +6,8 @@ variable "graphql_api_name" {
   type = string
 }
 
-variable "appsync_api_arn" {
+variable "cognito_user_pool_id" {
   type        = string
-  description = "ARN de la Lambda appsync-api (resolvers UNIT)."
+  description = "Cognito User Pool para auth de la extensión (además de API_KEY)."
+  default     = ""
 }
