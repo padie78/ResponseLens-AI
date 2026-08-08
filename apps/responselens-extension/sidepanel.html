@@ -121,13 +121,16 @@
           <p class="rl-hint">También puedes pegar una queja abajo y analizarla sin salir del panel.</p>
         </div>
 
-        <form id="own-manual" class="rl-manual">
-          <label>
-            Pegar queja / review
-            <textarea id="manual-text" rows="3" maxlength="4000" placeholder="Pega aquí el texto negativo…"></textarea>
-          </label>
-          <button type="submit" class="rl-btn rl-btn--ghost">Analizar texto</button>
-        </form>
+        <details class="rl-disclosure rl-cfg-panel">
+          <summary>Pegar queja / review</summary>
+          <form id="own-manual" class="rl-manual rl-manual--nested">
+            <label>
+              Texto
+              <textarea id="manual-text" rows="3" maxlength="4000" placeholder="Pega aquí el texto negativo…"></textarea>
+            </label>
+            <button type="submit" class="rl-btn rl-btn--ghost">Analizar texto</button>
+          </form>
+        </details>
 
         <div id="own-loader" class="rl-loader" hidden>
           <div class="rl-spinner" aria-hidden="true"></div>
@@ -157,82 +160,100 @@
           </div>
         </div>
 
-        <div class="rl-filters" id="comp-filters" aria-label="Filtros de oportunidades">
-          <label class="rl-filter">
-            <span>Estado</span>
-            <select id="alert-filter" class="rl-select" aria-label="Filtro de estado">
-              <option value="OPEN">Abiertas</option>
-              <option value="ALL">Todas</option>
-              <option value="CONTACTED">Contactadas</option>
-              <option value="WON">Ganadas</option>
-              <option value="DISMISSED">Descartadas</option>
-            </select>
-          </label>
-          <label class="rl-filter">
-            <span>Fecha</span>
-            <select id="alert-filter-date" class="rl-select" aria-label="Filtro de fecha">
-              <option value="all">Todas</option>
-              <option value="1">Hoy</option>
-              <option value="7" selected>7 días</option>
-              <option value="14">14 días</option>
-              <option value="30">30 días</option>
-            </select>
-          </label>
-          <label class="rl-filter">
-            <span>Plataforma</span>
-            <select id="alert-filter-platform" class="rl-select" aria-label="Filtro de plataforma">
-              <option value="all">Todas</option>
-              <option value="hackernews">Hacker News</option>
-              <option value="reddit">Reddit</option>
-              <option value="page">Página</option>
-              <option value="amazon">Amazon</option>
-              <option value="ebay">eBay</option>
-              <option value="youtube">YouTube</option>
-              <option value="x">X / Twitter</option>
-              <option value="manual">Manual</option>
-            </select>
-          </label>
-          <label class="rl-filter">
-            <span>Rival</span>
-            <select id="alert-filter-rival" class="rl-select" aria-label="Filtro de competidor">
-              <option value="all">Todos</option>
-            </select>
-          </label>
-          <label class="rl-filter">
-            <span>Severidad</span>
-            <select id="alert-filter-severity" class="rl-select" aria-label="Filtro de severidad">
-              <option value="all">Todas</option>
-              <option value="HIGH">Alta / crítica</option>
-              <option value="MEDIUM">Media</option>
-              <option value="LOW">Baja</option>
-            </select>
-          </label>
-          <label class="rl-filter rl-filter--grow">
-            <span>Buscar</span>
-            <input id="alert-filter-q" type="search" maxlength="120" placeholder="Texto en queja…" aria-label="Buscar en quejas" />
-          </label>
-        </div>
+        <details class="rl-disclosure rl-cfg-panel">
+          <summary>Filtros</summary>
+          <div class="rl-filters" id="comp-filters" aria-label="Filtros de oportunidades">
+            <label class="rl-filter">
+              <span>Estado</span>
+              <select id="alert-filter" class="rl-select" aria-label="Filtro de estado">
+                <option value="OPEN">Abiertas</option>
+                <option value="ALL">Todas</option>
+                <option value="CONTACTED">Contactadas</option>
+                <option value="WON">Ganadas</option>
+                <option value="DISMISSED">Descartadas</option>
+              </select>
+            </label>
+            <label class="rl-filter">
+              <span>Fecha</span>
+              <select id="alert-filter-date" class="rl-select" aria-label="Filtro de fecha">
+                <option value="all">Todas</option>
+                <option value="1">Hoy</option>
+                <option value="7" selected>7 días</option>
+                <option value="14">14 días</option>
+                <option value="30">30 días</option>
+              </select>
+            </label>
+            <label class="rl-filter">
+              <span>Plataforma</span>
+              <select id="alert-filter-platform" class="rl-select" aria-label="Filtro de plataforma">
+                <option value="all">Todas</option>
+                <option value="hackernews">Hacker News</option>
+                <option value="reddit">Reddit</option>
+                <option value="news">Noticias</option>
+                <option value="page">Página</option>
+                <option value="amazon">Amazon</option>
+                <option value="ebay">eBay</option>
+                <option value="youtube">YouTube</option>
+                <option value="x">X / Twitter</option>
+                <option value="facebook">Facebook</option>
+                <option value="instagram">Instagram</option>
+                <option value="tiktok">TikTok</option>
+                <option value="threads">Threads</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="bluesky">Bluesky</option>
+                <option value="glassdoor">Glassdoor</option>
+                <option value="g2">G2</option>
+                <option value="capterra">Capterra</option>
+                <option value="producthunt">Product Hunt</option>
+                <option value="indeed">Indeed</option>
+                <option value="manual">Manual</option>
+              </select>
+            </label>
+            <label class="rl-filter">
+              <span>Rival</span>
+              <select id="alert-filter-rival" class="rl-select" aria-label="Filtro de competidor">
+                <option value="all">Todos</option>
+              </select>
+            </label>
+            <label class="rl-filter">
+              <span>Severidad</span>
+              <select id="alert-filter-severity" class="rl-select" aria-label="Filtro de severidad">
+                <option value="all">Todas</option>
+                <option value="HIGH">Alta / crítica</option>
+                <option value="MEDIUM">Media</option>
+                <option value="LOW">Baja</option>
+              </select>
+            </label>
+            <label class="rl-filter rl-filter--grow">
+              <span>Buscar</span>
+              <input id="alert-filter-q" type="search" maxlength="120" placeholder="Texto en queja…" aria-label="Buscar en quejas" />
+            </label>
+          </div>
+        </details>
         <p id="comp-filter-count" class="rl-filter-count" aria-live="polite"></p>
 
         <details class="rl-disclosure">
           <summary>Cómo funciona</summary>
           <p class="rl-comp-intro">
-            Busca clientes enfadados con tus rivales (HN / Reddit + pestaña abierta).
-            Configurá rivales en <em>Config</em>, abrí la plataforma y pulsá <strong>Escanear</strong>.
+            Busca clientes enfadados con tus rivales (HN / Reddit / noticias + pestaña abierta)
+            y menciones de <em>tu marca</em> en prensa. Configurá rivales y el nombre de empresa en <em>Config</em>.
           </p>
         </details>
 
         <p id="comp-scan-status" class="rl-status" aria-live="polite"></p>
 
-        <div class="rl-ficha-bar" id="rival-ficha-bar">
-          <label class="rl-filter rl-filter--grow">
-            <span>Ficha rival</span>
-            <select id="ficha-rival-select" class="rl-select" aria-label="Elegir rival para ficha de percepción"></select>
-          </label>
-          <button type="button" id="btn-open-rival-ficha" class="rl-btn rl-btn--primary" title="KPIs, gráficos e informe de cómo lo ven los usuarios">
-            Ver percepción
-          </button>
-        </div>
+        <details class="rl-disclosure rl-cfg-panel" id="rival-ficha-bar">
+          <summary>Ficha rival</summary>
+          <div class="rl-ficha-bar rl-ficha-bar--inner">
+            <label class="rl-filter rl-filter--grow">
+              <span class="visually-hidden">Elegir rival</span>
+              <select id="ficha-rival-select" class="rl-select" aria-label="Elegir rival para ficha de percepción"></select>
+            </label>
+            <button type="button" id="btn-open-rival-ficha" class="rl-btn rl-btn--primary" title="KPIs, gráficos e informe de cómo lo ven los usuarios">
+              Ver percepción
+            </button>
+          </div>
+        </details>
 
         <div id="rival-intel-banner" class="rl-intel-banner" hidden>
           <div class="rl-intel-banner__text">
@@ -281,83 +302,65 @@
           </select>
         </div>
 
-        <div class="rl-stats-kpis rl-stats-kpis--compact" id="stats-kpi-grid" aria-label="KPIs detallados"></div>
+        <details class="rl-disclosure rl-cfg-panel">
+          <summary>KPIs</summary>
+          <div class="rl-stats-kpis rl-stats-kpis--compact" id="stats-kpi-grid" aria-label="KPIs detallados"></div>
+        </details>
 
         <div class="rl-stats-grid">
-          <article class="rl-chart-card rl-chart-card--dense">
-            <header class="rl-chart-card__head">
-              <h3>Share</h3>
-              <span id="stats-compare-summary" class="rl-muted"></span>
-            </header>
+          <details class="rl-disclosure rl-cfg-panel rl-chart-card--wide">
+            <summary>Share <span id="stats-compare-summary" class="rl-muted rl-summary-meta"></span></summary>
             <div id="chart-compare" class="rl-chart rl-chart--sm" role="img" aria-label="Share propios vs competencia"></div>
-          </article>
+          </details>
 
-          <article class="rl-chart-card rl-chart-card--dense">
-            <header class="rl-chart-card__head">
-              <h3>Embudo</h3>
-            </header>
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Embudo</summary>
             <div id="chart-funnel" class="rl-chart rl-chart--sm" role="img" aria-label="Embudo de captación"></div>
-          </article>
+          </details>
 
-          <article class="rl-chart-card rl-chart-card--dense rl-chart-card--wide">
-            <header class="rl-chart-card__head">
-              <h3>Actividad diaria</h3>
-              <span class="rl-legend rl-legend--inline">
-                <span class="rl-legend__item"><i class="rl-swatch rl-swatch--own"></i> Propios</span>
-                <span class="rl-legend__item"><i class="rl-swatch rl-swatch--comp"></i> Rival</span>
-              </span>
-            </header>
+          <details class="rl-disclosure rl-cfg-panel rl-chart-card--wide">
+            <summary>Actividad diaria</summary>
+            <span class="rl-legend rl-legend--inline">
+              <span class="rl-legend__item"><i class="rl-swatch rl-swatch--own"></i> Propios</span>
+              <span class="rl-legend__item"><i class="rl-swatch rl-swatch--comp"></i> Rival</span>
+            </span>
             <div id="chart-trend" class="rl-chart rl-chart--med" role="img" aria-label="Tendencia diaria"></div>
-          </article>
+          </details>
 
-          <article class="rl-chart-card rl-chart-card--dense rl-chart-card--wide">
-            <header class="rl-chart-card__head">
-              <h3>Barras apiladas</h3>
-            </header>
+          <details class="rl-disclosure rl-cfg-panel rl-chart-card--wide">
+            <summary>Barras apiladas</summary>
             <div id="chart-stack" class="rl-chart rl-chart--med" role="img" aria-label="Volumen apilado diario"></div>
-          </article>
+          </details>
 
-          <article class="rl-chart-card rl-chart-card--dense">
-            <header class="rl-chart-card__head">
-              <h3>Riesgo</h3>
-            </header>
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Riesgo</summary>
             <div id="chart-risk" class="rl-chart rl-chart--sm" role="img" aria-label="Distribución de riesgo"></div>
-          </article>
+          </details>
 
-          <article class="rl-chart-card rl-chart-card--dense">
-            <header class="rl-chart-card__head">
-              <h3>Severidad rivales</h3>
-            </header>
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Severidad rivales</summary>
             <div id="chart-severity" class="rl-chart rl-chart--sm" role="img" aria-label="Severidad de alertas"></div>
-          </article>
+          </details>
 
-          <article class="rl-chart-card rl-chart-card--dense">
-            <header class="rl-chart-card__head">
-              <h3>Top rivales</h3>
-            </header>
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Top rivales</summary>
             <div id="chart-rivals" class="rl-chart rl-chart--sm" role="img" aria-label="Alertas por competidor"></div>
-          </article>
+          </details>
 
-          <article class="rl-chart-card rl-chart-card--dense">
-            <header class="rl-chart-card__head">
-              <h3>Canales</h3>
-            </header>
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Canales</summary>
             <div id="chart-channels" class="rl-chart rl-chart--sm" role="img" aria-label="Volumen por canal"></div>
-          </article>
+          </details>
 
-          <article class="rl-chart-card rl-chart-card--dense">
-            <header class="rl-chart-card__head">
-              <h3>Tonos usados</h3>
-            </header>
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Tonos usados</summary>
             <div id="chart-tones" class="rl-chart rl-chart--sm" role="img" aria-label="Tonos de respuesta"></div>
-          </article>
+          </details>
 
-          <article class="rl-chart-card rl-chart-card--dense">
-            <header class="rl-chart-card__head">
-              <h3>Acciones</h3>
-            </header>
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Acciones</summary>
             <div id="chart-actions" class="rl-chart rl-chart--sm" role="img" aria-label="Acciones recomendadas"></div>
-          </article>
+          </details>
         </div>
       </section>
 
@@ -372,157 +375,288 @@
 
       <!-- Módulo C -->
       <section id="panel-cfg" class="rl-panel" role="tabpanel" hidden>
-        <h2>Perfil de la Empresa</h2>
-        <form id="cfg-form" class="rl-form">
-          <label>
-            Nombre
-            <input id="cfg-name" name="companyName" required maxlength="120" />
-          </label>
-          <label>
-            Qué vende
-            <textarea id="cfg-sells" name="whatTheySell" rows="3" required maxlength="800"></textarea>
-          </label>
-          <label>
-            Enlaces clave (uno por línea)
-            <textarea id="cfg-links" name="keyLinks" rows="3" maxlength="1200"></textarea>
-          </label>
-          <label>
-            Notas de voz de marca
-            <textarea id="cfg-voice" name="brandVoiceNotes" rows="2" maxlength="600"></textarea>
-          </label>
+        <form id="cfg-form" class="rl-form rl-cfg-form">
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Perfil de la empresa</summary>
+            <div class="rl-cfg-panel__body">
+              <label>
+                Nombre
+                <input id="cfg-name" name="companyName" required maxlength="120" />
+              </label>
+              <label>
+                Qué vende
+                <textarea id="cfg-sells" name="whatTheySell" rows="3" required maxlength="800"></textarea>
+              </label>
+              <label>
+                Enlaces clave (uno por línea)
+                <textarea id="cfg-links" name="keyLinks" rows="3" maxlength="1200"></textarea>
+              </label>
+              <label>
+                Notas de voz de marca
+                <textarea id="cfg-voice" name="brandVoiceNotes" rows="2" maxlength="600"></textarea>
+              </label>
+            </div>
+          </details>
 
-          <h2>Competidores</h2>
-          <p class="rl-hint" style="margin-top:-6px">
-            Completá cada rival campo por campo. El logo se puede dejar vacío (usa el favicon del sitio).
-          </p>
-          <div id="cfg-competitors-list" class="rl-comp-editor" aria-live="polite"></div>
-          <button type="button" id="btn-add-competitor" class="rl-btn rl-btn--ghost rl-btn--block">
-            + Agregar competidor
-          </button>
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Competidores</summary>
+            <div class="rl-cfg-panel__body">
+              <p class="rl-hint" style="margin-top:0">
+                Completá cada rival campo por campo. El logo se puede dejar vacío (usa el favicon del sitio).
+              </p>
+              <div id="cfg-competitors-list" class="rl-comp-editor" aria-live="polite"></div>
+              <button type="button" id="btn-add-competitor" class="rl-btn rl-btn--ghost rl-btn--block">
+                + Agregar competidor
+              </button>
+            </div>
+          </details>
 
-          <h2>Fuentes de escaneo (Competencia)</h2>
-          <p class="rl-hint" style="margin-top:-6px">
-            Qué usa el botón <strong>Escanear ahora</strong>.
-          </p>
-          <div id="cfg-scan-sources" class="rl-platform-grid"></div>
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Fuentes de escaneo</summary>
+            <div class="rl-cfg-panel__body">
+              <p class="rl-hint" style="margin-top:0">
+                Qué usa el botón <strong>Escanear ahora</strong>.
+              </p>
+              <div id="cfg-scan-sources" class="rl-platform-grid"></div>
+            </div>
+          </details>
 
-          <h2>Plataformas en página</h2>
-          <p class="rl-hint" style="margin-top:-6px">
-            Dónde el content script busca comentarios negativos <strong>cuando vos abrís esa web</strong>.
-            La extensión no navega sola: usá el botón de abajo o abrí la pestaña a mano.
-            Podés agregar dominios nuevos (Chrome pedirá permiso al guardar).
-          </p>
-          <div id="cfg-page-platforms" class="rl-platform-grid"></div>
-          <div id="cfg-custom-platforms" class="rl-custom-platforms"></div>
-          <div class="rl-add-platform">
-            <input id="cfg-new-platform-host" type="text" maxlength="120" placeholder="ej. trustpilot.com" />
-            <button type="button" id="btn-add-platform" class="rl-btn rl-btn--ghost">+ Agregar plataforma</button>
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Plataformas en página</summary>
+            <div class="rl-cfg-panel__body">
+              <p class="rl-hint" style="margin-top:0">
+                Dónde el content script busca comentarios negativos <strong>cuando vos abrís esa web</strong>.
+                La extensión no navega sola: usá el botón de abajo o abrí la pestaña a mano.
+                Podés agregar dominios nuevos (Chrome pedirá permiso al guardar).
+              </p>
+              <div id="cfg-page-platforms" class="rl-platform-grid"></div>
+              <div id="cfg-custom-platforms" class="rl-custom-platforms"></div>
+              <div class="rl-add-platform">
+                <input id="cfg-new-platform-host" type="text" maxlength="120" placeholder="ej. trustpilot.com" />
+                <button type="button" id="btn-add-platform" class="rl-btn rl-btn--ghost">+ Agregar plataforma</button>
+              </div>
+              <button type="button" id="btn-open-platforms" class="rl-btn rl-btn--primary rl-btn--block">
+                Abrir plataformas activas en Chrome
+              </button>
+            </div>
+          </details>
+
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Detección en página</summary>
+            <div class="rl-cfg-panel__body">
+              <label>
+                Sensibilidad
+                <select id="cfg-sensitivity">
+                  <option value="low">Baja (menos falsos positivos)</option>
+                  <option value="medium" selected>Media</option>
+                  <option value="high">Alta (más cobertura)</option>
+                </select>
+              </label>
+              <label>
+                Keywords extra (coma o línea)
+                <textarea id="cfg-keywords" rows="2" maxlength="800" placeholder="roto, estafadores, me arrepiento"></textarea>
+              </label>
+              <label>
+                Dominios ignorados (uno por línea)
+                <textarea id="cfg-ignore-hosts" rows="2" maxlength="800" placeholder="example.com"></textarea>
+              </label>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-offline" checked />
+                Usar fallback offline si falla la nube
+              </label>
+              <label>
+                User ID (de la sesión)
+                <input id="cfg-user-id" name="userId" required maxlength="64" readonly />
+              </label>
+            </div>
+          </details>
+
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>AppSync (cloud)</summary>
+            <div class="rl-cfg-panel__body">
+              <label>
+                GraphQL URL
+                <input id="cfg-gql" name="graphqlUrl" type="url" />
+              </label>
+              <label>
+                Realtime URL
+                <input id="cfg-rt" name="realtimeUrl" type="url" />
+              </label>
+              <label>
+                API Key (fallback / cron)
+                <input id="cfg-key" name="apiKey" type="password" autocomplete="off" />
+              </label>
+            </div>
+          </details>
+
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Amazon Cognito</summary>
+            <div class="rl-cfg-panel__body">
+              <label>
+                Región AWS
+                <input id="cfg-cog-region" name="cognitoRegion" placeholder="us-east-1" maxlength="32" />
+              </label>
+              <label>
+                User Pool ID
+                <input id="cfg-cog-pool" name="cognitoPool" placeholder="us-east-1_xxxxx" maxlength="64" />
+              </label>
+              <label>
+                App Client ID
+                <input id="cfg-cog-client" name="cognitoClient" maxlength="128" />
+              </label>
+            </div>
+          </details>
+
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Fuentes profesionales (API)</summary>
+            <div class="rl-cfg-panel__body">
+              <p class="rl-hint" style="margin-top:0">
+                Reddit OAuth (app script) y NewsAPI elevan la calidad del escaneo.
+                Sin keys se usan RSS/públicos. Ver <code>docs/product-sources.md</code>.
+              </p>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-reddit-oauth" />
+                Reddit OAuth habilitado
+              </label>
+              <label>
+                Reddit Client ID
+                <input id="cfg-reddit-client-id" type="text" maxlength="120" autocomplete="off" />
+              </label>
+              <label>
+                Reddit Client Secret
+                <input id="cfg-reddit-client-secret" type="password" maxlength="200" autocomplete="off" />
+              </label>
+              <label>
+                Reddit User-Agent
+                <input id="cfg-reddit-ua" type="text" maxlength="160" placeholder="ResponseLensAI/0.7 by youruser" />
+              </label>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-newsapi" />
+                NewsAPI habilitado
+              </label>
+              <label>
+                NewsAPI key
+                <input id="cfg-newsapi-key" type="password" maxlength="200" autocomplete="off" />
+              </label>
+            </div>
+          </details>
+
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary>Integraciones CRM</summary>
+            <div class="rl-cfg-panel__body">
+              <p class="rl-hint" style="margin-top:0">
+                Webhook genérico (Zapier, Make, Salesforce Flow…) y/o HubSpot Private App.
+                Requiere permiso de host al primer push (Chrome lo pide).
+              </p>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-crm-webhook" />
+                Webhook habilitado
+              </label>
+              <label>
+                Webhook URL
+                <input id="cfg-crm-webhook-url" type="url" placeholder="https://hooks.zapier.com/…" />
+              </label>
+              <label>
+                Secret (header X-ResponseLens-Secret)
+                <input id="cfg-crm-webhook-secret" type="password" autocomplete="off" maxlength="200" />
+              </label>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-crm-hubspot" />
+                HubSpot habilitado
+              </label>
+              <label>
+                HubSpot Private App token
+                <input id="cfg-crm-hubspot-token" type="password" autocomplete="off" maxlength="300" />
+              </label>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-crm-autopush" />
+                Auto-push al captar (🎯)
+              </label>
+              <label>
+                TTL shares (horas)
+                <input id="cfg-share-ttl" type="number" min="1" max="720" value="168" />
+              </label>
+              <h3 class="rl-fieldset-sub">Contactos para compartir</h3>
+              <p class="rl-hint" style="margin-top:0">
+                Destinatarios por defecto. Al compartir podés confirmarlos o cambiarlos.
+              </p>
+              <label>
+                Email
+                <input id="cfg-share-email" type="email" maxlength="200" placeholder="ventas@tuempresa.com" autocomplete="email" />
+              </label>
+              <label>
+                WhatsApp (código país + número)
+                <input id="cfg-share-whatsapp" type="tel" maxlength="24" placeholder="54911xxxxxxxx" />
+              </label>
+              <label>
+                Slack Incoming Webhook
+                <input id="cfg-share-slack-webhook" type="url" maxlength="400" placeholder="https://hooks.slack.com/services/…" />
+              </label>
+              <label>
+                Slack canal / persona (nota)
+                <input id="cfg-share-slack-label" type="text" maxlength="80" placeholder="#captacion o @diego" />
+              </label>
+            </div>
+          </details>
+
+          <div class="rl-cfg-actions">
+            <button type="submit" class="rl-btn rl-btn--primary">Guardar</button>
+            <button type="button" id="btn-logout" class="rl-btn rl-btn--ghost rl-btn--block">Cerrar sesión</button>
+            <p id="cfg-status" class="rl-status" role="status"></p>
           </div>
-          <button type="button" id="btn-open-platforms" class="rl-btn rl-btn--primary rl-btn--block" style="margin-bottom:20px">
-            Abrir plataformas activas en Chrome
-          </button>
-
-          <h2>Detección en página</h2>
-          <label>
-            Sensibilidad
-            <select id="cfg-sensitivity">
-              <option value="low">Baja (menos falsos positivos)</option>
-              <option value="medium" selected>Media</option>
-              <option value="high">Alta (más cobertura)</option>
-            </select>
-          </label>
-          <label>
-            Keywords extra (coma o línea)
-            <textarea id="cfg-keywords" rows="2" maxlength="800" placeholder="roto, estafadores, me arrepiento"></textarea>
-          </label>
-          <label>
-            Dominios ignorados (uno por línea)
-            <textarea id="cfg-ignore-hosts" rows="2" maxlength="800" placeholder="example.com"></textarea>
-          </label>
-          <label class="rl-check">
-            <input type="checkbox" id="cfg-offline" checked />
-            Usar fallback offline si falla la nube
-          </label>
-
-          <label>
-            User ID (de la sesión)
-            <input id="cfg-user-id" name="userId" required maxlength="64" readonly />
-          </label>
-
-          <fieldset class="rl-fieldset">
-            <legend>AppSync (cloud)</legend>
-            <label>
-              GraphQL URL
-              <input id="cfg-gql" name="graphqlUrl" type="url" />
-            </label>
-            <label>
-              Realtime URL
-              <input id="cfg-rt" name="realtimeUrl" type="url" />
-            </label>
-            <label>
-              API Key (fallback / cron)
-              <input id="cfg-key" name="apiKey" type="password" autocomplete="off" />
-            </label>
-          </fieldset>
-
-          <fieldset class="rl-fieldset">
-            <legend>Amazon Cognito</legend>
-            <label>
-              Región AWS
-              <input id="cfg-cog-region" name="cognitoRegion" placeholder="us-east-1" maxlength="32" />
-            </label>
-            <label>
-              User Pool ID
-              <input id="cfg-cog-pool" name="cognitoPool" placeholder="us-east-1_xxxxx" maxlength="64" />
-            </label>
-            <label>
-              App Client ID
-              <input id="cfg-cog-client" name="cognitoClient" maxlength="128" />
-            </label>
-          </fieldset>
-
-          <fieldset class="rl-fieldset">
-            <legend>Integraciones CRM</legend>
-            <p class="rl-hint" style="margin-top:0">
-              Webhook genérico (Zapier, Make, Salesforce Flow…) y/o HubSpot Private App.
-              Requiere permiso de host al primer push (Chrome lo pide).
-            </p>
-            <label class="rl-check">
-              <input type="checkbox" id="cfg-crm-webhook" />
-              Webhook habilitado
-            </label>
-            <label>
-              Webhook URL
-              <input id="cfg-crm-webhook-url" type="url" placeholder="https://hooks.zapier.com/…" />
-            </label>
-            <label>
-              Secret (header X-ResponseLens-Secret)
-              <input id="cfg-crm-webhook-secret" type="password" autocomplete="off" maxlength="200" />
-            </label>
-            <label class="rl-check">
-              <input type="checkbox" id="cfg-crm-hubspot" />
-              HubSpot habilitado
-            </label>
-            <label>
-              HubSpot Private App token
-              <input id="cfg-crm-hubspot-token" type="password" autocomplete="off" maxlength="300" />
-            </label>
-            <label class="rl-check">
-              <input type="checkbox" id="cfg-crm-autopush" />
-              Auto-push al captar (🎯)
-            </label>
-            <label>
-              TTL shares (horas)
-              <input id="cfg-share-ttl" type="number" min="1" max="720" value="168" />
-            </label>
-          </fieldset>
-
-          <button type="submit" class="rl-btn rl-btn--primary">Guardar</button>
-          <button type="button" id="btn-logout" class="rl-btn rl-btn--ghost rl-btn--block">Cerrar sesión</button>
-          <p id="cfg-status" class="rl-status" role="status"></p>
         </form>
       </section>
     </main>
+    </div>
+
+    <div id="share-modal" class="rl-modal" hidden role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
+      <div class="rl-modal__backdrop" data-share-cancel></div>
+      <div class="rl-modal__card">
+        <header class="rl-modal__head">
+          <h2 id="share-modal-title">¿Dónde querés compartir?</h2>
+          <button type="button" class="rl-btn rl-btn--ghost" data-share-cancel aria-label="Cerrar">✕</button>
+        </header>
+        <p class="rl-muted rl-modal__sub" id="share-modal-sub"></p>
+
+        <div id="share-step-dest" class="rl-share-dests" role="list">
+          <button type="button" class="rl-share-dest" data-share-dest="email" role="listitem">
+            <strong>Email</strong>
+            <span>A un correo concreto</span>
+          </button>
+          <button type="button" class="rl-share-dest" data-share-dest="whatsapp" role="listitem">
+            <strong>WhatsApp</strong>
+            <span>A un número (con código de país)</span>
+          </button>
+          <button type="button" class="rl-share-dest" data-share-dest="slack" role="listitem">
+            <strong>Slack</strong>
+            <span>Incoming Webhook o copiar al canal</span>
+          </button>
+          <button type="button" class="rl-share-dest" data-share-dest="crm" role="listitem">
+            <strong>CRM</strong>
+            <span>Webhook / HubSpot configurados</span>
+          </button>
+          <button type="button" class="rl-share-dest" data-share-dest="clipboard" role="listitem">
+            <strong>Portapapeles</strong>
+            <span>Sin destinatario · copiar link + token</span>
+          </button>
+          <button type="button" class="rl-share-dest" data-share-dest="viewer" role="listitem">
+            <strong>Abrir visor</strong>
+            <span>Solo en esta extensión</span>
+          </button>
+        </div>
+
+        <div id="share-step-contact" class="rl-share-contact" hidden>
+          <label>
+            <span id="share-contact-label-text">Destinatario</span>
+            <input id="share-contact-input" type="text" maxlength="300" autocomplete="off" />
+          </label>
+          <p class="rl-hint" id="share-contact-hint" style="margin:6px 0 0"></p>
+          <div class="rl-modal__actions">
+            <button type="button" class="rl-btn rl-btn--ghost" id="btn-share-back">Atrás</button>
+            <button type="button" class="rl-btn rl-btn--primary" id="btn-share-send">Enviar</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="sidepanel.js"></script>

@@ -36,3 +36,26 @@ variable "competitor_scan_schedule" {
   type    = string
   default = "rate(15 minutes)"
 }
+
+variable "reddit_client_id" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "reddit_client_secret" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "reddit_user_agent" {
+  type    = string
+  default = "ResponseLensAI/0.7 (competitor-scan)"
+}
+
+variable "newsapi_api_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}

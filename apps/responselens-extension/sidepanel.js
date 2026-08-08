@@ -29,10 +29,14 @@ import { runCompetitorScan } from './lib/competitor-scan.js';
 import {
   createSharePackage,
   formatPushSummary,
+  isValidEmail,
   loadIntegrations,
+  normalizeWhatsAppPhone,
+  postSlackWebhook,
   pushOpportunityToCrm,
   saveIntegrations,
 } from './lib/integrations.js';
+import { loadScanCredentials, saveScanCredentials } from './lib/scan-credentials.js';
 import {
   SCAN_SOURCES,
   PAGE_PLATFORMS,
@@ -62,6 +66,342 @@ const DEFAULT_ZOOM = 125;
 let uiZoom = DEFAULT_ZOOM;
 /** @type {string | null} */
 let expandedAlertId = null;
+
+/** @type {null | { kind: string, title: string, data: object, alert?: object }} */
+let pendingShareDraft = null;
+/** @type {null | ((value: { dest: string, contact: string } | null) => void)} */
+let shareModalResolve = null;
+/** @type {string | null} */
+let sharePendingDest = null;
+
+function shareUiEls() {
+  return {
+    modal: document.getElementById('share-modal'),
+    sub: document.getElementById('share-modal-sub'),
+    stepDest: document.getElementById('share-step-dest'),
+    stepContact: document.getElementById('share-step-contact'),
+    input: document.getElementById('share-contact-input'),
+    hint: document.getElementById('share-contact-hint'),
+    label: document.getElementById('share-contact-label-text'),
+    title: document.getElementById('share-modal-title'),
+  };
+}
+
+function resetShareModalSteps() {
+  const ui = shareUiEls();
+  sharePendingDest = null;
+  if (ui.stepDest) ui.stepDest.hidden = false;
+  if (ui.stepContact) ui.stepContact.hidden = true;
+  if (ui.title) ui.title.textContent = '¿Dónde querés compartir?';
+  if (ui.input) ui.input.value = '';
+}
+
+function closeShareModal(value = null) {
+  const ui = shareUiEls();
+  if (ui.modal) ui.modal.hidden = true;
+  resetShareModalSteps();
+  const resolve = shareModalResolve;
+  shareModalResolve = null;
+  if (resolve) resolve(value);
+}
+
+function destNeedsContact(dest) {
+  return dest === 'email' || dest === 'whatsapp' || dest === 'slack' || dest === 'crm';
+}
+
+async function showContactStep(dest, contacts) {
+  const ui = shareUiEls();
+  sharePendingDest = dest;
+  if (ui.stepDest) ui.stepDest.hidden = true;
+  if (ui.stepContact) ui.stepContact.hidden = false;
+  if (ui.title) ui.title.textContent = '¿A quién?';
+
+  let value = '';
+  let hint = '';
+  let labelText = 'Destinatario';
+  let type = 'text';
+
+  if (dest === 'email') {
+    labelText = 'Email del destinatario';
+    value = contacts.email || '';
+    hint = 'Se abre el cliente de correo hacia esta dirección.';
+    type = 'email';
+  } else if (dest === 'whatsapp') {
+    labelText = 'WhatsApp (código país + número)';
+    value = contacts.whatsapp || '';
+    hint = 'Ej: 54911xxxxxxxx (sin + ni espacios).';
+    type = 'tel';
+  } else if (dest === 'slack') {
+    labelText = 'Slack Incoming Webhook URL';
+    value = contacts.slackWebhook || '';
+    hint = contacts.slackLabel
+      ? `Canal/persona: ${contacts.slackLabel}. Si dejás vacío, solo se copia para pegar.`
+      : 'Si tenés Incoming Webhook se postea solo. Si no, se copia el mensaje.';
+    type = 'url';
+  } else if (dest === 'crm') {
+    labelText = 'CRM destino (solo lectura)';
+    const parts = [];
+    const integ = await loadIntegrations();
+    if (integ.webhook?.enabled && integ.webhook.url) parts.push(`Webhook: ${integ.webhook.url}`);
+    if (integ.hubspot?.enabled) parts.push('HubSpot: Private App configurada');
+    value = parts.join(' · ') || 'Ningún CRM activo — configurá en Config → Integraciones';
+    hint = parts.length
+      ? 'Se enviará a los CRM habilitados en Config.'
+      : 'Activá Webhook y/o HubSpot y volvé a intentar.';
+    type = 'text';
+  }
+
+  if (ui.label) {
+    ui.label.textContent = labelText;
+  }
+  if (ui.input) {
+    ui.input.type = type;
+    ui.input.value = value;
+    ui.input.readOnly = dest === 'crm';
+    ui.input.placeholder =
+      dest === 'email'
+        ? 'persona@empresa.com'
+        : dest === 'whatsapp'
+          ? '54911…'
+          : dest === 'slack'
+            ? 'https://hooks.slack.com/services/…'
+            : '';
+    if (dest !== 'crm') ui.input.focus();
+  }
+  if (ui.hint) ui.hint.textContent = hint;
+}
+
+/**
+ * Pregunta destino + contacto. Retorna { dest, contact } o null si cancela.
+ */
+function askShareDestination(subtitle = '') {
+  const ui = shareUiEls();
+  if (!ui.modal) return Promise.resolve({ dest: 'clipboard', contact: '' });
+  resetShareModalSteps();
+  if (ui.sub) ui.sub.textContent = subtitle || 'Elegí canal y luego el destinatario.';
+  ui.modal.hidden = false;
+  return new Promise((resolve) => {
+    shareModalResolve = resolve;
+  });
+}
+
+function buildShareMessage({ title, viewerUrl, token, summary, contactNote }) {
+  return [
+    title,
+    summary ? `\n${summary}\n` : '',
+    contactNote ? `(Para: ${contactNote})` : '',
+    `Visor (mismo Chrome): ${viewerUrl}`,
+    '',
+    'Token (para otro dispositivo / colega):',
+    token,
+    '',
+    '— ResponseLens AI',
+  ]
+    .filter((line) => line !== undefined && line !== '')
+    .join('\n');
+}
+
+/**
+ * @param {{ kind: string, title: string, data: object, alert?: object, summary?: string }} draft
+ */
+async function shareWithDestinationPrompt(draft) {
+  pendingShareDraft = draft;
+  const choice = await askShareDestination(draft.title);
+  pendingShareDraft = null;
+  if (!choice?.dest) return { ok: false, cancelled: true };
+
+  const { dest, contact } = choice;
+  const integ = await loadIntegrations();
+
+  const { viewerUrl, token, pack } = await createSharePackage({
+    kind: draft.kind,
+    title: draft.title,
+    data: draft.data,
+  });
+  const message = buildShareMessage({
+    title: draft.title,
+    viewerUrl,
+    token,
+    summary: draft.summary || '',
+    contactNote: contact || integ.contacts?.slackLabel || '',
+  });
+
+  if (dest === 'clipboard' || dest === 'viewer') {
+    if (dest === 'viewer') await chrome.tabs.create({ url: viewerUrl, active: true });
+    await navigator.clipboard.writeText(message);
+    if (els.scanStatus) {
+      els.scanStatus.classList.remove('is-error');
+      els.scanStatus.textContent =
+        dest === 'viewer' ? `Visor abierto (${pack.shareId}).` : `Copiado (${pack.shareId}).`;
+    }
+    return { ok: true, dest, pack };
+  }
+
+  if (dest === 'email') {
+    if (!isValidEmail(contact)) {
+      if (els.scanStatus) {
+        els.scanStatus.classList.add('is-error');
+        els.scanStatus.textContent = 'Email inválido. Configurá el contacto o corregilo al compartir.';
+      }
+      return { ok: false, dest };
+    }
+    // Recordar contacto
+    await saveIntegrations({ ...integ, contacts: { ...integ.contacts, email: contact.trim() } });
+    const subject = encodeURIComponent(draft.title.slice(0, 120));
+    const body = encodeURIComponent(message.slice(0, 1800));
+    await chrome.tabs.create({
+      url: `mailto:${encodeURIComponent(contact.trim())}?subject=${subject}&body=${body}`,
+      active: true,
+    });
+    await navigator.clipboard.writeText(message).catch(() => {});
+    if (els.scanStatus) {
+      els.scanStatus.classList.remove('is-error');
+      els.scanStatus.textContent = `Email a ${contact.trim()} · texto también en portapapeles.`;
+    }
+    return { ok: true, dest, pack };
+  }
+
+  if (dest === 'whatsapp') {
+    const phone = normalizeWhatsAppPhone(contact);
+    if (!phone) {
+      if (els.scanStatus) {
+        els.scanStatus.classList.add('is-error');
+        els.scanStatus.textContent = 'Falta el número de WhatsApp (con código de país).';
+      }
+      return { ok: false, dest };
+    }
+    await saveIntegrations({ ...integ, contacts: { ...integ.contacts, whatsapp: phone } });
+    const text = encodeURIComponent(message.slice(0, 3000));
+    await chrome.tabs.create({ url: `https://wa.me/${phone}?text=${text}`, active: true });
+    if (els.scanStatus) {
+      els.scanStatus.classList.remove('is-error');
+      els.scanStatus.textContent = `WhatsApp a +${phone} (${pack.shareId}).`;
+    }
+    return { ok: true, dest, pack };
+  }
+
+  if (dest === 'slack') {
+    const webhook = String(contact || '').trim();
+    if (webhook) {
+      await saveIntegrations({
+        ...integ,
+        contacts: { ...integ.contacts, slackWebhook: webhook },
+      });
+      const posted = await postSlackWebhook(webhook, message);
+      if (els.scanStatus) {
+        els.scanStatus.classList.toggle('is-error', !posted.ok);
+        els.scanStatus.textContent = posted.ok
+          ? `Enviado a Slack${integ.contacts?.slackLabel ? ` (${integ.contacts.slackLabel})` : ''}.`
+          : `Slack falló: ${posted.detail}. Mensaje copiado.`;
+      }
+      if (!posted.ok) await navigator.clipboard.writeText(message);
+      return { ok: posted.ok, dest, pack };
+    }
+    await navigator.clipboard.writeText(message);
+    if (els.scanStatus) {
+      els.scanStatus.classList.remove('is-error');
+      els.scanStatus.textContent = `Sin webhook: mensaje copiado${
+        integ.contacts?.slackLabel ? ` · pegalo en ${integ.contacts.slackLabel}` : ' · pegalo en Slack'
+      }.`;
+    }
+    return { ok: true, dest, pack };
+  }
+
+  if (dest === 'crm') {
+    if (!integ.webhook?.enabled && !integ.hubspot?.enabled) {
+      if (els.scanStatus) {
+        els.scanStatus.classList.add('is-error');
+        els.scanStatus.textContent = 'Configurá Webhook o HubSpot en Config → Integraciones.';
+      }
+      return { ok: false, dest };
+    }
+    if (draft.kind === 'opportunity' && draft.alert) {
+      const cfgData = await storageGet([STORAGE.config]);
+      const results = await pushOpportunityToCrm(draft.alert, {
+        companyName: cfgData[STORAGE.config]?.company?.companyName,
+        reportMarkdown: draft.data?.reportMarkdown,
+      });
+      if (els.scanStatus) {
+        els.scanStatus.classList.toggle('is-error', !results.some((r) => r.ok));
+        els.scanStatus.textContent = formatPushSummary(results);
+      }
+      return { ok: results.some((r) => r.ok), dest, pack, results };
+    }
+    const synthetic = {
+      alertId: pack.shareId,
+      competitorName: draft.data?.competitorName || draft.title,
+      originalComplaint: draft.summary || draft.title,
+      salesPitch: (draft.data?.opportunities || []).slice(0, 2).join('\n') || null,
+      severity: 'MEDIUM',
+      status: 'NEW',
+      channel: 'share',
+      sourceUrl: viewerUrl,
+    };
+    const cfgData = await storageGet([STORAGE.config]);
+    const results = await pushOpportunityToCrm(synthetic, {
+      companyName: cfgData[STORAGE.config]?.company?.companyName,
+      reportMarkdown: draft.data?.reportMarkdown,
+    });
+    if (els.scanStatus) {
+      els.scanStatus.classList.toggle('is-error', !results.some((r) => r.ok));
+      els.scanStatus.textContent = formatPushSummary(results);
+    }
+    return { ok: results.some((r) => r.ok), dest, pack, results };
+  }
+
+  return { ok: false, dest };
+}
+
+document.getElementById('share-modal')?.addEventListener('click', async (ev) => {
+  const t = ev.target;
+  if (!(t instanceof Element)) return;
+  if (t.closest('[data-share-cancel]')) {
+    closeShareModal(null);
+    return;
+  }
+  const destBtn = t.closest('[data-share-dest]');
+  if (destBtn) {
+    const dest = destBtn.getAttribute('data-share-dest');
+    if (!destNeedsContact(dest)) {
+      closeShareModal({ dest, contact: '' });
+      return;
+    }
+    const integ = await loadIntegrations();
+    await showContactStep(dest, integ.contacts || {});
+    return;
+  }
+});
+
+document.getElementById('btn-share-back')?.addEventListener('click', () => {
+  resetShareModalSteps();
+  const ui = shareUiEls();
+  if (ui.sub) ui.sub.textContent = pendingShareDraft?.title || 'Elegí canal y luego el destinatario.';
+});
+
+document.getElementById('btn-share-send')?.addEventListener('click', () => {
+  const dest = sharePendingDest;
+  const contact = document.getElementById('share-contact-input')?.value?.trim() || '';
+  if (!dest) return;
+  if (dest === 'email' && !isValidEmail(contact)) {
+    const hint = document.getElementById('share-contact-hint');
+    if (hint) hint.textContent = 'Ingresá un email válido.';
+    return;
+  }
+  if (dest === 'whatsapp' && !normalizeWhatsAppPhone(contact)) {
+    const hint = document.getElementById('share-contact-hint');
+    if (hint) hint.textContent = 'Ingresá un número con código de país.';
+    return;
+  }
+  if (dest === 'crm') {
+    closeShareModal({ dest, contact: '' });
+    return;
+  }
+  closeShareModal({ dest, contact });
+});
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && shareModalResolve) closeShareModal(null);
+});
 
 const ANALYZE_MUTATION = `
   mutation AnalyzeReply($input: AnalyzeReplyInput!) {
@@ -959,6 +1299,7 @@ function alertDetectedTs(alert) {
 function alertPlatformKey(alert) {
   if (alert._source === 'hackernews') return 'hackernews';
   if (alert._source === 'reddit') return 'reddit';
+  if (alert._source === 'news') return 'news';
   if (alert._source === 'page') return 'page';
   if (alert._demo) return 'manual';
   if (alert._synthetic) return 'manual';
@@ -966,11 +1307,23 @@ function alertPlatformKey(alert) {
   const url = String(alert.sourceUrl || '').toLowerCase();
   if (ch === 'manual' || url.startsWith('manual://')) return 'manual';
   if (ch.includes('reddit') || url.includes('reddit.com')) return 'reddit';
+  if (ch === 'news' || url.includes('news.google') || url.includes('/rss/')) return 'news';
   if (ch.includes('hn') || url.includes('ycombinator') || url.includes('hn.algolia')) return 'hackernews';
   if (ch.includes('amazon') || url.includes('amazon.')) return 'amazon';
   if (ch.includes('ebay') || url.includes('ebay.')) return 'ebay';
   if (ch.includes('youtube') || url.includes('youtube.') || url.includes('youtu.be')) return 'youtube';
   if (ch === 'x' || ch.includes('twitter') || url.includes('x.com') || url.includes('twitter.com')) return 'x';
+  if (ch.includes('facebook') || url.includes('facebook.') || url.includes('fb.com')) return 'facebook';
+  if (ch.includes('instagram') || url.includes('instagram.')) return 'instagram';
+  if (ch.includes('tiktok') || url.includes('tiktok.')) return 'tiktok';
+  if (ch.includes('threads') || url.includes('threads.')) return 'threads';
+  if (ch.includes('linkedin') || url.includes('linkedin.')) return 'linkedin';
+  if (ch.includes('bluesky') || ch.includes('bsky') || url.includes('bsky.app')) return 'bluesky';
+  if (ch.includes('glassdoor') || url.includes('glassdoor.')) return 'glassdoor';
+  if (ch === 'g2' || url.includes('g2.com')) return 'g2';
+  if (ch.includes('capterra') || url.includes('capterra.')) return 'capterra';
+  if (ch.includes('producthunt') || url.includes('producthunt.')) return 'producthunt';
+  if (ch.includes('indeed') || url.includes('indeed.')) return 'indeed';
   if (url) return 'page';
   return 'manual';
 }
@@ -1198,9 +1551,10 @@ function renderRivalReport(report, perception = null) {
     const btn = ev.currentTarget;
     if (btn) btn.disabled = true;
     try {
-      const { viewerUrl, token, pack } = await createSharePackage({
+      await shareWithDestinationPrompt({
         kind: 'rival_ficha',
         title: `Ficha · ${report.competitorName}`,
+        summary: perc?.voiceLine || report.conclusions?.[0] || '',
         data: {
           competitorName: report.competitorName,
           voiceLine: perc?.voiceLine,
@@ -1213,20 +1567,13 @@ function renderRivalReport(report, perception = null) {
           themes: report.themes,
         },
       });
-      await navigator.clipboard.writeText(`${viewerUrl}\n\nToken:\n${token}`);
-      await chrome.tabs.create({ url: viewerUrl, active: true });
-      if (btn) btn.textContent = '✓ Share';
-      if (els.scanStatus) {
-        els.scanStatus.classList.remove('is-error');
-        els.scanStatus.textContent = `Ficha compartida (${pack.shareId}).`;
-      }
     } finally {
       setTimeout(() => {
         if (btn) {
           btn.disabled = false;
           btn.textContent = 'Compartir ficha';
         }
-      }, 1400);
+      }, 400);
     }
   });
   panel.querySelector('[data-goto-stats]')?.addEventListener('click', () => {
@@ -1306,7 +1653,8 @@ async function generateRivalReport(competitorName, extraMentions = []) {
       competitors: [{ name, aliases: lookupCompetitorProfile(name, cfg?.competitors)?.aliases || [] }],
       pageMentions: [],
       preferSyntheticFallback: false,
-      sources: { hackernews: true, reddit_api: true, active_page: false },
+      sources: { hackernews: true, reddit_api: true, news_portals: true, active_page: false },
+      credentials: await loadScanCredentials(),
     });
     for (const opp of scan.opportunities || []) {
       if (opp._synthetic) continue;
@@ -1480,7 +1828,7 @@ async function scanCompetitorMarket() {
   els.scanComp.disabled = true;
   if (els.scanStatus) {
     els.scanStatus.classList.remove('is-error');
-    els.scanStatus.textContent = 'Escaneando Hacker News + Reddit + pestaña…';
+    els.scanStatus.textContent = 'Escaneando fuentes profesionales (HN · Reddit · News · página)…';
   }
 
   try {
@@ -1499,6 +1847,7 @@ async function scanCompetitorMarket() {
       pageMentions,
       preferSyntheticFallback: false,
       sources: platformPrefs.scanSources,
+      credentials: await loadScanCredentials(),
     });
 
     const data = await storageGet([STORAGE.alerts]);
@@ -1516,7 +1865,17 @@ async function scanCompetitorMarket() {
 
     const parts = [];
     if (stats.hn) parts.push(`${stats.hn} Hacker News`);
-    if (stats.reddit) parts.push(`${stats.reddit} Reddit`);
+    if (stats.reddit) {
+      parts.push(
+        `${stats.reddit} Reddit${stats.providers?.reddit === 'oauth' ? ' (OAuth)' : ''}`,
+      );
+    }
+    if (stats.news) {
+      const newsMode = stats.providers?.news === 'newsapi' ? 'NewsAPI' : 'RSS';
+      parts.push(
+        `${stats.news} noticias/${newsMode}${stats.ownNews ? ` (${stats.ownNews} tu marca)` : ''}`,
+      );
+    }
     if (stats.page) parts.push(`${stats.page} en página`);
     const namesLabel = (scannedNames || []).slice(0, 4).join(', ') || '—';
     if (els.scanStatus) {
@@ -1567,8 +1926,10 @@ async function prependOpportunity(opp) {
 }
 
 function sourceLabel(alert) {
+  if (alert._brandScope === 'own') return 'prensa · tu marca';
   if (alert._source === 'hackernews') return 'hn';
   if (alert._source === 'reddit') return 'reddit';
+  if (alert._source === 'news') return 'noticias';
   if (alert._source === 'page') return 'página';
   if (alert._demo) return 'ejemplo';
   if (alert._synthetic) return 'simulado';
@@ -1651,6 +2012,11 @@ function renderAlertCard(alert, company = null) {
         <span class="rl-alert__summary-text">
           <span class="rl-alert__title-row">
             <strong>${escapeHtml(alert.competitorName || 'Rival')}</strong>
+            ${
+              alert._brandScope === 'own'
+                ? '<span class="rl-badge rl-badge--own">Tu marca</span>'
+                : ''
+            }
             <span class="rl-badge rl-badge--${escapeHtml(String(alert.severity || 'HIGH').toLowerCase())}">
               ${escapeHtml(alert.status || 'NEW')}
             </span>
@@ -1850,9 +2216,11 @@ function renderAlertCard(alert, company = null) {
         e.stopPropagation();
         shareBtn.disabled = true;
         try {
-          const { viewerUrl, token, pack } = await createSharePackage({
+          await shareWithDestinationPrompt({
             kind: 'opportunity',
             title: `Oportunidad · ${alert.competitorName}`,
+            summary: truncateText(alert.originalComplaint, 160),
+            alert,
             data: {
               competitorName: alert.competitorName,
               originalComplaint: alert.originalComplaint,
@@ -1864,20 +2232,9 @@ function renderAlertCard(alert, company = null) {
               alertId: alert.alertId,
             },
           });
-          await navigator.clipboard.writeText(
-            `${viewerUrl}\n\nToken (si el destinatario no tiene el link local):\n${token}`,
-          );
-          shareBtn.textContent = '✓ Copiado';
-          await chrome.tabs.create({ url: viewerUrl, active: false });
-          if (els.scanStatus) {
-            els.scanStatus.classList.remove('is-error');
-            els.scanStatus.textContent = `Share ${pack.shareId} copiado (link + token).`;
-          }
         } finally {
-          setTimeout(() => {
-            shareBtn.disabled = false;
-            shareBtn.textContent = 'Share';
-          }, 1400);
+          shareBtn.disabled = false;
+          shareBtn.textContent = 'Share';
         }
       });
 
@@ -2186,6 +2543,19 @@ async function loadConfigForm() {
   document.getElementById('cfg-crm-hubspot-token').value = integ.hubspot?.accessToken || '';
   document.getElementById('cfg-crm-autopush').checked = Boolean(integ.autoPushOnCapture);
   document.getElementById('cfg-share-ttl').value = String(integ.shareTtlHours || 168);
+  document.getElementById('cfg-share-email').value = integ.contacts?.email || '';
+  document.getElementById('cfg-share-whatsapp').value = integ.contacts?.whatsapp || '';
+  document.getElementById('cfg-share-slack-webhook').value = integ.contacts?.slackWebhook || '';
+  document.getElementById('cfg-share-slack-label').value = integ.contacts?.slackLabel || '';
+
+  const scanCreds = await loadScanCredentials();
+  document.getElementById('cfg-reddit-oauth').checked = Boolean(scanCreds.reddit?.enabled);
+  document.getElementById('cfg-reddit-client-id').value = scanCreds.reddit?.clientId || '';
+  document.getElementById('cfg-reddit-client-secret').value = scanCreds.reddit?.clientSecret || '';
+  document.getElementById('cfg-reddit-ua').value =
+    scanCreds.reddit?.userAgent || 'ResponseLensAI/0.7 (professional-scan)';
+  document.getElementById('cfg-newsapi').checked = Boolean(scanCreds.newsapi?.enabled);
+  document.getElementById('cfg-newsapi-key').value = scanCreds.newsapi?.apiKey || '';
 
   const label = document.getElementById('auth-user-label');
   if (label && session) {
@@ -2290,6 +2660,7 @@ els.form?.addEventListener('submit', async (ev) => {
   if (!competitors.length) {
     els.status.classList.add('is-error');
     els.status.textContent = 'Agregá al menos un competidor con nombre.';
+    document.getElementById('cfg-competitors-list')?.closest('details')?.setAttribute('open', '');
     return;
   }
   const appsync = {
@@ -2343,6 +2714,27 @@ els.form?.addEventListener('submit', async (ev) => {
       },
       autoPushOnCapture: document.getElementById('cfg-crm-autopush')?.checked,
       shareTtlHours: Number(document.getElementById('cfg-share-ttl')?.value || 168),
+      contacts: {
+        email: document.getElementById('cfg-share-email')?.value?.trim() || '',
+        whatsapp: document.getElementById('cfg-share-whatsapp')?.value?.trim() || '',
+        slackWebhook: document.getElementById('cfg-share-slack-webhook')?.value?.trim() || '',
+        slackLabel: document.getElementById('cfg-share-slack-label')?.value?.trim() || '',
+      },
+    });
+
+    await saveScanCredentials({
+      reddit: {
+        enabled: document.getElementById('cfg-reddit-oauth')?.checked,
+        clientId: document.getElementById('cfg-reddit-client-id')?.value?.trim() || '',
+        clientSecret: document.getElementById('cfg-reddit-client-secret')?.value || '',
+        userAgent:
+          document.getElementById('cfg-reddit-ua')?.value?.trim() ||
+          'ResponseLensAI/0.7 (professional-scan)',
+      },
+      newsapi: {
+        enabled: document.getElementById('cfg-newsapi')?.checked,
+        apiKey: document.getElementById('cfg-newsapi-key')?.value?.trim() || '',
+      },
     });
 
     // Pedir host opcional para webhook custom si está activo

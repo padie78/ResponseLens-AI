@@ -21,6 +21,11 @@ export const SCAN_SOURCES = [
     label: 'Pestaña activa',
     hint: 'Importa quejas ya resaltadas en la página abierta',
   },
+  {
+    id: 'news_portals',
+    label: 'Portales de noticias',
+    hint: 'Google News RSS · rivales + tu marca',
+  },
 ];
 
 export const PAGE_PLATFORMS = [
@@ -66,6 +71,72 @@ export const PAGE_PLATFORMS = [
     hosts: ['trustpilot.com'],
     openUrl: 'https://www.trustpilot.com/review/shopify.com',
   },
+  {
+    id: 'facebook',
+    label: 'Facebook',
+    hosts: ['facebook.com', 'fb.com'],
+    openUrl: 'https://www.facebook.com/',
+  },
+  {
+    id: 'instagram',
+    label: 'Instagram',
+    hosts: ['instagram.com'],
+    openUrl: 'https://www.instagram.com/',
+  },
+  {
+    id: 'tiktok',
+    label: 'TikTok',
+    hosts: ['tiktok.com'],
+    openUrl: 'https://www.tiktok.com/search?q=shopify',
+  },
+  {
+    id: 'threads',
+    label: 'Threads',
+    hosts: ['threads.net'],
+    openUrl: 'https://www.threads.net/search?q=shopify&serp_type=default',
+  },
+  {
+    id: 'linkedin',
+    label: 'LinkedIn',
+    hosts: ['linkedin.com'],
+    openUrl: 'https://www.linkedin.com/search/results/content/?keywords=shopify',
+  },
+  {
+    id: 'bluesky',
+    label: 'Bluesky',
+    hosts: ['bsky.app'],
+    openUrl: 'https://bsky.app/search?q=shopify',
+  },
+  {
+    id: 'glassdoor',
+    label: 'Glassdoor',
+    hosts: ['glassdoor.com'],
+    openUrl: 'https://www.glassdoor.com/Reviews/index.htm',
+  },
+  {
+    id: 'g2',
+    label: 'G2',
+    hosts: ['g2.com'],
+    openUrl: 'https://www.g2.com/search?query=shopify',
+  },
+  {
+    id: 'capterra',
+    label: 'Capterra',
+    hosts: ['capterra.com'],
+    openUrl: 'https://www.capterra.com/search/?search=shopify',
+  },
+  {
+    id: 'producthunt',
+    label: 'Product Hunt',
+    hosts: ['producthunt.com'],
+    openUrl: 'https://www.producthunt.com/search?q=shopify',
+  },
+  {
+    id: 'indeed',
+    label: 'Indeed (reviews)',
+    hosts: ['indeed.com'],
+    openUrl: 'https://www.indeed.com/cmp',
+  },
 ];
 
 export function defaultPlatformPrefs() {
@@ -74,6 +145,7 @@ export function defaultPlatformPrefs() {
       hackernews: true,
       reddit_api: true,
       active_page: true,
+      news_portals: true,
     },
     pageEnabled: Object.fromEntries(PAGE_PLATFORMS.map((p) => [p.id, true])),
     custom: [],

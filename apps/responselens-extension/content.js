@@ -62,6 +62,88 @@
       '.review-content__text',
       'p',
     ],
+    facebook: [
+      '[data-ad-preview="message"]',
+      '[data-ad-comet-preview="message"]',
+      'div[data-testid="post_message"]',
+      'div[dir="auto"][style*="text-align"]',
+      '[role="article"] div[dir="auto"]',
+      '[role="article"] span[dir="auto"]',
+    ],
+    instagram: [
+      'h1',
+      'span[dir="auto"]',
+      'div[role="button"] span',
+      'ul li span',
+      'article span',
+    ],
+    tiktok: [
+      '[data-e2e="comment-level-1"]',
+      '[data-e2e="comment-level-2"]',
+      '[data-e2e="browse-video-desc"]',
+      '[data-e2e="search-card-desc"]',
+      '[data-e2e="video-desc"]',
+      'p[data-e2e]',
+      'span[data-e2e="comment-level-1"]',
+    ],
+    threads: [
+      '[data-pressable-container="true"] span',
+      'div[dir="auto"] span',
+      '[role="article"] span[dir="auto"]',
+      '[role="article"] div[dir="auto"]',
+    ],
+    linkedin: [
+      '.comments-comment-item__main-content',
+      '.feed-shared-update-v2__description',
+      '.feed-shared-text',
+      '.update-components-text',
+      'span.break-words',
+      '.comments-comment-item__inline-show-more-text',
+    ],
+    bluesky: [
+      '[data-testid="postText"]',
+      '[data-testid="postText"] span',
+      'div[data-testid="contentHider-post"]',
+      '[data-testid="reply"] div[dir="auto"]',
+    ],
+    glassdoor: [
+      '[data-test="review-text"]',
+      '[data-test="pros"]',
+      '[data-test="cons"]',
+      '.review-details__review--text',
+      '.reviewBodyCell',
+      'p.review-text',
+      'span[data-test="review-text"]',
+    ],
+    g2: [
+      '[itemprop="reviewBody"]',
+      '.formatted-text',
+      '.pjax',
+      '.paper__text',
+      'div[itemprop="reviewBody"] p',
+      '.elv-tracking-normal p',
+    ],
+    capterra: [
+      '[data-testid="review-body"]',
+      '.review-content',
+      '.sg-rating-full-text',
+      '.i18n-translation_container p',
+      'p[data-test="review-content"]',
+    ],
+    producthunt: [
+      '[data-test="comment-body"]',
+      '.styles_htmlText__',
+      'div[class*="comment"] p',
+      'article p',
+      '[data-test="post-body"]',
+    ],
+    indeed: [
+      '[data-testid="review-text"]',
+      '.css-1cxc9zk',
+      '.cmp-Review-text',
+      'span[itemprop="reviewBody"]',
+      '.cmp-ReviewRating-text',
+    ],
     default: [
       '[role="article"] p',
       '.comment-body',
@@ -148,6 +230,17 @@
       reddit: ['reddit.com'],
       hackernews: ['news.ycombinator.com', 'ycombinator.com'],
       trustpilot: ['trustpilot.com'],
+      facebook: ['facebook.com', 'fb.com'],
+      instagram: ['instagram.com'],
+      tiktok: ['tiktok.com'],
+      threads: ['threads.net'],
+      linkedin: ['linkedin.com'],
+      bluesky: ['bsky.app'],
+      glassdoor: ['glassdoor.com'],
+      g2: ['g2.com'],
+      capterra: ['capterra.com'],
+      producthunt: ['producthunt.com'],
+      indeed: ['indeed.com'],
     };
     for (const [id, hosts] of Object.entries(builtins)) {
       if (hosts.some((h) => host === h || host.endsWith(`.${h}`))) {
@@ -261,6 +354,17 @@
     if (host.includes('reddit.')) return 'reddit';
     if (host.includes('ycombinator') || host === 'news.ycombinator.com') return 'hackernews';
     if (host.includes('trustpilot.')) return 'trustpilot';
+    if (host.includes('facebook.') || host === 'fb.com' || host.endsWith('.fb.com')) return 'facebook';
+    if (host.includes('instagram.')) return 'instagram';
+    if (host.includes('tiktok.')) return 'tiktok';
+    if (host.includes('threads.')) return 'threads';
+    if (host.includes('linkedin.')) return 'linkedin';
+    if (host.includes('bsky.app') || host === 'bsky.app') return 'bluesky';
+    if (host.includes('glassdoor.')) return 'glassdoor';
+    if (host.includes('g2.com') || host.endsWith('.g2.com')) return 'g2';
+    if (host.includes('capterra.')) return 'capterra';
+    if (host.includes('producthunt.')) return 'producthunt';
+    if (host.includes('indeed.')) return 'indeed';
     return 'default';
   }
 

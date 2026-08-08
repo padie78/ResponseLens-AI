@@ -58,10 +58,14 @@ resource "aws_lambda_function" "competitor_scan" {
 
   environment {
     variables = {
-      CORE_TABLE_NAME     = var.table_name
-      APPSYNC_GRAPHQL_URL = ""
-      APPSYNC_API_KEY     = ""
-      LOG_LEVEL           = "INFO"
+      CORE_TABLE_NAME      = var.table_name
+      APPSYNC_GRAPHQL_URL  = ""
+      APPSYNC_API_KEY      = ""
+      LOG_LEVEL            = "INFO"
+      REDDIT_CLIENT_ID     = var.reddit_client_id
+      REDDIT_CLIENT_SECRET = var.reddit_client_secret
+      REDDIT_USER_AGENT    = var.reddit_user_agent
+      NEWSAPI_API_KEY      = var.newsapi_api_key
     }
   }
 }

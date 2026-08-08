@@ -16,10 +16,11 @@ En **Competencia**: selector **Ficha rival** + **Ver percepción** (también �
 Estados: NEW → CONTACTED / WON / DISMISSED.
 
 ## Escaneo de competencia (valor MVP)
-- Botón **Escanear ahora**: Hacker News (Algolia) + Reddit (best-effort) + import de la pestaña activa.
-- **Sin simulados**: si no hay hits públicos, el feed queda vacío (mensaje claro).
-- Al escanear se eliminan alertas `_synthetic` / demos viejas.
-- Cron Lambda `competitor_scan` publica solo menciones live.
+- Botón **Escanear ahora**: HN + Reddit (**OAuth** si hay keys) + noticias (**NewsAPI** o Google News RSS) + import de pestaña.
+- Config → **Fuentes profesionales (API)**: Reddit OAuth + NewsAPI. Detalle: `docs/product-sources.md`.
+- Noticias: rivales **y** tu marca (badge “Tu marca” si hay menciones negativas/críticas).
+- **Sin simulados**: si no hay hits, el feed queda vacío (mensaje claro).
+- Cron Lambda `competitor_scan`: HN + Reddit (OAuth/env) + NewsAPI cuando hay env vars.
 - Detección en página también en Reddit; chip **captar · Rival**.
 
 ## CRM / Share (v0.6)
@@ -27,10 +28,10 @@ Estados: NEW → CONTACTED / WON / DISMISSED.
 - Alertas: botones **CRM** y **Share**; ficha: **Compartir ficha**.
 - Detalle: `docs/integrations.md`.
 
-## Plataformas configurables
-- Config → **Fuentes de escaneo**: HN / Reddit API / pestaña activa.
-- Config → **Plataformas en página**: Amazon, eBay, YouTube, X, Reddit (on/off).
-- **+ Agregar plataforma**: dominio custom (Chrome pide permiso; detecta con selectores genéricos).
+## Plataformas en página
+- Config → **Plataformas en página**: redes + reviews (**Glassdoor, G2, Capterra, Product Hunt, Indeed**, Trustpilot…).
+- Meta/TikTok/LinkedIn/reviews **no** se escanean en segundo plano: abrí la ficha/reviews y el content script marca.
+- Más portales: **+ Agregar plataforma** (dominio custom).
 
 ## Detección configurable
 Sensibilidad, keywords extra, dominios ignorados y badge en el icono del plugin con el conteo de quejas en la página.

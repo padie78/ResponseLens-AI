@@ -370,6 +370,48 @@ async function handleMessage(message, sender) {
       return { ok: results.some((r) => r.ok), results };
     }
 
+    case 'RL_FETCH_POST': {
+      const url = String(message.url || '');
+      if (!/^https:\/\//i.test(url)) return { ok: false, error: 'invalid_url' };
+      const allowed =
+        /^https:\/\/hooks\.slack\.com\//i.test(url) ||
+        /^https:\/\/www\.reddit\.com\/api\/v1\/access_token/i.test(url) ||
+        /^https:\/\/([a-z0-9-]+\.)?reddit\.com\//i.test(url);
+      if (!allowed) return { ok: false, error: 'url_not_allowed' };
+      try {
+        const headers = {
+          'User-Agent': 'ResponseLensAI/0.7',
+          ...(message.headers && typeof message.headers === 'object' ? message.headers : {}),
+        };
+        let body;
+        if (typeof message.bodyRaw === 'string') {
+          body = message.bodyRaw;
+          if (!headers['Content-Type'] && !headers['content-type']) {
+            headers['Content-Type'] = 'application/x-www-form-urlencoded';
+          }
+        } else {
+          headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+          body = JSON.stringify(message.body || {});
+        }
+        const res = await fetch(url, { method: 'POST', headers, body });
+        const text = await res.text().catch(() => '');
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          /* ignore */
+        }
+        return {
+          ok: res.ok,
+          status: res.status,
+          text: text.slice(0, 800),
+          json,
+        };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+
     case 'RL_SAVE_CONFIG': {
       await setLocal({ [STORAGE_KEYS.config]: message.config });
       return { ok: true };
@@ -388,7 +430,9 @@ async function handleMessage(message, sender) {
       const allowed =
         /^https:\/\/hn\.algolia\.com\//i.test(url) ||
         /^https:\/\/([a-z0-9-]+\.)?reddit\.com\//i.test(url) ||
-        /^https:\/\/old\.reddit\.com\//i.test(url);
+        /^https:\/\/old\.reddit\.com\//i.test(url) ||
+        /^https:\/\/oauth\.reddit\.com\//i.test(url) ||
+        /^https:\/\/newsapi\.org\//i.test(url);
       if (!allowed) {
         return { ok: false, error: 'url_not_allowed' };
       }
@@ -397,7 +441,8 @@ async function handleMessage(message, sender) {
           method: 'GET',
           headers: {
             Accept: 'application/json',
-            'User-Agent': 'ResponseLensAI/0.2 (Chrome extension; competitor-scan)',
+            'User-Agent': 'ResponseLensAI/0.7 (Chrome extension; competitor-scan)',
+            ...(message.headers && typeof message.headers === 'object' ? message.headers : {}),
           },
         });
         const contentType = res.headers.get('content-type') || '';
@@ -421,6 +466,40 @@ async function handleMessage(message, sender) {
           contentType,
           json,
           error: res.ok ? (json == null ? 'not_json' : undefined) : `HTTP ${res.status}`,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
+    case 'RL_FETCH_TEXT': {
+      const url = String(message.url || '');
+      if (!/^https:\/\//i.test(url)) {
+        return { ok: false, error: 'invalid_url' };
+      }
+      const allowed =
+        /^https:\/\/news\.google\.com\//i.test(url) ||
+        /^https:\/\/([a-z0-9-]+\.)?google\.[a-z.]+\/rss\//i.test(url);
+      if (!allowed) {
+        return { ok: false, error: 'url_not_allowed' };
+      }
+      try {
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/rss+xml, application/xml, text/xml, */*',
+            'User-Agent': 'ResponseLensAI/0.6 (Chrome extension; news-scan)',
+          },
+        });
+        const text = await res.text();
+        return {
+          ok: res.ok,
+          status: res.status,
+          text: res.ok ? text : text.slice(0, 500),
+          error: res.ok ? undefined : `HTTP ${res.status}`,
         };
       } catch (err) {
         return {

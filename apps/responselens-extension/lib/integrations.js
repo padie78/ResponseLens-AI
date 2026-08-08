@@ -21,6 +21,13 @@ export function defaultIntegrationsConfig() {
     hubspot: { enabled: false, accessToken: '' },
     autoPushOnCapture: false,
     shareTtlHours: 168,
+    /** Destinatarios por defecto al compartir */
+    contacts: {
+      email: '',
+      whatsapp: '', // E.164 preferido: 54911…
+      slackWebhook: '', // Incoming Webhook URL
+      slackLabel: '', // ej. #ventas o @diego
+    },
   };
 }
 
@@ -33,6 +40,7 @@ export async function loadIntegrations() {
     ...raw,
     webhook: { ...base.webhook, ...(raw.webhook || {}) },
     hubspot: { ...base.hubspot, ...(raw.hubspot || {}) },
+    contacts: { ...base.contacts, ...(raw.contacts || {}) },
   };
 }
 
@@ -42,9 +50,48 @@ export async function saveIntegrations(cfg) {
     ...cfg,
     webhook: { ...defaultIntegrationsConfig().webhook, ...(cfg.webhook || {}) },
     hubspot: { ...defaultIntegrationsConfig().hubspot, ...(cfg.hubspot || {}) },
+    contacts: { ...defaultIntegrationsConfig().contacts, ...(cfg.contacts || {}) },
   };
   await chrome.storage.local.set({ [INTEGRATIONS_KEY]: next });
   return next;
+}
+
+/** Normaliza teléfono para wa.me (solo dígitos, con país). */
+export function normalizeWhatsAppPhone(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  return digits.length >= 8 ? digits : '';
+}
+
+export function isValidEmail(raw) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(raw || '').trim());
+}
+
+/** Post a Slack Incoming Webhook. */
+export async function postSlackWebhook(webhookUrl, text) {
+  if (!/^https:\/\/hooks\.slack\.com\//i.test(webhookUrl) && !/^https:\/\//i.test(webhookUrl)) {
+    return { ok: false, detail: 'URL de Slack inválida' };
+  }
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'RL_FETCH_POST',
+      url: webhookUrl,
+      body: { text: String(text || '').slice(0, 3500) },
+    });
+    if (res?.ok) return { ok: true, detail: 'Slack OK' };
+    // fallback directo
+    const r = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: String(text || '').slice(0, 3500) }),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      return { ok: false, detail: `HTTP ${r.status} ${t.slice(0, 120)}` };
+    }
+    return { ok: true, detail: 'Slack OK' };
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /**

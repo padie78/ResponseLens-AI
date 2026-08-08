@@ -32,6 +32,10 @@ module "lambdas" {
   llm_provider             = var.llm_provider
   gemini_api_key           = var.gemini_api_key
   competitor_scan_schedule = var.competitor_scan_schedule
+  reddit_client_id         = var.reddit_client_id
+  reddit_client_secret     = var.reddit_client_secret
+  reddit_user_agent        = var.reddit_user_agent
+  newsapi_api_key          = var.newsapi_api_key
 }
 
 module "auth" {

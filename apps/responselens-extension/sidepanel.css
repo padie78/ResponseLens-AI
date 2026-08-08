@@ -720,6 +720,7 @@ h2 {
 
 .rl-badge--low { background: #dcfce7; color: #166534; }
 .rl-badge--medium { background: #fef3c7; color: #92400e; }
+.rl-badge--own { background: #e0e7ff; color: #3730a3; }
 .rl-badge--high { background: #fee2e2; color: #991b1b; }
 .rl-badge--critical { background: #7f1d1d; color: #fff; }
 
@@ -817,14 +818,12 @@ h2 {
   color: var(--rl-muted);
 }
 
-.rl-manual {
-  flex: 0 0 auto;
-  margin: var(--rl-space-4) 0 0;
-  padding: var(--rl-space-4);
-  border: 1px solid var(--rl-line);
-  border-radius: var(--rl-radius);
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: var(--rl-shadow);
+.rl-manual--nested {
+  margin: 0 0 var(--rl-space-3);
+  box-shadow: none;
+  border: none;
+  background: transparent;
+  padding: 0 0 var(--rl-space-2);
 }
 
 .rl-status {
@@ -1004,6 +1003,132 @@ h2 {
 
 .rl-intel-banner__text .rl-muted {
   font-size: 11px;
+}
+
+.rl-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: end center;
+  padding: 12px;
+}
+
+.rl-modal[hidden] {
+  display: none !important;
+}
+
+.rl-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.rl-modal__card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 420px);
+  max-height: min(85dvh, 560px);
+  overflow: auto;
+  margin-bottom: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid var(--rl-line);
+  box-shadow: var(--rl-shadow-lg);
+}
+
+.rl-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.rl-modal__head h2 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+  text-transform: none;
+}
+
+.rl-modal__sub {
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+
+.rl-share-dests {
+  display: grid;
+  gap: 8px;
+}
+
+.rl-share-dest {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--rl-line);
+  border-radius: 10px;
+  background: #f8fafc;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.rl-share-dest:hover,
+.rl-share-dest:focus-visible {
+  border-color: var(--rl-accent, #2563eb);
+  background: #eff6ff;
+  outline: none;
+}
+
+.rl-share-dest strong {
+  font-size: 13px;
+}
+
+.rl-share-dest span {
+  font-size: 11px;
+  color: var(--rl-muted);
+}
+
+.rl-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.rl-share-contact label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--rl-muted);
+}
+
+.rl-share-contact input {
+  font: 14px/1.4 var(--rl-font);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  color: var(--rl-ink);
+  padding: 8px 10px;
+  border: 1px solid var(--rl-line);
+  border-radius: 8px;
+}
+
+.rl-fieldset-sub {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--rl-muted);
 }
 
 .rl-ficha-bar {
@@ -1227,6 +1352,72 @@ h2 {
 
 .rl-disclosure > summary + * {
   margin-bottom: var(--rl-space-3);
+}
+
+.rl-cfg-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.rl-cfg-panel {
+  margin-bottom: var(--rl-space-2);
+}
+
+.rl-cfg-panel > summary {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--rl-ink, #1a1a1a);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rl-cfg-panel__body {
+  display: grid;
+  gap: var(--rl-space-3);
+  padding-bottom: var(--rl-space-3);
+}
+
+.rl-cfg-actions {
+  display: grid;
+  gap: var(--rl-space-2);
+  margin-top: var(--rl-space-3);
+  position: sticky;
+  bottom: 0;
+  padding: var(--rl-space-3) 0 var(--rl-space-2);
+  background: linear-gradient(180deg, transparent, var(--rl-bg, #f6f4f1) 28%);
+  z-index: 2;
+}
+
+.rl-summary-meta {
+  font-weight: 500;
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.rl-ficha-bar--inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rl-space-2);
+  align-items: flex-end;
+  padding-bottom: var(--rl-space-3);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.rl-stats-grid > .rl-disclosure {
+  margin-bottom: 0;
 }
 
 .rl-alert--accordion {

@@ -50,6 +50,33 @@ variable "competitor_scan_schedule" {
   description = "Schedule EventBridge para escaneo competitivo."
 }
 
+variable "reddit_client_id" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Reddit app client id (script) para OAuth app-only en competitor_scan."
+}
+
+variable "reddit_client_secret" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Reddit app client secret."
+}
+
+variable "reddit_user_agent" {
+  type        = string
+  default     = "ResponseLensAI/0.7 (competitor-scan)"
+  description = "User-Agent obligatorio en llamadas Reddit."
+}
+
+variable "newsapi_api_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "NewsAPI.org key para menciones de prensa en competitor_scan."
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

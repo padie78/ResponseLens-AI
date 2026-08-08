@@ -108,13 +108,16 @@ export async function fetchHnMentions(
   return [...byId.values()].slice(0, limit);
 }
 
-/** Reddit search público (best-effort; a menudo 403 desde cloud). */
+/** Reddit: OAuth app-only si hay env; si no, search.json público (best-effort). */
 export async function fetchRedditMentions(
   competitorName: string,
   limit = 6,
 ): Promise<ExternalMention[]> {
   const name = competitorName.trim();
   if (!name) return [];
+
+  const oauth = await tryRedditOAuthMentions(name, limit);
+  if (oauth.length) return oauth;
 
   const q = `${name} (${FRUSTRATION_WORDS.join(' OR ')})`;
   const url =
@@ -124,7 +127,7 @@ export async function fetchRedditMentions(
   const res = await fetch(url, {
     headers: {
       Accept: 'application/json',
-      'User-Agent': 'ResponseLensAI/0.1 (competitor-scan; B2B SaaS)',
+      'User-Agent': process.env.REDDIT_USER_AGENT || 'ResponseLensAI/0.7 (competitor-scan)',
     },
   });
 
@@ -169,6 +172,112 @@ export async function fetchRedditMentions(
   return out;
 }
 
+async function tryRedditOAuthMentions(name: string, limit: number): Promise<ExternalMention[]> {
+  const clientId = process.env.REDDIT_CLIENT_ID || '';
+  const clientSecret = process.env.REDDIT_CLIENT_SECRET || '';
+  if (!clientId || !clientSecret) return [];
+
+  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const ua = process.env.REDDIT_USER_AGENT || 'ResponseLensAI/0.7 (competitor-scan)';
+  const tokenRes = await fetch('https://www.reddit.com/api/v1/access_token', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${basic}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': ua,
+    },
+    body: 'grant_type=client_credentials',
+  });
+  if (!tokenRes.ok) return [];
+  const tokenJson = (await tokenRes.json()) as { access_token?: string };
+  if (!tokenJson.access_token) return [];
+
+  const q = `${name} (scam OR outage OR broken OR terrible OR estafa OR falla OR refund)`;
+  const url =
+    `https://oauth.reddit.com/search?q=${encodeURIComponent(q)}` +
+    `&sort=new&limit=${limit}&t=year&type=link&raw_json=1`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${tokenJson.access_token}`,
+      'User-Agent': ua,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) return [];
+  const json = (await res.json()) as {
+    data?: { children?: Array<{ data?: Record<string, unknown> }> };
+  };
+  const children = json?.data?.children;
+  if (!Array.isArray(children)) return [];
+
+  const out: ExternalMention[] = [];
+  for (const child of children) {
+    const d = child?.data;
+    if (!d) continue;
+    const title = String(d.title || '').trim();
+    const selftext = String(d.selftext || '').trim();
+    const text = [title, selftext].filter(Boolean).join('\n').slice(0, 2000);
+    if (!text || !text.toLowerCase().includes(name.toLowerCase())) continue;
+    if (scoreFrustration(text) < 0.45) continue;
+    const permalink = d.permalink
+      ? `https://www.reddit.com${String(d.permalink)}`
+      : String(d.url || 'https://www.reddit.com');
+    const created = Number(d.created_utc);
+    out.push({
+      id: d.id ? `reddit_oauth_${String(d.id)}` : undefined,
+      text,
+      sourceUrl: permalink,
+      channel: 'reddit',
+      detectedAt: Number.isFinite(created)
+        ? new Date(created * 1000).toISOString()
+        : new Date().toISOString(),
+    });
+  }
+  return out;
+}
+
+export async function fetchNewsApiMentions(
+  competitorName: string,
+  limit = 5,
+): Promise<ExternalMention[]> {
+  const apiKey = process.env.NEWSAPI_API_KEY || '';
+  const name = competitorName.trim();
+  if (!apiKey || !name) return [];
+
+  const q = `"${name}" AND (scam OR outage OR lawsuit OR broken OR crisis OR estafa OR falla OR refund)`;
+  const url =
+    `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}` +
+    `&language=en&sortBy=publishedAt&pageSize=${Math.min(limit, 20)}`;
+  const res = await fetch(url, {
+    headers: { 'X-Api-Key': apiKey, Accept: 'application/json' },
+  });
+  if (!res.ok) return [];
+  const json = (await res.json()) as {
+    articles?: Array<{
+      title?: string;
+      description?: string;
+      content?: string;
+      url?: string;
+      publishedAt?: string;
+    }>;
+  };
+  const articles = Array.isArray(json.articles) ? json.articles : [];
+  const out: ExternalMention[] = [];
+  for (const a of articles) {
+    const text = [a.title, a.description, a.content].filter(Boolean).join('\n').slice(0, 2000);
+    if (!text || !text.toLowerCase().includes(name.toLowerCase())) continue;
+    if (scoreFrustration(text) < 0.35 && !FRUSTRATION_RE.test(text)) continue;
+    out.push({
+      text,
+      sourceUrl: a.url || 'https://newsapi.org',
+      channel: 'news',
+      detectedAt: a.publishedAt || new Date().toISOString(),
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export async function fetchLiveMentions(competitorName: string): Promise<ExternalMention[]> {
   const out: ExternalMention[] = [];
   try {
@@ -178,6 +287,11 @@ export async function fetchLiveMentions(competitorName: string): Promise<Externa
   }
   try {
     out.push(...(await fetchRedditMentions(competitorName, 4)));
+  } catch {
+    /* continue */
+  }
+  try {
+    out.push(...(await fetchNewsApiMentions(competitorName, 4)));
   } catch {
     /* continue */
   }
