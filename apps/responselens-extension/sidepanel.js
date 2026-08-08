@@ -15,7 +15,16 @@ import {
 } from './lib/auth.js';
 import { buildLocalReplyOptions } from './lib/local-fallback.js';
 import { buildLocalRivalReport, normalizeRivalReport } from './lib/rival-report.js';
+import {
+  buildCompetitiveIntelPack,
+  formatIntelPackHtml,
+} from './lib/competitive-intel-pack.js';
 import { computeRivalPerception } from './lib/rival-intel.js';
+import {
+  formatRivalScoresHtml,
+  scoreAllCompetitorsDigitalLife,
+  scoreCompetitorDigitalLife,
+} from './lib/digital-life-score.js';
 import { computeAnalytics, computeOpsStats, topEntries } from './lib/ops-stats.js';
 import {
   buildDemoOpportunities,
@@ -40,6 +49,7 @@ import {
   normalizeWhatsAppPhone,
   postSlackWebhook,
   pushOpportunityToCrm,
+  pushRescueProspectsToCrm,
   saveIntegrations,
 } from './lib/integrations.js';
 import { loadScanCredentials, saveScanCredentials } from './lib/scan-credentials.js';
@@ -58,6 +68,16 @@ import {
   saveNotifyPrefs,
 } from './lib/notify.js';
 import {
+  applyDomI18n,
+  contentLang,
+  getLocale,
+  loadStoredLocale,
+  persistLocale,
+  setLocale,
+  t,
+  tp,
+} from './lib/i18n.js';
+import {
   SCAN_SOURCES,
   PAGE_PLATFORMS,
   collectPlatformPrefsFromDom,
@@ -67,6 +87,7 @@ import {
   normalizeHost,
   normalizePlatformPrefs,
 } from './lib/platforms.js';
+import { listPlatformSessions, requestSessionHostAccess, SESSION_GOOGLE_ORIGINS } from './lib/platform-sessions.js';
 
 const STORAGE = {
   config: 'rl_user_config',
@@ -79,6 +100,8 @@ const STORAGE = {
   rivalReports: 'rl_rival_reports',
   pageRivals: 'rl_page_rivals',
   pendingRivalReport: 'rl_pending_rival_report',
+  /** Herramientas de prueba (demos). Off por defecto; se activa desde afuera. */
+  devTools: 'rl_dev_tools',
 };
 
 const ZOOM_STEPS = [100, 110, 125, 140, 160];
@@ -112,7 +135,7 @@ function resetShareModalSteps() {
   sharePendingDest = null;
   if (ui.stepDest) ui.stepDest.hidden = false;
   if (ui.stepContact) ui.stepContact.hidden = true;
-  if (ui.title) ui.title.textContent = '¿Dónde querés compartir?';
+  if (ui.title) ui.title.textContent = t('share.title');
   if (ui.input) ui.input.value = '';
 }
 
@@ -134,7 +157,7 @@ async function showContactStep(dest, contacts) {
   sharePendingDest = dest;
   if (ui.stepDest) ui.stepDest.hidden = true;
   if (ui.stepContact) ui.stepContact.hidden = false;
-  if (ui.title) ui.title.textContent = '¿A quién?';
+  if (ui.title) ui.title.textContent = t('share.toWhom');
 
   let value = '';
   let hint = '';
@@ -198,7 +221,7 @@ function askShareDestination(subtitle = '') {
   const ui = shareUiEls();
   if (!ui.modal) return Promise.resolve({ dest: 'clipboard', contact: '' });
   resetShareModalSteps();
-  if (ui.sub) ui.sub.textContent = subtitle || 'Elegí canal y luego el destinatario.';
+  if (ui.sub) ui.sub.textContent = subtitle || t('share.subDefault');
   ui.modal.hidden = false;
   return new Promise((resolve) => {
     shareModalResolve = resolve;
@@ -395,7 +418,7 @@ document.getElementById('share-modal')?.addEventListener('click', async (ev) => 
 document.getElementById('btn-share-back')?.addEventListener('click', () => {
   resetShareModalSteps();
   const ui = shareUiEls();
-  if (ui.sub) ui.sub.textContent = pendingShareDraft?.title || 'Elegí canal y luego el destinatario.';
+  if (ui.sub) ui.sub.textContent = pendingShareDraft?.title || t('share.subDefault');
 });
 
 document.getElementById('btn-share-send')?.addEventListener('click', () => {
@@ -477,13 +500,18 @@ const SAVE_CONFIG_MUTATION = `
   }
 `;
 
-const ACTION_LABELS = {
-  PUBLIC_REPLY: 'Responder en público',
-  PRIVATE_DM: 'Mover a privado / DM',
-  ESCALATE_LEGAL: 'Escalar a Legal',
-  ESCALATE_SAFETY: 'Escalar a Safety',
-  NO_ENGAGE: 'No interactuar',
+const ACTION_KEYS = {
+  PUBLIC_REPLY: 'action.public',
+  PRIVATE_DM: 'action.dm',
+  ESCALATE_LEGAL: 'action.legal',
+  ESCALATE_SAFETY: 'action.safety',
+  NO_ENGAGE: 'action.noEngage',
 };
+
+function actionLabel(code) {
+  const key = ACTION_KEYS[code];
+  return key ? t(key) : String(code || '');
+}
 
 /** @type {null | Record<string, unknown>} */
 let currentComplaint = null;
@@ -495,6 +523,7 @@ const els = {
   panels: {
     own: document.getElementById('panel-own'),
     comp: document.getElementById('panel-comp'),
+    rank: document.getElementById('panel-rank'),
     stats: document.getElementById('panel-stats'),
     hist: document.getElementById('panel-hist'),
     cfg: document.getElementById('panel-cfg'),
@@ -510,6 +539,7 @@ const els = {
   status: document.getElementById('cfg-status'),
   refresh: document.getElementById('btn-refresh-alerts'),
   loadDemo: document.getElementById('btn-load-demo'),
+  demoWrap: document.getElementById('comp-demo-wrap'),
   scanComp: document.getElementById('btn-scan-comp'),
   scanStatus: document.getElementById('comp-scan-status'),
   alertFilter: document.getElementById('alert-filter'),
@@ -519,6 +549,7 @@ const els = {
   alertFilterSeverity: document.getElementById('alert-filter-severity'),
   alertFilterQ: document.getElementById('alert-filter-q'),
   filterCount: document.getElementById('comp-filter-count'),
+  rivalScores: document.getElementById('comp-rival-scores'),
   rivalBanner: document.getElementById('rival-intel-banner'),
   rivalBannerTitle: document.getElementById('rival-intel-title'),
   rivalBannerSub: document.getElementById('rival-intel-sub'),
@@ -584,6 +615,13 @@ async function setUiZoom(percent) {
 }
 
 function activateTab(name) {
+  document.getElementById('app-shell')?.classList.remove('is-report-open');
+  const reportPage = document.getElementById('panel-report');
+  if (reportPage) {
+    reportPage.hidden = true;
+    reportPage.classList.remove('is-visible');
+  }
+
   for (const tab of els.tabs) {
     const on = tab.dataset.tab === name;
     tab.classList.toggle('is-active', on);
@@ -599,8 +637,50 @@ function activateTab(name) {
   if (kpis) kpis.hidden = name !== 'stats';
   if (name === 'hist') void renderHistory();
   if (name === 'comp') void refreshAlerts().catch((err) => console.error('[RL] refreshAlerts', err));
+  if (name === 'rank') void refreshRivalRanking().catch((err) => console.error('[RL] refreshRivalRanking', err));
   if (name === 'stats') void renderStats().catch((err) => console.error('[RL] renderStats', err));
+  document.querySelector('main')?.scrollTo?.({ top: 0 });
 }
+
+/** Vista a pantalla completa del informe (sin mezclar con la lista). */
+function openReportPage({ title, subtitle, loadingHtml } = {}) {
+  const page = document.getElementById('panel-report');
+  const titleEl = document.getElementById('report-page-title');
+  const subEl = document.getElementById('report-page-sub');
+  if (titleEl) titleEl.textContent = title || t('report.title');
+  if (subEl) subEl.textContent = subtitle || '';
+
+  for (const tab of els.tabs) {
+    tab.classList.remove('is-active');
+    tab.setAttribute('aria-selected', 'false');
+  }
+  for (const panel of Object.values(els.panels)) {
+    if (!panel) continue;
+    panel.classList.remove('is-visible');
+    panel.hidden = true;
+  }
+  const kpis = document.getElementById('ops-kpis');
+  if (kpis) kpis.hidden = true;
+
+  if (page) {
+    page.hidden = false;
+    page.classList.add('is-visible');
+  }
+  document.getElementById('app-shell')?.classList.add('is-report-open');
+
+  if (loadingHtml && els.rivalReportPanel) {
+    els.rivalReportPanel.innerHTML = loadingHtml;
+  }
+  document.querySelector('main')?.scrollTo?.({ top: 0 });
+}
+
+function closeReportPage() {
+  activateTab('comp');
+}
+
+document.getElementById('btn-report-back')?.addEventListener('click', () => {
+  closeReportPage();
+});
 
 els.tabs.forEach((tab) => {
   tab.addEventListener('click', () => activateTab(tab.dataset.tab));
@@ -628,6 +708,36 @@ async function storageGet(keys) {
 
 async function storageSet(obj) {
   return chrome.storage.local.set(obj);
+}
+
+/** Datos de prueba: solo si `rl_dev_tools` está activo (storage / URL). */
+async function isDevToolsEnabled() {
+  const data = await storageGet([STORAGE.devTools]);
+  return data[STORAGE.devTools] === true;
+}
+
+async function refreshDevToolsUi() {
+  const on = await isDevToolsEnabled();
+  if (els.demoWrap) els.demoWrap.hidden = !on;
+}
+
+/**
+ * Activación externa: abrir sidepanel con ?devtools=1 o #devtools
+ * (persiste en storage). ?devtools=0 lo apaga.
+ */
+async function applyDevToolsFromUrl() {
+  try {
+    const url = new URL(location.href);
+    const q = url.searchParams.get('devtools');
+    const hashOn = url.hash === '#devtools';
+    if (q === '1' || q === 'true' || hashOn) {
+      await storageSet({ [STORAGE.devTools]: true });
+    } else if (q === '0' || q === 'false') {
+      await storageSet({ [STORAGE.devTools]: false });
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 function escapeHtml(str) {
@@ -713,7 +823,7 @@ async function renderStats() {
   renderHBars(
     els.chartActions,
     topEntries(own.byAction, 5).map((e) => ({
-      name: ACTION_LABELS[e.name] || e.name.replace(/^ESCALATE_/, '').slice(0, 14),
+      name: actionLabel(e.name) || e.name.replace(/^ESCALATE_/, '').slice(0, 14),
       count: e.count,
     })),
     'Sin acciones',
@@ -783,7 +893,7 @@ function renderCompareBars(el, ownN, compN, ownLabel) {
 function renderTrendChart(el, series) {
   if (!el) return;
   if (!series?.length) {
-    el.innerHTML = '<p class="rl-empty rl-empty--sm">Sin actividad.</p>';
+    el.innerHTML = `<p class="rl-empty rl-empty--sm">${escapeHtml(t('stats.empty'))}</p>`;
     return;
   }
   const w = 320;
@@ -831,7 +941,7 @@ function renderTrendChart(el, series) {
 function renderStackedBars(el, series) {
   if (!el) return;
   if (!series?.length) {
-    el.innerHTML = '<p class="rl-empty rl-empty--sm">Sin actividad.</p>';
+    el.innerHTML = `<p class="rl-empty rl-empty--sm">${escapeHtml(t('stats.empty'))}</p>`;
     return;
   }
   const sample = series.length > 14 ? series.filter((_, i) => i % 2 === 0 || i === series.length - 1) : series;
@@ -906,7 +1016,7 @@ function renderRiskBars(el, riskCounts) {
   ];
   const total = order.reduce((s, o) => s + (riskCounts[o.key] || 0), 0);
   if (!total) {
-    el.innerHTML = '<p class="rl-empty rl-empty--sm">Sin datos.</p>';
+    el.innerHTML = `<p class="rl-empty rl-empty--sm">${escapeHtml(t('stats.noData'))}</p>`;
     return;
   }
   el.innerHTML = `<div class="rl-funnel rl-funnel--dense">${order
@@ -970,7 +1080,7 @@ function renderTriage(triage) {
       <span class="rl-badge rl-badge--${escapeHtml(String(triage.riskLevel || 'LOW').toLowerCase())}">
         Riesgo ${escapeHtml(triage.riskLevel)} · ${escapeHtml(String(triage.riskScore))}
       </span>
-      <strong>${escapeHtml(ACTION_LABELS[triage.recommendedAction] || triage.recommendedAction)}</strong>
+      <strong>${escapeHtml(actionLabel(triage.recommendedAction) || triage.recommendedAction)}</strong>
     </div>
     <p>${escapeHtml(triage.summary || '')}</p>
     <div class="rl-chips">${flags}${issues}</div>
@@ -1046,7 +1156,7 @@ function renderCards(result) {
     card.innerHTML = `
       <div class="rl-card__head">
         <h3>${escapeHtml(opt.label)}</h3>
-        ${opt.recommended ? '<span class="rl-rec-badge">Recomendada</span>' : ''}
+        ${opt.recommended ? `<span class="rl-rec-badge">${escapeHtml(t('badge.recommended'))}</span>` : ''}
       </div>
       ${opt.rationale ? `<p class="rl-rationale">${escapeHtml(opt.rationale)}</p>` : ''}
       <p>${escapeHtml(opt.body)}</p>
@@ -1057,19 +1167,19 @@ function renderCards(result) {
     group.className = 'rl-action-bar__group';
     const lab = document.createElement('p');
     lab.className = 'rl-action-bar__label';
-    lab.textContent = 'Respuesta';
+    lab.textContent = t('own.reply');
     const row = document.createElement('div');
     row.className = 'rl-action-bar__row';
 
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'rl-btn rl-btn--soft';
-    copyBtn.textContent = 'Copiar';
+    copyBtn.textContent = t('own.copy');
     copyBtn.addEventListener('click', async () => {
       await navigator.clipboard.writeText(opt.body);
-      copyBtn.textContent = 'Copiado';
+      copyBtn.textContent = t('own.copied');
       setTimeout(() => {
-        copyBtn.textContent = 'Copiar';
+        copyBtn.textContent = t('own.copy');
       }, 1200);
     });
 
@@ -1077,10 +1187,10 @@ function renderCards(result) {
     injectBtn.type = 'button';
     injectBtn.className = 'rl-btn rl-btn--primary';
     injectBtn.textContent = blockPublic
-      ? 'Inyectar igual'
+      ? t('own.injectAnyway')
       : opt.recommended
-        ? 'Usar recomendada'
-        : 'Inyectar';
+        ? t('own.injectRec')
+        : t('own.inject');
     injectBtn.addEventListener('click', async () => {
       injectBtn.disabled = true;
       try {
@@ -1123,7 +1233,7 @@ function renderCards(result) {
   });
   const pb = document.createElement('details');
   pb.className = 'rl-disclosure rl-cfg-panel';
-  pb.innerHTML = `<summary>Playbook de defensa</summary><div class="rl-playbook">${formatPlaybookHtml(defense)}</div>`;
+  pb.innerHTML = `<summary>${escapeHtml(t('own.playbook'))}</summary><div class="rl-playbook">${formatPlaybookHtml(defense)}</div>`;
   els.cards.appendChild(pb);
 }
 
@@ -1174,7 +1284,7 @@ async function renderHistory() {
     const metaLine = [
       (item.at || '').replace('T', ' ').slice(0, 16),
       item.channel || kindLabel,
-      isCap ? null : ACTION_LABELS[item.recommendedAction] || item.recommendedAction || null,
+      isCap ? null : actionLabel(item.recommendedAction) || item.recommendedAction || null,
     ]
       .filter(Boolean)
       .join(' · ');
@@ -1217,7 +1327,7 @@ async function renderHistory() {
               ? item.sourceUrl
                 ? ` · <a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener">Fuente</a>`
                 : ''
-              : ` · ${escapeHtml(ACTION_LABELS[item.recommendedAction] || item.recommendedAction || '')}`
+              : ` · ${escapeHtml(actionLabel(item.recommendedAction) || item.recommendedAction || '')}`
           }
           ${item.model ? ` · ${escapeHtml(item.model)}` : ''}
         </p>
@@ -1460,11 +1570,13 @@ async function applyNotificationFocus() {
   }
 }
 
+/** @type {Record<string, { score: number, band: string, bandLabel: string }>} */
+let rivalScoreIndex = {};
+
 async function refreshAlerts() {
   await ensureCompetitorsReady();
   await fillRivalSelect();
-  await fillFichaRivalSelect();
-  const data = await storageGet([STORAGE.alerts, STORAGE.config]);
+  const data = await storageGet([STORAGE.alerts, STORAGE.config, STORAGE.pageRivals]);
   const all = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
   fillRivalFilterOptions(all, data[STORAGE.config]?.competitors || []);
   const filters = getCompFilterState();
@@ -1476,10 +1588,73 @@ async function refreshAlerts() {
         : `${alerts.length} de ${all.length} (filtrado)`;
   }
   const company = data[STORAGE.config]?.company || null;
+  await refreshRivalRanking({
+    competitors: data[STORAGE.config]?.competitors || [],
+    alerts: all,
+    pageRivals: data[STORAGE.pageRivals]?.rivals || [],
+  });
+  await fillFichaRivalSelect();
   renderAlerts(alerts, company);
   await refreshPageRivalBanner();
   await refreshKpis();
 }
+
+async function refreshRivalRanking(preloaded = null) {
+  let competitors;
+  let alerts;
+  let pageRivals;
+  if (preloaded) {
+    competitors = preloaded.competitors;
+    alerts = preloaded.alerts;
+    pageRivals = preloaded.pageRivals;
+  } else {
+    const data = await storageGet([STORAGE.alerts, STORAGE.config, STORAGE.pageRivals]);
+    competitors = data[STORAGE.config]?.competitors || [];
+    alerts = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+    pageRivals = data[STORAGE.pageRivals]?.rivals || [];
+  }
+  renderRivalScoresBoard({ competitors, alerts, pageRivals });
+}
+
+function renderRivalScoresBoard({ competitors, alerts, pageRivals }) {
+  const host = els.rivalScores;
+  if (!host) return;
+  const board = scoreAllCompetitorsDigitalLife({
+    competitors,
+    alerts,
+    pageRivals,
+    days: 14,
+  });
+  rivalScoreIndex = {};
+  for (const r of board.rivals) {
+    rivalScoreIndex[r.competitorName] = {
+      score: r.score,
+      band: r.band,
+      bandLabel: r.bandLabel,
+      drivers: r.drivers,
+    };
+  }
+  host.innerHTML = formatRivalScoresHtml(board, { escapeHtml, competitors });
+  host.querySelectorAll('[data-rival-logo]').forEach((img) => {
+    img.addEventListener('error', () => {
+      const name = img.getAttribute('data-rival-logo') || '';
+      const fallback = lookupCompetitorProfile(name, competitors)?.logoUrl;
+      if (fallback && img.src !== fallback) img.src = fallback;
+      else img.classList.add('is-broken');
+      img.onerror = null;
+    });
+  });
+  host.querySelectorAll('[data-open-rival-score]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const name = btn.getAttribute('data-open-rival-score');
+      if (name) void openRivalFicha(name);
+    });
+  });
+}
+
+document.getElementById('btn-refresh-rank')?.addEventListener('click', () => {
+  void refreshRivalRanking().catch((err) => console.error('[RL] refreshRivalRanking', err));
+});
 
 /** @type {null | { competitorName: string, mentions?: object[] }} */
 let pendingIntelRival = null;
@@ -1488,39 +1663,74 @@ async function refreshPageRivalBanner() {
   const data = await storageGet([STORAGE.pageRivals]);
   const page = data[STORAGE.pageRivals];
   if (!els.rivalBanner) return;
-  if (!page?.rivals?.length) {
+
+  let activeHref = '';
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    activeHref = tab?.url || '';
+  } catch {
+    activeHref = '';
+  }
+
+  const rivals = Array.isArray(page?.rivals) ? page.rivals : [];
+  const sameTab = Boolean(page?.href && activeHref && page.href === activeHref);
+  if (!rivals.length || !sameTab) {
     els.rivalBanner.hidden = true;
     pendingIntelRival = null;
     return;
   }
-  const top = [...page.rivals].sort((a, b) => (b.mentions?.length || 0) - (a.mentions?.length || 0))[0];
+
+  const top = [...rivals].sort((a, b) => (b.mentions?.length || 0) - (a.mentions?.length || 0))[0];
   pendingIntelRival = {
     competitorName: top.name,
     mentions: top.mentions || [],
   };
   els.rivalBanner.hidden = false;
   if (els.rivalBannerTitle) {
-    els.rivalBannerTitle.textContent = `Rival en página: ${top.name}`;
+    els.rivalBannerTitle.textContent = t('comp.tabTitleNamed', { name: top.name });
   }
   if (els.rivalBannerSub) {
-    const n = page.rivals.reduce((s, r) => s + (r.mentions?.length || 0), 0);
-    els.rivalBannerSub.textContent = `${page.rivals.length} rival(es) · ${n} mención(es) · ${page.channel || 'web'}`;
+    const n = rivals.reduce((s, r) => s + (r.mentions?.length || 0), 0);
+    const ch = page.channel ? ` · ${page.channel}` : '';
+    els.rivalBannerSub.textContent =
+      n === 1
+        ? t('comp.tabSubOne', { channel: ch })
+        : t('comp.tabSubMany', { n, channel: ch });
   }
 }
 
-function renderRivalReport(report, perception = null, playbook = null) {
+function renderRivalReport(report, perception = null, playbook = null, intelPack = null) {
   const panel = els.rivalReportPanel;
   if (!panel || !report) return;
-  panel.hidden = false;
+  openReportPage({
+    title: t('report.titleNamed', { name: report.competitorName }),
+    subtitle: perception?.voiceLine || t('report.subtitleDefault'),
+  });
   const themes = (report.themes || []).map((t) => t.label || t).join(' · ');
   const perc = perception;
+  const pack = intelPack || report.intelPack || null;
   const empty = !report.mentionCount;
+  const dls = rivalScoreIndex[report.competitorName] || null;
 
   panel.innerHTML = `
-    <div class="rl-rival-report__head">
-      <h3>Ficha · ${escapeHtml(report.competitorName)}</h3>
-      <button type="button" class="rl-btn rl-btn--ghost" data-close-report>Cerrar</button>
-    </div>
+    ${
+      dls
+        ? `<div class="rl-dls-hero rl-dls-hero--${escapeHtml(dls.band)}">
+      <span class="rl-dls-hero__score">${escapeHtml(String(dls.score))}</span>
+      <span><strong>${escapeHtml(t('rank.dlsTitle', { band: dls.bandLabel }))}</strong>
+      <span class="rl-muted">${escapeHtml(t('rank.dlsHint'))}</span>
+      ${
+        dls.drivers?.length
+          ? `<ul class="rl-dls-drivers">${dls.drivers
+              .slice(0, 3)
+              .map((d) => `<li>${escapeHtml(d.label)} <span class="rl-muted">(+${escapeHtml(String(d.points))})</span></li>`)
+              .join('')}</ul>`
+          : ''
+      }
+      </span>
+    </div>`
+        : ''
+    }
     ${
       empty
         ? `<p class="rl-empty rl-empty--sm">Sin menciones live de este rival. Escaneá fuentes o abrí su página y usá <strong>captar</strong>.</p>`
@@ -1537,66 +1747,80 @@ function renderRivalReport(report, perception = null, playbook = null) {
       ${kpiTile(`${perc.switchIntentPct}%`, 'Churn')}
       ${kpiTile(perc.pipeline.open, 'Abiertas')}
       ${kpiTile(`${perc.pipeline.winRate}%`, 'Win')}
-      ${kpiTile(perc.pipeline.won, 'Ganados')}
+      ${kpiTile(pack?.prospects?.length ?? 0, 'Rescate')}
       ${kpiTile(perc.days + 'd', 'Ventana')}
     </div>
-    <div class="rl-rival-charts">
-      <article class="rl-chart-card rl-chart-card--dense">
-        <header class="rl-chart-card__head"><h3>Cómo lo ven (temas)</h3></header>
-        <div data-ficha-themes class="rl-chart rl-chart--sm"></div>
-      </article>
-      <article class="rl-chart-card rl-chart-card--dense">
-        <header class="rl-chart-card__head"><h3>Canales</h3></header>
-        <div data-ficha-channels class="rl-chart rl-chart--sm"></div>
-      </article>
-      <article class="rl-chart-card rl-chart-card--dense">
-        <header class="rl-chart-card__head"><h3>Severidad</h3></header>
-        <div data-ficha-severity class="rl-chart rl-chart--sm"></div>
-      </article>
-      <article class="rl-chart-card rl-chart-card--dense">
-        <header class="rl-chart-card__head"><h3>Tendencia</h3></header>
-        <div data-ficha-trend class="rl-chart rl-chart--sm"></div>
-      </article>
-    </div>
-    ${
-      perc.sampleQuotes?.length
-        ? `<p class="rl-muted rl-alert__section-label">Cómo hablan los usuarios</p>
-    <ul class="rl-rival-quotes">${perc.sampleQuotes
-      .map(
-        (q) => `<li>“${escapeHtml(q.text)}”<span class="rl-muted">${escapeHtml(q.channel)}${
-          q.sourceUrl ? ` · ${escapeHtml(q.sourceUrl.slice(0, 48))}` : ''
-        }</span></li>`,
-      )
-      .join('')}</ul>`
-        : ''
-    }`
+    <details class="rl-disclosure rl-cfg-panel">
+      <summary>Gráficos y citas</summary>
+      <div class="rl-rival-charts">
+        <article class="rl-chart-card rl-chart-card--dense">
+          <header class="rl-chart-card__head"><h3>Temas</h3></header>
+          <div data-ficha-themes class="rl-chart rl-chart--sm"></div>
+        </article>
+        <article class="rl-chart-card rl-chart-card--dense">
+          <header class="rl-chart-card__head"><h3>Canales</h3></header>
+          <div data-ficha-channels class="rl-chart rl-chart--sm"></div>
+        </article>
+        <article class="rl-chart-card rl-chart-card--dense">
+          <header class="rl-chart-card__head"><h3>Severidad</h3></header>
+          <div data-ficha-severity class="rl-chart rl-chart--sm"></div>
+        </article>
+        <article class="rl-chart-card rl-chart-card--dense">
+          <header class="rl-chart-card__head"><h3>Tendencia</h3></header>
+          <div data-ficha-trend class="rl-chart rl-chart--sm"></div>
+        </article>
+      </div>
+      ${
+        perc.sampleQuotes?.length
+          ? `<p class="rl-muted rl-alert__section-label">Citas</p>
+      <ul class="rl-rival-quotes">${perc.sampleQuotes
+        .map(
+          (q) => `<li>“${escapeHtml(q.text)}”<span class="rl-muted">${escapeHtml(q.channel)}${
+            q.sourceUrl ? ` · ${escapeHtml(q.sourceUrl.slice(0, 48))}` : ''
+          }</span></li>`,
+        )
+        .join('')}</ul>`
+          : ''
+      }
+    </details>`
         : ''
     }
-    <p class="rl-rival-report__meta">
-      ${escapeHtml(report.riskLevel || '')} · frustración ${escapeHtml(String(report.avgFrustration ?? '—'))}
-      · ${escapeHtml(String(report.mentionCount ?? 0))} menciones · ${escapeHtml(report.model || '')}
-      ${themes ? ` · ${escapeHtml(themes)}` : ''}
-    </p>
-    <p class="rl-muted rl-alert__section-label">Conclusiones</p>
+    ${pack && !empty ? formatIntelPackHtml(pack) : ''}
+    ${
+      !pack
+        ? `<p class="rl-muted rl-alert__section-label">Conclusiones</p>
     <ul>${(report.conclusions || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
     <p class="rl-muted rl-alert__section-label">Ángulos de captación</p>
-    <ul>${(report.opportunities || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+    <ul>${(report.opportunities || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>`
+        : ''
+    }
     ${
       playbook
-        ? `<details class="rl-disclosure rl-cfg-panel" open>
-      <summary>Playbook de captación</summary>
+        ? `<details class="rl-disclosure rl-cfg-panel">
+      <summary>Playbook general</summary>
       <div class="rl-playbook">${formatPlaybookHtml(playbook)}</div>
     </details>`
         : ''
     }
     <details class="rl-disclosure">
-      <summary>Informe markdown</summary>
+      <summary>Informe markdown completo</summary>
       <pre class="rl-rival-report__md">${escapeHtml(report.reportMarkdown || '')}</pre>
     </details>
+    <p class="rl-rival-report__meta">
+      ${escapeHtml(report.riskLevel || '')} · frustración ${escapeHtml(String(report.avgFrustration ?? '—'))}
+      · ${escapeHtml(String(report.mentionCount ?? 0))} menciones · ${escapeHtml(report.model || '')}
+      ${themes ? ` · ${escapeHtml(themes)}` : ''}
+    </p>
     <div class="rl-rival-report__actions">
       <button type="button" class="rl-btn rl-btn--primary" data-copy-report>Copiar informe</button>
-      <button type="button" class="rl-btn rl-btn--ghost" data-share-ficha>Compartir ficha</button>
-      <button type="button" class="rl-btn rl-btn--ghost" data-goto-stats>Ver en Stats</button>
+      <button type="button" class="rl-btn rl-btn--soft" data-copy-crm-json ${
+        pack?.crmProspects?.length ? '' : 'disabled'
+      }>Copiar JSON CRM</button>
+      <button type="button" class="rl-btn rl-btn--ghost" data-push-rescue-crm ${
+        pack?.crmProspects?.length ? '' : 'disabled'
+      }>Enviar a CRM</button>
+      <button type="button" class="rl-btn rl-btn--ghost" data-share-ficha>Compartir</button>
+      <button type="button" class="rl-btn rl-btn--ghost" data-close-report>← Volver a Competencia</button>
     </div>
   `;
 
@@ -1608,7 +1832,7 @@ function renderRivalReport(report, perception = null, playbook = null) {
   }
 
   panel.querySelector('[data-close-report]')?.addEventListener('click', () => {
-    panel.hidden = true;
+    closeReportPage();
   });
   panel.querySelector('[data-copy-report]')?.addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
@@ -1619,6 +1843,56 @@ function renderRivalReport(report, perception = null, playbook = null) {
         btn.textContent = 'Copiar informe';
       }, 1200);
     }
+  });
+  panel.querySelector('[data-copy-crm-json]')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const json = JSON.stringify(pack?.crmProspects || [], null, 2);
+    await navigator.clipboard.writeText(json);
+    if (btn) {
+      btn.textContent = '✓ JSON copiado';
+      setTimeout(() => {
+        btn.textContent = 'Copiar JSON CRM';
+      }, 1200);
+    }
+  });
+  panel.querySelector('[data-push-rescue-crm]')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    if (btn) btn.disabled = true;
+    try {
+      const cfgData = await storageGet([STORAGE.config]);
+      const results = await pushRescueProspectsToCrm(pack?.crmProspects || [], {
+        companyName: cfgData[STORAGE.config]?.company?.companyName,
+        competitorName: report.competitorName,
+      });
+      if (btn) btn.textContent = results.some((r) => r.ok) ? 'CRM OK' : 'CRM error';
+      if (els.scanStatus) {
+        els.scanStatus.classList.toggle('is-error', !results.some((r) => r.ok));
+        els.scanStatus.textContent = formatPushSummary(results);
+      }
+    } finally {
+      setTimeout(() => {
+        if (btn) {
+          btn.disabled = !(pack?.crmProspects?.length > 0);
+          btn.textContent = 'Enviar a CRM';
+        }
+      }, 1600);
+    }
+  });
+  panel.querySelectorAll('[data-copy-rescue]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const article = btn.closest('[data-prospect-idx]');
+      const idx = Number(article?.getAttribute('data-prospect-idx'));
+      const prospect = pack?.prospects?.[idx];
+      if (!prospect) return;
+      const kind = btn.getAttribute('data-copy-rescue');
+      const text = kind === 'dm' ? prospect.rescue?.dm : prospect.rescue?.public;
+      await navigator.clipboard.writeText(text || '');
+      const prev = btn.textContent;
+      btn.textContent = '✓';
+      setTimeout(() => {
+        btn.textContent = prev;
+      }, 900);
+    });
   });
   panel.querySelector('[data-share-ficha]')?.addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
@@ -1636,6 +1910,8 @@ function renderRivalReport(report, perception = null, playbook = null) {
           switchIntentPct: perc?.switchIntentPct,
           conclusions: report.conclusions,
           opportunities: report.opportunities,
+          intelPack: pack,
+          crmProspects: pack?.crmProspects || [],
           reportMarkdown: report.reportMarkdown,
           themes: report.themes,
         },
@@ -1644,16 +1920,12 @@ function renderRivalReport(report, perception = null, playbook = null) {
       setTimeout(() => {
         if (btn) {
           btn.disabled = false;
-          btn.textContent = 'Compartir ficha';
+          btn.textContent = 'Compartir';
         }
       }, 400);
     }
   });
-  panel.querySelector('[data-goto-stats]')?.addEventListener('click', () => {
-    activateTab('stats');
-    void renderStats();
-  });
-  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  document.getElementById('panel-report')?.scrollTo?.({ top: 0, behavior: 'smooth' });
 }
 
 function renderRivalTrend(el, series) {
@@ -1686,6 +1958,8 @@ async function gatherMentionsForRival(competitorName, extraMentions = []) {
       sourceUrl: a.sourceUrl,
       channel: a.channel,
       competitorName,
+      detectedAt: a.detectedAt || a.createdAt || a.at,
+      author: a.author || a.usuario_origen || null,
     })),
   ];
   const seen = new Set();
@@ -1706,11 +1980,15 @@ async function gatherMentionsForRival(competitorName, extraMentions = []) {
 async function generateRivalReport(competitorName, extraMentions = []) {
   const name = String(competitorName || '').trim();
   if (!name) return null;
-  activateTab('comp');
-  if (els.rivalReportPanel) {
-    els.rivalReportPanel.hidden = false;
-    els.rivalReportPanel.innerHTML = `<p class="rl-muted">Analizando a ${escapeHtml(name)} en menciones públicas…</p>`;
-  }
+  openReportPage({
+    title: `Informe · ${name}`,
+    subtitle: 'Analizando menciones públicas…',
+    loadingHtml: `
+      <div class="rl-loader">
+        <div class="rl-spinner" aria-hidden="true"></div>
+        <p>Analizando a ${escapeHtml(name)} en menciones públicas…</p>
+      </div>`,
+  });
 
   const {
     [STORAGE.config]: cfg,
@@ -1781,8 +2059,45 @@ async function generateRivalReport(competitorName, extraMentions = []) {
       mentions,
       companyName: cfg?.company?.companyName,
       whatTheySell: cfg?.company?.whatTheySell,
+      keyLinks: cfg?.company?.keyLinks,
+      productRoadmap: cfg?.company?.productRoadmap,
       competitors: cfg?.competitors || [],
     });
+  }
+
+  let intelPack = report.intelPack || null;
+  if (!intelPack) {
+    intelPack = buildCompetitiveIntelPack({
+      competitorName: name,
+      mentions,
+      companyName: cfg?.company?.companyName,
+      whatTheySell: cfg?.company?.whatTheySell,
+      keyLinks: cfg?.company?.keyLinks,
+      productRoadmap: cfg?.company?.productRoadmap,
+      competitors: cfg?.competitors || [],
+    });
+    report = {
+      ...report,
+      intelPack,
+      reportMarkdown: [intelPack.reportMarkdown, report.reportMarkdown || '']
+        .filter(Boolean)
+        .join('\n\n---\n\n'),
+    };
+  }
+
+  if (intelPack?.crisis) {
+    try {
+      const { notifyCompetitorCrisis } = await import('./lib/notify.js');
+      if (typeof notifyCompetitorCrisis === 'function') {
+        await notifyCompetitorCrisis({
+          competitorName: name,
+          count24h: intelPack.market?.churnSignal?.count24h,
+          hint: intelPack.market?.churnSignal?.adsHint,
+        });
+      }
+    } catch {
+      /* optional */
+    }
   }
 
   const alertsData = await storageGet([STORAGE.alerts]);
@@ -1793,24 +2108,41 @@ async function generateRivalReport(competitorName, extraMentions = []) {
     days: statsRangeDays(),
   });
 
+  const digitalLife = scoreCompetitorDigitalLife({
+    competitorName: name,
+    mentions,
+    alerts: alertsData[STORAGE.alerts] || [],
+    days: 14,
+  });
+  rivalScoreIndex[name] = {
+    score: digitalLife.score,
+    band: digitalLife.band,
+    bandLabel: digitalLife.bandLabel,
+    drivers: digitalLife.drivers,
+  };
+
   const playbook = buildCapturePlaybook({
     complaint: mentions.map((m) => m.text).join('\n') || name,
     competitorName: name,
     companyName: cfg?.company?.companyName,
     whatTheySell: cfg?.company?.whatTheySell,
-    lang: report.language === 'en' ? 'en' : 'es',
+    lang: contentLang(report.language || getLocale()),
   });
 
   const stored = await storageGet([STORAGE.rivalReports]);
   const map = stored[STORAGE.rivalReports] && typeof stored[STORAGE.rivalReports] === 'object'
     ? stored[STORAGE.rivalReports]
     : {};
-  map[name] = { ...report, perception, playbook };
+  map[name] = { ...report, perception, playbook, intelPack, digitalLife };
   await storageSet({ [STORAGE.rivalReports]: map });
   await storageSet({ [STORAGE.pendingRivalReport]: null });
 
   if (els.fichaRivalSelect) els.fichaRivalSelect.value = name;
-  renderRivalReport(report, perception, playbook);
+  openReportPage({
+    title: t('report.titleNamed', { name }),
+    subtitle: `${digitalLife.bandLabel} · score ${digitalLife.score}/100 · ${perception.voiceLine || ''}`,
+  });
+  renderRivalReport(report, perception, playbook, intelPack);
   return report;
 }
 
@@ -1833,8 +2165,17 @@ async function fillFichaRivalSelect() {
   }
   const prev = sel.value;
   sel.innerHTML = [...names]
-    .sort((a, b) => a.localeCompare(b))
-    .map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`)
+    .sort((a, b) => {
+      const sa = rivalScoreIndex[a]?.score ?? -1;
+      const sb = rivalScoreIndex[b]?.score ?? -1;
+      if (sb !== sa) return sb - sa;
+      return a.localeCompare(b);
+    })
+    .map((n) => {
+      const s = rivalScoreIndex[n]?.score;
+      const label = s != null ? `${n} · ${s}` : n;
+      return `<option value="${escapeHtml(n)}">${escapeHtml(label)}</option>`;
+    })
     .join('');
   if (prev && names.has(prev)) sel.value = prev;
 }
@@ -1842,7 +2183,6 @@ async function fillFichaRivalSelect() {
 async function openRivalFicha(competitorName) {
   const name = String(competitorName || els.fichaRivalSelect?.value || '').trim();
   if (!name) return;
-  activateTab('comp');
   if (els.fichaRivalSelect) els.fichaRivalSelect.value = name;
   await generateRivalReport(name);
 }
@@ -2096,11 +2436,11 @@ function renderAlerts(alerts, company = null) {
   els.feed.innerHTML = '';
   if (!alerts?.length) {
     els.feed.innerHTML = `
-      <div class="rl-empty">
-        Todavía no hay oportunidades.<br/>
-        Pulsá <strong>Escanear</strong> para buscar quejas de tus rivales.
+      <div class="rl-empty rl-empty--comp">
+        ${escapeHtml(t('comp.empty'))}<br/>
+        ${escapeHtml(t('comp.emptyHint'))}
         <button type="button" class="rl-btn rl-btn--primary" id="btn-empty-scan" style="margin-top:12px">
-          Escanear
+          ${escapeHtml(t('comp.scan'))}
         </button>
       </div>`;
     document.getElementById('btn-empty-scan')?.addEventListener('click', () => {
@@ -2138,11 +2478,23 @@ function renderAlertCard(alert, company = null) {
         <span class="rl-alert__summary-text">
           <span class="rl-alert__title-row">
             <strong>${escapeHtml(alert.competitorName || 'Rival')}</strong>
+            <span class="rl-alert__title-badges">
             ${
               alert._brandScope === 'own'
                 ? '<span class="rl-badge rl-badge--own">Tu marca</span>'
                 : `<span class="rl-badge rl-badge--${escapeHtml(String(alert.severity || 'LOW').toLowerCase())}">${escapeHtml(sevShort(alert.severity))}</span>`
             }
+            ${
+              alert._brandScope === 'own'
+                ? ''
+                : (() => {
+                    const rs = rivalScoreIndex[alert.competitorName];
+                    return rs
+                      ? `<span class="rl-badge rl-badge--dls rl-badge--band-${escapeHtml(rs.band)}" title="Score vida digital">${escapeHtml(String(rs.score))}</span>`
+                      : '';
+                  })()
+            }
+            </span>
           </span>
           <span class="rl-alert__snippet">${escapeHtml(truncateText(alert.originalComplaint, 100))}</span>
         </span>
@@ -2657,6 +3009,174 @@ function renderPlatformPrefs(prefs) {
   });
 }
 
+function sessionStatusText(status) {
+  if (status === 'in') return t('cfg.sessionIn');
+  if (status === 'out') return t('cfg.sessionOut');
+  return t('cfg.sessionUnknown');
+}
+
+/** @param {{ method?: string, methodDetail?: string }} row */
+function sessionMethodText(row) {
+  const method = row.method || 'none';
+  const detail = row.methodDetail || '';
+  if (method === 'cookie') {
+    return detail
+      ? t('cfg.sessionMethodCookieNamed', { name: detail })
+      : t('cfg.sessionMethodCookie');
+  }
+  if (method === 'dom') return t('cfg.sessionMethodDom');
+  if (method === 'permission') return t('cfg.sessionMethodPerm');
+  if (method === 'unavailable') return t('cfg.sessionMethodApi');
+  if (method === 'heuristic') return t('cfg.sessionMethodHeuristic');
+  if (detail === 'empty') return t('cfg.sessionDetailEmpty');
+  if (detail === 'anon') return t('cfg.sessionDetailAnon');
+  if (detail === 'signin-dom') return t('cfg.sessionDetailSignInDom');
+  return t('cfg.sessionMethodNone');
+}
+
+/**
+ * @param {HTMLButtonElement | null} btn
+ * @param {boolean} busy
+ */
+function setSessionsRefreshBusy(btn, busy) {
+  if (!btn) return;
+  btn.disabled = busy;
+  btn.classList.toggle('is-loading', busy);
+  btn.setAttribute('aria-busy', busy ? 'true' : 'false');
+  const label = btn.querySelector('.rl-sessions-refresh__label');
+  if (label) {
+    const key = busy ? 'cfg.sessionsRefreshing' : 'cfg.sessionsRefresh';
+    label.setAttribute('data-i18n', key);
+    label.textContent = t(key);
+  }
+}
+
+function touchSessionsUpdatedStamp(prefixKey) {
+  const stamp = document.getElementById('cfg-sessions-updated');
+  if (!stamp) return;
+  const now = new Date();
+  const time = now.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  stamp.textContent = prefixKey
+    ? `${t(prefixKey)} · ${time}`
+    : t('cfg.sessionsUpdatedAt', { time });
+}
+
+/**
+ * @param {{ force?: boolean } | undefined} opts
+ */
+async function refreshPlatformSessionsUi(opts = {}) {
+  const root = document.getElementById('cfg-sessions-list');
+  const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById('btn-refresh-sessions'));
+  if (!root) return;
+
+  const force = Boolean(opts.force);
+  if (refreshPlatformSessionsUi._busy && !force) return;
+
+  const gen = (refreshPlatformSessionsUi._gen || 0) + 1;
+  refreshPlatformSessionsUi._gen = gen;
+  refreshPlatformSessionsUi._busy = true;
+  setSessionsRefreshBusy(btn, true);
+  if (force) touchSessionsUpdatedStamp('cfg.sessionsRefreshing');
+
+  // Si cookies/DOM se cuelgan, no dejar el botón muerto
+  clearTimeout(refreshPlatformSessionsUi._safetyTimer);
+  refreshPlatformSessionsUi._safetyTimer = setTimeout(() => {
+    if (refreshPlatformSessionsUi._gen !== gen) return;
+    if (!refreshPlatformSessionsUi._busy) return;
+    console.warn('[RL] sessions refresh timed out');
+    refreshPlatformSessionsUi._busy = false;
+    setSessionsRefreshBusy(btn, false);
+    touchSessionsUpdatedStamp(null);
+  }, 18000);
+
+  const showLoading = force || !root.querySelector('.rl-session-row');
+  if (showLoading) {
+    root.innerHTML = `<p class="rl-session-list__empty">${escapeHtml(t('cfg.sessionsLoading'))}</p>`;
+  }
+  try {
+    const prefs = collectPlatformPrefsFromDom();
+    const rows = await listPlatformSessions({
+      custom: (prefs.custom || []).filter((c) => c.enabled !== false),
+    });
+    // Si hubo otro refresh más nuevo, descartar este resultado
+    if (gen !== refreshPlatformSessionsUi._gen) return;
+
+    if (!rows.length) {
+      root.innerHTML = `<p class="rl-session-list__empty">${escapeHtml(t('cfg.sessionUnknown'))}</p>`;
+      return;
+    }
+    root.innerHTML = rows
+      .map((row) => {
+        const method = sessionMethodText(row);
+        const account = row.account?.trim()
+          ? row.account.trim()
+          : t('cfg.sessionAccountUnknown');
+        return `
+      <article class="rl-session-row" data-session-id="${escapeHtml(row.id)}">
+        <span class="rl-session-row__dot rl-session-row__dot--${escapeHtml(row.status)}" title="${escapeHtml(sessionStatusText(row.status))}" aria-hidden="true"></span>
+        <div class="rl-session-row__copy">
+          <strong>${escapeHtml(row.label)}</strong>
+          <span class="rl-session-row__status">${escapeHtml(sessionStatusText(row.status))}</span>
+          <span class="rl-session-row__meta"><span class="rl-session-row__k">${escapeHtml(t('cfg.sessionMethodLabel'))}</span> ${escapeHtml(method)}</span>
+          <span class="rl-session-row__meta"><span class="rl-session-row__k">${escapeHtml(t('cfg.sessionUserLabel'))}</span> ${escapeHtml(account)}</span>
+        </div>
+        ${
+          row.openUrl
+            ? `<button type="button" class="rl-btn rl-btn--ghost rl-btn--sm" data-open-session-url="${escapeHtml(row.openUrl)}">${escapeHtml(t('cfg.sessionOpen'))}</button>`
+            : ''
+        }
+      </article>`;
+      })
+      .join('');
+    root.querySelectorAll('[data-open-session-url]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const url = el.getAttribute('data-open-session-url');
+        if (url) chrome.tabs.create({ url });
+      });
+    });
+    touchSessionsUpdatedStamp(null);
+  } catch (err) {
+    console.warn('[RL] platform sessions', err);
+    if (gen === refreshPlatformSessionsUi._gen) {
+      root.innerHTML = `<p class="rl-session-list__empty">${escapeHtml(t('cfg.sessionsError'))}</p>`;
+    }
+  } finally {
+    if (gen === refreshPlatformSessionsUi._gen) {
+      clearTimeout(refreshPlatformSessionsUi._safetyTimer);
+      refreshPlatformSessionsUi._busy = false;
+      setSessionsRefreshBusy(btn, false);
+    }
+  }
+}
+
+const SESSION_POLL_MS = 20000;
+/** @type {ReturnType<typeof setInterval> | null} */
+let sessionsPollTimer = null;
+
+function stopSessionsPoll() {
+  if (sessionsPollTimer) {
+    clearInterval(sessionsPollTimer);
+    sessionsPollTimer = null;
+  }
+}
+
+function startSessionsPoll() {
+  stopSessionsPoll();
+  sessionsPollTimer = setInterval(() => {
+    const wrap = document.getElementById('cfg-sessions-wrap');
+    if (!(wrap instanceof HTMLDetailsElement) || !wrap.open) {
+      stopSessionsPoll();
+      return;
+    }
+    if (document.visibilityState === 'hidden') return;
+    void refreshPlatformSessionsUi();
+  }, SESSION_POLL_MS);
+}
+
 async function requestOriginsForCustoms(customs) {
   const origins = [];
   for (const c of customs || []) {
@@ -2681,10 +3201,14 @@ async function loadConfigForm() {
   const cognito = (await getCognitoConfig()) || {};
 
   document.getElementById('cfg-user-id').value = session?.userId || cfg.userId || 'local-user';
+  syncLocaleSelects(getLocale());
   document.getElementById('cfg-name').value = cfg.company?.companyName || '';
   document.getElementById('cfg-sells').value = cfg.company?.whatTheySell || '';
   document.getElementById('cfg-links').value = (cfg.company?.keyLinks || []).join('\n');
   document.getElementById('cfg-voice').value = cfg.company?.brandVoiceNotes || '';
+  document.getElementById('cfg-roadmap').value = Array.isArray(cfg.company?.productRoadmap)
+    ? cfg.company.productRoadmap.join('\n')
+    : cfg.company?.productRoadmap || '';
   renderCompetitorEditor(cfg.competitors?.length ? cfg.competitors : defaultCompetitorSeed());
   document.getElementById('cfg-gql').value = appsync.graphqlUrl || '';
   document.getElementById('cfg-rt').value = appsync.realtimeUrl || '';
@@ -2735,6 +3259,11 @@ async function loadConfigForm() {
       session.mode === 'cognito'
         ? session.email || session.userId
         : `Modo local · ${session.userId}`;
+  }
+  void refreshPlatformSessionsUi();
+  const sessionsWrap = document.getElementById('cfg-sessions-wrap');
+  if (sessionsWrap instanceof HTMLDetailsElement && sessionsWrap.open) {
+    startSessionsPoll();
   }
 }
 
@@ -2801,6 +3330,41 @@ document.getElementById('btn-open-platforms')?.addEventListener('click', async (
   }
 });
 
+document.getElementById('btn-refresh-sessions')?.addEventListener('click', (ev) => {
+  ev.preventDefault();
+  ev.stopPropagation();
+  // Refresco inmediato — no await de permissions.request (colgaba el botón).
+  void refreshPlatformSessionsUi({ force: true });
+  void (async () => {
+    try {
+      const has =
+        chrome?.permissions?.contains &&
+        (await chrome.permissions.contains({ origins: SESSION_GOOGLE_ORIGINS }));
+      if (has) return;
+      const ok = await requestSessionHostAccess();
+      if (ok) await refreshPlatformSessionsUi({ force: true });
+    } catch {
+      /* ignore */
+    }
+  })();
+});
+
+document.getElementById('cfg-sessions-wrap')?.addEventListener('toggle', (ev) => {
+  const el = /** @type {HTMLDetailsElement} */ (ev.currentTarget);
+  if (el.open) {
+    void refreshPlatformSessionsUi();
+    startSessionsPoll();
+  } else {
+    stopSessionsPoll();
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  const wrap = document.getElementById('cfg-sessions-wrap');
+  if (!(wrap instanceof HTMLDetailsElement) || !wrap.open) return;
+  if (document.visibilityState === 'visible') void refreshPlatformSessionsUi();
+});
+
 document.getElementById('btn-add-competitor')?.addEventListener('click', () => {
   const current = collectCompetitorsFromForm();
   current.push(emptyCompetitorDraft());
@@ -2827,6 +3391,11 @@ els.form?.addEventListener('submit', async (ev) => {
       .map((s) => s.trim())
       .filter(Boolean),
     brandVoiceNotes: document.getElementById('cfg-voice').value.trim() || null,
+    productRoadmap: document
+      .getElementById('cfg-roadmap')
+      .value.split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean),
   };
   const competitors = collectCompetitorsFromForm();
   if (!competitors.length) {
@@ -2937,11 +3506,17 @@ els.form?.addEventListener('submit', async (ev) => {
     await chrome.runtime.sendMessage({ type: 'RL_DETECTION_UPDATED', detection });
 
     if (appsync.graphqlUrl && appsync.apiKey) {
+      const companyForCloud = {
+        companyName: company.companyName,
+        whatTheySell: company.whatTheySell,
+        keyLinks: company.keyLinks,
+        brandVoiceNotes: company.brandVoiceNotes,
+      };
       await gqlRequest({
         url: appsync.graphqlUrl,
         apiKey: appsync.apiKey,
         query: SAVE_CONFIG_MUTATION,
-        variables: { input: { userId, company, competitors } },
+        variables: { input: { userId, company: companyForCloud, competitors } },
       });
     }
 
@@ -3024,6 +3599,7 @@ els.scanComp?.addEventListener('click', () => {
 });
 
 document.getElementById('btn-open-capture-demo')?.addEventListener('click', async () => {
+  if (!(await isDevToolsEnabled())) return;
   const url = chrome.runtime.getURL('fixtures/rival-capture-demo.html');
   await chrome.tabs.create({ url, active: true });
   if (els.scanStatus) {
@@ -3034,6 +3610,7 @@ document.getElementById('btn-open-capture-demo')?.addEventListener('click', asyn
 });
 
 els.loadDemo?.addEventListener('click', async () => {
+  if (!(await isDevToolsEnabled())) return;
   const { [STORAGE.config]: cfg, [STORAGE.alerts]: existing } = await storageGet([
     STORAGE.config,
     STORAGE.alerts,
@@ -3270,6 +3847,42 @@ document.getElementById('btn-logout')?.addEventListener('click', async () => {
   showAuthTab('login');
 });
 
+function syncLocaleSelects(locale) {
+  const hdr = document.getElementById('hdr-locale');
+  if (hdr) hdr.value = locale;
+}
+
+async function onLocaleChange(next) {
+  await persistLocale(/** @type {*} */ (next));
+  syncLocaleSelects(getLocale());
+  applyDomI18n();
+  try {
+    await refreshAlerts();
+  } catch {
+    /* ignore */
+  }
+  try {
+    await refreshRivalRanking();
+  } catch {
+    /* ignore */
+  }
+  try {
+    await renderStats();
+  } catch {
+    /* ignore */
+  }
+  try {
+    await renderHistory();
+  } catch {
+    /* ignore */
+  }
+  try {
+    await refreshPlatformSessionsUi();
+  } catch {
+    /* ignore */
+  }
+}
+
 (async function boot() {
   const verEl = document.getElementById('ext-version');
   if (verEl) {
@@ -3277,6 +3890,32 @@ document.getElementById('btn-logout')?.addEventListener('click', async () => {
     verEl.hidden = false;
     verEl.textContent = `v${v}`;
   }
+  try {
+    await loadStoredLocale();
+    syncLocaleSelects(getLocale());
+    applyDomI18n();
+  } catch (err) {
+    console.warn('[RL] i18n boot', err);
+  }
+  document.getElementById('hdr-locale')?.addEventListener('change', (ev) => {
+    void onLocaleChange(/** @type {HTMLSelectElement} */ (ev.target).value);
+  });
+  try {
+    if (typeof applyDevToolsFromUrl === 'function') await applyDevToolsFromUrl();
+    if (typeof refreshDevToolsUi === 'function') await refreshDevToolsUi();
+  } catch (err) {
+    console.warn('[RL] devtools boot', err);
+  }
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[STORAGE.devTools]) {
+      void refreshDevToolsUi();
+    }
+    if (area === 'local' && changes.rl_locale && changes.rl_locale.newValue) {
+      setLocale(changes.rl_locale.newValue);
+      syncLocaleSelects(getLocale());
+      applyDomI18n();
+    }
+  });
   await loadUiZoom();
   const session = await getSession();
   if (session?.userId) {

@@ -210,4 +210,33 @@ export async function consumeFocusAlert() {
   return focus;
 }
 
+/**
+ * Desktop alert cuando el motor declara Competidor en Crisis.
+ * @param {{ competitorName: string, count24h?: number, hint?: string }} opts
+ */
+export async function notifyCompetitorCrisis(opts) {
+  const prefs = await loadNotifyPrefs();
+  if (!prefs.enabled || prefs.desktop === false) return { notified: false };
+  const name = String(opts?.competitorName || 'Rival').trim() || 'Rival';
+  const n = opts?.count24h;
+  const message =
+    String(opts?.hint || '').slice(0, 180) ||
+    `Spike de quejas${n != null ? ` (${n} en 24h)` : ''}. Revisá captación y ads.`;
+  try {
+    await chrome.notifications.create(`rl_crisis_${name}_${Date.now()}`, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+      title: `Competidor en Crisis · ${name}`,
+      message,
+      priority: 2,
+    });
+    await chrome.storage.local.set({
+      [FOCUS_KEY]: { openComp: true, rival: name, at: new Date().toISOString() },
+    });
+    return { notified: true };
+  } catch {
+    return { notified: false };
+  }
+}
+
 export { NOTIFY_KEY, FOCUS_KEY };

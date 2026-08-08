@@ -35,6 +35,37 @@ Header opcional: `X-ResponseLens-Secret`.
 
 Compatible con Zapier / Make / n8n / Salesforce Flow / cualquier CRM con inbound webhook.
 
+### Paquete de rescate (ficha rival · v0.11)
+Desde **Ver percepción / Informe IA**:
+
+- **Copiar JSON CRM** — lista de prospectos con intención de cambio.
+- **Enviar a CRM** — webhook batch `responselens.rescue_pack.push` y/o HubSpot por lead.
+
+Campos del JSON:
+
+```json
+[
+  {
+    "competidor": "Shopify",
+    "usuario_origen": "u/jane",
+    "url_comentario": "https://…",
+    "canal_tipo": "Público/Abierto",
+    "categoria_dolor": "Precio / facturación",
+    "mensaje_sugerido_ia": "…",
+    "mensaje_publico_ia": "…",
+    "etiqueta": "Cliente insatisfecho de Shopify",
+    "calificacion_oportunidad": 78,
+    "segmento": "B2B",
+    "influencia": "desconocida",
+    "tarea": "Contactar antes de que pasen 2 horas",
+    "contactar_antes_de": "2026-08-08T19:50:00.000Z",
+    "prioridad": "urgente"
+  }
+]
+```
+
+Sin tasas de cierre ni métricas inventadas: solo evidencia del feed.
+
 ### HubSpot
 Scopes sugeridos del Private App:
 - `crm.objects.contacts.write`

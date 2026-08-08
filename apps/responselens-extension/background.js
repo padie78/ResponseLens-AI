@@ -311,16 +311,24 @@ async function handleMessage(message, sender) {
     }
 
     case 'RL_PAGE_RIVALS_DETECTED': {
-      const payload = message.payload;
-      if (!payload?.rivals?.length) return { ok: true };
-      await setLocal({
-        rl_page_rivals: {
-          ...payload,
-          at: new Date().toISOString(),
-        },
-      });
+      const payload = message.payload || {};
+      const rivals = Array.isArray(payload.rivals) ? payload.rivals : [];
+      if (!rivals.length) {
+        await setLocal({ rl_page_rivals: null });
+      } else {
+        await setLocal({
+          rl_page_rivals: {
+            ...payload,
+            rivals,
+            at: new Date().toISOString(),
+          },
+        });
+      }
       try {
-        await chrome.runtime.sendMessage({ type: 'RL_PAGE_RIVALS_DETECTED', payload });
+        await chrome.runtime.sendMessage({
+          type: 'RL_PAGE_RIVALS_DETECTED',
+          payload: rivals.length ? payload : { rivals: [], href: payload.href || '' },
+        });
       } catch {
         /* side panel closed */
       }

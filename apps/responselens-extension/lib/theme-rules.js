@@ -19,7 +19,7 @@ export const THEME_RULES = [
   },
   {
     id: 'pricing',
-    re: /\b(price|precio|caro|expensive|billing|cobro|charge|refund|reembolso|chargeback)\b/i,
+    re: /\b(price|precio|caro|expensive|billing|cobr[oa]|cobro|charge|refund|reembolso|chargeback|de\s+m[aá]s)\b/i,
     label: 'Precio',
     en: 'Pricing / billing',
     es: 'Precio / facturación',

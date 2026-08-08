@@ -17,50 +17,44 @@
       <div class="rl-auth-card">
         <img class="rl-brand__mark" src="icons/icon48.png" alt="" width="40" height="40" />
         <h1>ResponseLens AI</h1>
-        <p class="rl-muted">Iniciá sesión para sincronizar config, alertas e historial.</p>
+        <p class="rl-muted" data-i18n="auth.lead">Iniciá sesión para sincronizar config, alertas e historial.</p>
 
         <div class="rl-auth-tabs" role="tablist">
-          <button type="button" class="rl-auth-tab is-active" data-auth-tab="login">Entrar</button>
-          <button type="button" class="rl-auth-tab" data-auth-tab="register">Crear cuenta</button>
+          <button type="button" class="rl-auth-tab is-active" data-auth-tab="login" data-i18n="auth.login">Entrar</button>
+          <button type="button" class="rl-auth-tab" data-auth-tab="register" data-i18n="auth.register">Crear cuenta</button>
         </div>
 
         <form id="auth-login-form" class="rl-form rl-auth-form">
           <label>
-            Email
+            <span data-i18n="auth.email">Email</span>
             <input id="auth-login-email" type="email" required autocomplete="username" />
           </label>
           <label>
-            Contraseña
+            <span data-i18n="auth.password">Contraseña</span>
             <input id="auth-login-pass" type="password" required autocomplete="current-password" minlength="8" />
           </label>
-          <button type="submit" class="rl-btn rl-btn--primary rl-btn--block">Entrar</button>
+          <button type="submit" class="rl-btn rl-btn--primary rl-btn--block" data-i18n="auth.login">Entrar</button>
         </form>
 
         <form id="auth-register-form" class="rl-form rl-auth-form" hidden>
           <label>
-            Email
+            <span data-i18n="auth.email">Email</span>
             <input id="auth-reg-email" type="email" required autocomplete="username" />
           </label>
           <label>
-            Contraseña
+            <span data-i18n="auth.password">Contraseña</span>
             <input id="auth-reg-pass" type="password" required autocomplete="new-password" minlength="8" />
           </label>
           <label id="auth-confirm-wrap" hidden>
-            Código de verificación (email)
+            <span data-i18n="auth.verifyCode">Código de verificación (email)</span>
             <input id="auth-reg-code" type="text" maxlength="8" inputmode="numeric" autocomplete="one-time-code" />
           </label>
-          <button type="submit" class="rl-btn rl-btn--primary rl-btn--block" id="auth-reg-submit">
-            Crear cuenta
-          </button>
+          <button type="submit" class="rl-btn rl-btn--primary rl-btn--block" id="auth-reg-submit" data-i18n="auth.register">Crear cuenta</button>
         </form>
 
-        <button type="button" id="btn-auth-local" class="rl-btn rl-btn--ghost rl-btn--block">
-          Continuar en modo local (sin nube)
-        </button>
+        <button type="button" id="btn-auth-local" class="rl-btn rl-btn--ghost rl-btn--block" data-i18n="auth.local">Continuar en modo local (sin nube)</button>
         <p id="auth-status" class="rl-status" role="status"></p>
-        <p class="rl-hint">
-          Cognito se configura en Config (región, User Pool, Client) tras el deploy de Terraform.
-        </p>
+        <p class="rl-hint" data-i18n="auth.hint">Cognito se configura en Config (región, User Pool, Client) tras el deploy de Terraform.</p>
       </div>
     </div>
 
@@ -71,39 +65,59 @@
           <img class="rl-brand__mark" src="icons/icon48.png" alt="" width="32" height="32" />
           <div>
             <strong>ResponseLens</strong>
-            <span class="rl-sub" id="auth-user-label">Listo para operar</span>
+            <span class="rl-sub" id="auth-user-label" data-i18n="shell.ready">Listo para operar</span>
             <span class="rl-sub" id="ext-version" hidden></span>
           </div>
         </div>
-        <div class="rl-zoom" role="group" aria-label="Tamaño de interfaz">
-          <button type="button" id="btn-zoom-out" class="rl-zoom__btn" title="Reducir" aria-label="Reducir zoom">−</button>
-          <button type="button" id="btn-zoom-label" class="rl-zoom__value" title="Restablecer 100%" aria-live="polite">125%</button>
-          <button type="button" id="btn-zoom-in" class="rl-zoom__btn" title="Ampliar" aria-label="Ampliar zoom">+</button>
+        <div class="rl-header__tools">
+          <label class="rl-locale" title="Idioma">
+            <span class="visually-hidden" data-i18n="cfg.language">Idioma de la interfaz</span>
+            <select
+              id="hdr-locale"
+              class="rl-locale__select"
+              aria-label="Language"
+              data-i18n-aria-label="cfg.language"
+            >
+              <option value="es">ES</option>
+              <option value="en">EN</option>
+              <option value="fr">FR</option>
+              <option value="it">IT</option>
+              <option value="de">DE</option>
+            </select>
+          </label>
+          <div class="rl-zoom" role="group" aria-label="Tamaño de interfaz" data-i18n-aria-label="shell.zoom">
+            <button type="button" id="btn-zoom-out" class="rl-zoom__btn" title="Reducir" data-i18n-title="shell.zoomOut" aria-label="Reducir zoom" data-i18n-aria-label="shell.zoomOut">−</button>
+            <button type="button" id="btn-zoom-label" class="rl-zoom__value" title="Restablecer 100%" data-i18n-title="shell.zoomReset" aria-live="polite">125%</button>
+            <button type="button" id="btn-zoom-in" class="rl-zoom__btn" title="Ampliar" data-i18n-title="shell.zoomIn" aria-label="Ampliar zoom" data-i18n-aria-label="shell.zoomIn">+</button>
+          </div>
         </div>
       </div>
-      <div id="ops-kpis" class="rl-kpis rl-kpis--slim" aria-label="Indicadores operativos" hidden>
-        <div class="rl-kpi"><span id="kpi-replies">0</span><small>Resp.</small></div>
-        <div class="rl-kpi"><span id="kpi-alerts">0</span><small>Abiertas</small></div>
-        <div class="rl-kpi"><span id="kpi-critical">0</span><small>Críticas</small></div>
-        <div class="rl-kpi"><span id="kpi-winrate">0%</span><small>Win</small></div>
+      <div id="ops-kpis" class="rl-kpis rl-kpis--slim" aria-label="Indicadores operativos" data-i18n-aria-label="shell.kpis" hidden>
+        <div class="rl-kpi"><span id="kpi-replies">0</span><small data-i18n="kpi.replies">Resp.</small></div>
+        <div class="rl-kpi"><span id="kpi-alerts">0</span><small data-i18n="kpi.open">Abiertas</small></div>
+        <div class="rl-kpi"><span id="kpi-critical">0</span><small data-i18n="kpi.critical">Críticas</small></div>
+        <div class="rl-kpi"><span id="kpi-winrate">0%</span><small data-i18n="kpi.win">Win</small></div>
       </div>
     </header>
 
-    <nav class="rl-tabs" role="tablist" aria-label="Módulos">
+    <nav class="rl-tabs" role="tablist" aria-label="Módulos" data-i18n-aria-label="nav.modules">
       <button class="rl-tab is-active" role="tab" aria-selected="true" data-tab="own">
-        <span class="rl-tab__label">Propios</span>
+        <span class="rl-tab__label" data-i18n="tab.own">Propios</span>
       </button>
       <button class="rl-tab" role="tab" aria-selected="false" data-tab="comp">
-        <span class="rl-tab__label">Competencia</span>
+        <span class="rl-tab__label" data-i18n="tab.comp">Competencia</span>
+      </button>
+      <button class="rl-tab" role="tab" aria-selected="false" data-tab="rank">
+        <span class="rl-tab__label" data-i18n="tab.rank">Ranking</span>
       </button>
       <button class="rl-tab" role="tab" aria-selected="false" data-tab="stats">
-        <span class="rl-tab__label">Stats</span>
+        <span class="rl-tab__label" data-i18n="tab.stats">Stats</span>
       </button>
       <button class="rl-tab" role="tab" aria-selected="false" data-tab="hist">
-        <span class="rl-tab__label">Historial</span>
+        <span class="rl-tab__label" data-i18n="tab.hist">Historial</span>
       </button>
       <button class="rl-tab" role="tab" aria-selected="false" data-tab="cfg">
-        <span class="rl-tab__label">Config</span>
+        <span class="rl-tab__label" data-i18n="tab.cfg">Config</span>
       </button>
     </nav>
 
@@ -112,29 +126,27 @@
       <section id="panel-own" class="rl-panel is-visible" role="tabpanel">
         <div class="rl-panel-head">
           <div class="rl-panel-head__copy">
-            <h2>Propios</h2>
-            <p class="rl-panel-lead">Respuestas a quejas de tu marca.</p>
+            <h2 data-i18n="own.title">Propios</h2>
+            <p class="rl-panel-lead" data-i18n="own.lead">Respuestas a quejas de tu marca.</p>
           </div>
         </div>
 
-        <div id="own-empty" class="rl-empty">
-          Seleccioná un comentario en la página, o pegá el texto abajo.
-        </div>
+        <div id="own-empty" class="rl-empty" data-i18n="own.empty">Seleccioná un comentario en la página, o pegá el texto abajo.</div>
 
         <details class="rl-disclosure rl-cfg-panel">
-          <summary>Pegar queja / review</summary>
+          <summary data-i18n="own.pasteSummary">Pegar queja / review</summary>
           <form id="own-manual" class="rl-manual rl-manual--nested">
             <label>
-              Texto
-              <textarea id="manual-text" rows="3" maxlength="4000" placeholder="Pega aquí el texto negativo…"></textarea>
+              <span data-i18n="own.text">Texto</span>
+              <textarea id="manual-text" rows="3" maxlength="4000" placeholder="Pega aquí el texto negativo…" data-i18n-placeholder="own.textPh"></textarea>
             </label>
-            <button type="submit" class="rl-btn rl-btn--ghost">Analizar texto</button>
+            <button type="submit" class="rl-btn rl-btn--ghost" data-i18n="own.analyze">Analizar texto</button>
           </form>
         </details>
 
         <div id="own-loader" class="rl-loader" hidden>
           <div class="rl-spinner" aria-hidden="true"></div>
-          <p>Triaging riesgo y redactando 3 enfoques…</p>
+          <p data-i18n="own.loader">Triaging riesgo y redactando 3 enfoques…</p>
         </div>
 
         <div id="own-triage" class="rl-triage" hidden></div>
@@ -146,14 +158,12 @@
       <section id="panel-comp" class="rl-panel" role="tabpanel" hidden>
         <div class="rl-panel-head">
           <div class="rl-panel-head__copy">
-            <h2>Competencia</h2>
-            <p class="rl-panel-lead">Oportunidades de captación desde quejas reales.</p>
+            <h2 data-i18n="comp.title">Competencia</h2>
+            <p class="rl-panel-lead" data-i18n="comp.lead">Oportunidades de captación desde quejas reales.</p>
           </div>
           <div class="rl-head-actions">
-            <button type="button" id="btn-scan-comp" class="rl-btn rl-btn--primary" title="Busca menciones negativas de rivales">
-              Escanear
-            </button>
-            <button type="button" id="btn-refresh-alerts" class="rl-btn rl-btn--ghost rl-btn--icon" title="Actualizar lista">↻</button>
+            <button type="button" id="btn-scan-comp" class="rl-btn rl-btn--primary" title="Busca menciones negativas de rivales" data-i18n-title="comp.scanTitle" data-i18n="comp.scan">Escanear</button>
+            <button type="button" id="btn-refresh-alerts" class="rl-btn rl-btn--ghost rl-btn--icon" title="Actualizar lista" data-i18n-title="comp.refresh">↻</button>
           </div>
         </div>
 
@@ -161,36 +171,36 @@
         <p id="comp-filter-count" class="rl-filter-count" aria-live="polite"></p>
 
         <details class="rl-disclosure rl-cfg-panel">
-          <summary>Filtros</summary>
-          <div class="rl-filters" id="comp-filters" aria-label="Filtros de oportunidades">
+          <summary data-i18n="comp.filters">Filtros</summary>
+          <div class="rl-filters" id="comp-filters" aria-label="Filtros de oportunidades" data-i18n-aria-label="comp.filtersAria">
             <label class="rl-filter">
-              <span>Estado</span>
+              <span data-i18n="comp.filter.status">Estado</span>
               <select id="alert-filter" class="rl-select" aria-label="Filtro de estado">
-                <option value="OPEN">Abiertas</option>
-                <option value="ALL">Todas</option>
-                <option value="CONTACTED">Contactadas</option>
-                <option value="WON">Ganadas</option>
-                <option value="DISMISSED">Descartadas</option>
+                <option value="OPEN" data-i18n="status.open">Abiertas</option>
+                <option value="ALL" data-i18n="status.all">Todas</option>
+                <option value="CONTACTED" data-i18n="status.contacted">Contactadas</option>
+                <option value="WON" data-i18n="status.won">Ganadas</option>
+                <option value="DISMISSED" data-i18n="status.dismissed">Descartadas</option>
               </select>
             </label>
             <label class="rl-filter">
-              <span>Fecha</span>
+              <span data-i18n="comp.filter.date">Fecha</span>
               <select id="alert-filter-date" class="rl-select" aria-label="Filtro de fecha">
-                <option value="all">Todas</option>
-                <option value="1">Hoy</option>
-                <option value="7" selected>7 días</option>
-                <option value="14">14 días</option>
-                <option value="30">30 días</option>
+                <option value="all" data-i18n="date.all">Todas</option>
+                <option value="1" data-i18n="date.today">Hoy</option>
+                <option value="7" selected data-i18n="date.7">7 días</option>
+                <option value="14" data-i18n="date.14">14 días</option>
+                <option value="30" data-i18n="date.30">30 días</option>
               </select>
             </label>
             <label class="rl-filter">
-              <span>Plataforma</span>
+              <span data-i18n="comp.filter.platform">Plataforma</span>
               <select id="alert-filter-platform" class="rl-select" aria-label="Filtro de plataforma">
-                <option value="all">Todas</option>
+                <option value="all" data-i18n="platform.all">Todas</option>
                 <option value="hackernews">Hacker News</option>
                 <option value="reddit">Reddit</option>
-                <option value="news">Noticias</option>
-                <option value="page">Página</option>
+                <option value="news" data-i18n="platform.news">Noticias</option>
+                <option value="page" data-i18n="platform.page">Página</option>
                 <option value="amazon">Amazon</option>
                 <option value="ebay">eBay</option>
                 <option value="youtube">YouTube</option>
@@ -206,93 +216,122 @@
                 <option value="capterra">Capterra</option>
                 <option value="producthunt">Product Hunt</option>
                 <option value="indeed">Indeed</option>
-                <option value="manual">Manual</option>
+                <option value="manual" data-i18n="platform.manual">Manual</option>
               </select>
             </label>
             <label class="rl-filter">
-              <span>Rival</span>
+              <span data-i18n="comp.filter.rival">Rival</span>
               <select id="alert-filter-rival" class="rl-select" aria-label="Filtro de competidor">
-                <option value="all">Todos</option>
+                <option value="all" data-i18n="rival.all">Todos</option>
               </select>
             </label>
             <label class="rl-filter">
-              <span>Severidad</span>
+              <span data-i18n="comp.filter.severity">Severidad</span>
               <select id="alert-filter-severity" class="rl-select" aria-label="Filtro de severidad">
-                <option value="all">Todas</option>
-                <option value="HIGH">Alta / crítica</option>
-                <option value="MEDIUM">Media</option>
-                <option value="LOW">Baja</option>
+                <option value="all" data-i18n="sev.all">Todas</option>
+                <option value="HIGH" data-i18n="sev.high">Alta / crítica</option>
+                <option value="MEDIUM" data-i18n="sev.medium">Media</option>
+                <option value="LOW" data-i18n="sev.low">Baja</option>
               </select>
             </label>
             <label class="rl-filter rl-filter--grow">
-              <span>Buscar</span>
-              <input id="alert-filter-q" type="search" maxlength="120" placeholder="Texto en queja…" aria-label="Buscar en quejas" />
+              <span data-i18n="comp.filter.search">Buscar</span>
+              <input id="alert-filter-q" type="search" maxlength="120" placeholder="Texto en queja…" data-i18n-placeholder="comp.filter.searchPh" aria-label="Buscar en quejas" />
             </label>
           </div>
         </details>
 
-        <details class="rl-disclosure rl-cfg-panel">
-          <summary>Más herramientas</summary>
-          <div class="rl-tools-stack">
-            <div class="rl-tools-row">
-              <button type="button" id="btn-open-capture-demo" class="rl-btn rl-btn--ghost">Demo chip</button>
-              <button type="button" id="btn-load-demo" class="rl-btn rl-btn--ghost">Ejemplos</button>
-            </div>
-            <div class="rl-ficha-bar rl-ficha-bar--inner" id="rival-ficha-bar">
-              <label class="rl-filter rl-filter--grow">
-                <span>Ficha rival</span>
-                <select id="ficha-rival-select" class="rl-select" aria-label="Elegir rival para ficha de percepción"></select>
-              </label>
-              <button type="button" id="btn-open-rival-ficha" class="rl-btn rl-btn--soft" title="KPIs e informe de percepción">
-                Ver percepción
-              </button>
-            </div>
-            <details class="rl-disclosure" id="comp-manual-wrap">
-              <summary>Agregar oportunidad manual</summary>
-              <form id="comp-manual" class="rl-manual rl-manual--nested">
-                <label>
-                  Competidor
-                  <select id="comp-rival-select" class="rl-select" style="width:100%"></select>
-                </label>
-                <label>
-                  Queja del cliente del rival
-                  <textarea
-                    id="comp-manual-text"
-                    rows="2"
-                    maxlength="4000"
-                    placeholder="Ej: Llevan caídos todo el día…"
-                  ></textarea>
-                </label>
-                <label>
-                  Link fuente (opcional)
-                  <input id="comp-manual-url" type="url" placeholder="https://…" />
-                </label>
-                <button type="submit" class="rl-btn rl-btn--primary">Generar + pitch</button>
-              </form>
-            </details>
-            <p class="rl-hint" style="margin:0">
-              Escaneá fuentes públicas o abrí la página del rival y usá captar. Configurá rivales en Config.
-            </p>
+        <div id="comp-feed" class="rl-feed" aria-live="polite">
+          <div class="rl-empty rl-empty--comp" data-i18n-html="comp.emptyHtml">
+            Todavía no hay oportunidades.<br />Escaneá fuentes o agregá una queja real.
           </div>
+        </div>
+
+        <div class="rl-comp-actions" id="rival-ficha-bar">
+          <p class="rl-comp-actions__label" data-i18n="comp.reportLabel">Informe del rival</p>
+          <p class="rl-hint rl-comp-actions__hint" data-i18n="comp.reportHint">Elegí un competidor y generá el análisis (gaps, crisis, leads).</p>
+          <div class="rl-comp-actions__row">
+            <select id="ficha-rival-select" class="rl-select" aria-label="Elegir rival para el informe" data-i18n-aria-label="comp.reportSelect"></select>
+            <button type="button" id="btn-open-rival-ficha" class="rl-btn rl-btn--soft" data-i18n="comp.reportGenerate">Generar informe</button>
+          </div>
+          <div id="rival-intel-banner" class="rl-intel-banner rl-intel-banner--inline" hidden>
+            <div class="rl-intel-banner__text">
+              <strong id="rival-intel-title" data-i18n="comp.tabTitle">En esta pestaña</strong>
+              <span id="rival-intel-sub" class="rl-muted"></span>
+            </div>
+            <button type="button" id="btn-rival-intel" class="rl-btn rl-btn--primary" data-i18n="comp.useTab">Usar esta pestaña</button>
+          </div>
+        </div>
+
+        <details class="rl-disclosure rl-cfg-panel" id="comp-manual-wrap">
+          <summary data-i18n="comp.manualSummary">Agregar queja real (texto o link)</summary>
+          <p class="rl-hint rl-hint--flush" data-i18n-html="comp.manualHint">No publica nada en internet. Solo importa al panel una queja que <strong>vos ya encontraste</strong> (Reddit, review, etc.) para armar pitch y seguimiento.</p>
+          <form id="comp-manual" class="rl-manual rl-manual--nested">
+            <label>
+              <span data-i18n="comp.manual.rival">Competidor</span>
+              <select id="comp-rival-select" class="rl-select" style="width:100%"></select>
+            </label>
+            <label>
+              <span data-i18n="comp.manual.text">Texto de la queja</span>
+              <textarea
+                id="comp-manual-text"
+                rows="2"
+                maxlength="4000"
+                placeholder="Pegá acá el comentario negativo que viste…" data-i18n-placeholder="comp.manual.textPh"
+              ></textarea>
+            </label>
+            <label>
+              <span data-i18n="comp.manual.url">Link a la publicación (opcional)</span>
+              <input id="comp-manual-url" type="url" placeholder="https://…" />
+            </label>
+            <button type="submit" class="rl-btn rl-btn--primary" data-i18n="comp.manual.create">Crear oportunidad</button>
+          </form>
         </details>
 
-        <div id="rival-intel-banner" class="rl-intel-banner" hidden>
-          <div class="rl-intel-banner__text">
-            <strong id="rival-intel-title">Rival detectado en la página</strong>
-            <span id="rival-intel-sub" class="rl-muted"></span>
+        <details id="comp-demo-wrap" class="rl-disclosure rl-cfg-panel rl-disclosure--muted" hidden>
+          <summary data-i18n="comp.demoSummary">Datos de prueba (opcional)</summary>
+          <p class="rl-hint rl-hint--flush" data-i18n="comp.demoHint">
+            Solo para probar la UI sin escanear. No son menciones reales.
+          </p>
+          <div class="rl-tools-row">
+            <button type="button" id="btn-load-demo" class="rl-btn rl-btn--ghost" title="Carga oportunidades de ejemplo en la lista" data-i18n-title="comp.demoLoad" data-i18n="comp.demoLoad">Cargar ejemplos en lista</button>
+            <button type="button" id="btn-open-capture-demo" class="rl-btn rl-btn--ghost" title="Simula el chip de captar en página" data-i18n-title="comp.demoChip" data-i18n="comp.demoChip">Simular chip en página</button>
           </div>
-          <button type="button" id="btn-rival-intel" class="rl-btn rl-btn--primary">Informe IA</button>
-        </div>
-        <div id="rival-report-panel" class="rl-rival-report" hidden></div>
+        </details>
+      </section>
 
-        <div id="comp-feed" class="rl-feed"></div>
+      <!-- Ranking vida digital -->
+      <section id="panel-rank" class="rl-panel" role="tabpanel" hidden>
+        <div class="rl-panel-head">
+          <div class="rl-panel-head__copy">
+            <h2 data-i18n="rank.title">Ranking</h2>
+            <p class="rl-panel-lead" data-i18n="rank.lead">Priorizá rivales según su vida digital (quejas, churn, prensa).</p>
+          </div>
+          <div class="rl-head-actions">
+            <button type="button" id="btn-refresh-rank" class="rl-btn rl-btn--ghost rl-btn--icon" title="Actualizar ranking" data-i18n-title="rank.refresh">↻</button>
+          </div>
+        </div>
+        <p class="rl-hint rl-hint--flush" data-i18n="rank.hint">Score 0–100: más alto = más fricción pública del rival. Tocá uno para abrir el informe.</p>
+        <div id="comp-rival-scores" class="rl-rival-scores rl-rival-scores--page" aria-label="Ranking de rivales" data-i18n-aria-label="rank.aria"></div>
+      </section>
+
+      <!-- Informe rival (página dedicada) -->
+      <section id="panel-report" class="rl-panel rl-panel--report" role="tabpanel" hidden>
+        <header class="rl-report-page__nav">
+          <button type="button" id="btn-report-back" class="rl-btn rl-btn--ghost rl-btn--back"><span data-i18n="report.back">← Volver</span></button>
+          <div class="rl-report-page__title-wrap">
+            <h2 id="report-page-title" data-i18n="report.title">Informe del rival</h2>
+            <p id="report-page-sub" class="rl-panel-lead"></p>
+          </div>
+        </header>
+        <div id="rival-report-panel" class="rl-rival-report rl-rival-report--page"></div>
       </section>
 
       <!-- Stats / KPIs -->
       <section id="panel-stats" class="rl-panel" role="tabpanel" hidden>
         <div class="rl-panel-head rl-panel-head--tight">
-          <h2>Stats</h2>
-          <select id="stats-range" class="rl-select" aria-label="Ventana temporal">
+          <h2 data-i18n="stats.title">Stats</h2>
+          <select id="stats-range" class="rl-select" aria-label="Ventana temporal" data-i18n-aria-label="stats.range">
             <option value="7">7d</option>
             <option value="14" selected>14d</option>
             <option value="30">30d</option>
@@ -300,62 +339,62 @@
         </div>
 
         <details class="rl-disclosure rl-cfg-panel">
-          <summary>KPIs</summary>
+          <summary data-i18n="stats.kpis">KPIs</summary>
           <div class="rl-stats-kpis rl-stats-kpis--compact" id="stats-kpi-grid" aria-label="KPIs detallados"></div>
         </details>
 
         <div class="rl-stats-grid">
           <details class="rl-disclosure rl-cfg-panel rl-chart-card--wide">
-            <summary>Share <span id="stats-compare-summary" class="rl-muted rl-summary-meta"></span></summary>
+            <summary><span data-i18n="stats.share">Share</span> <span id="stats-compare-summary" class="rl-muted rl-summary-meta"></span></summary>
             <div id="chart-compare" class="rl-chart rl-chart--sm" role="img" aria-label="Share propios vs competencia"></div>
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Embudo</summary>
+            <summary data-i18n="stats.funnel">Embudo</summary>
             <div id="chart-funnel" class="rl-chart rl-chart--sm" role="img" aria-label="Embudo de captación"></div>
           </details>
 
           <details class="rl-disclosure rl-cfg-panel rl-chart-card--wide">
-            <summary>Actividad diaria</summary>
+            <summary data-i18n="stats.daily">Actividad diaria</summary>
             <span class="rl-legend rl-legend--inline">
-              <span class="rl-legend__item"><i class="rl-swatch rl-swatch--own"></i> Propios</span>
-              <span class="rl-legend__item"><i class="rl-swatch rl-swatch--comp"></i> Rival</span>
+              <span class="rl-legend__item"><i class="rl-swatch rl-swatch--own"></i> <span data-i18n="stats.legendOwn">Propios</span></span>
+              <span class="rl-legend__item"><i class="rl-swatch rl-swatch--comp"></i> <span data-i18n="stats.legendRival">Rival</span></span>
             </span>
             <div id="chart-trend" class="rl-chart rl-chart--med" role="img" aria-label="Tendencia diaria"></div>
           </details>
 
           <details class="rl-disclosure rl-cfg-panel rl-chart-card--wide">
-            <summary>Barras apiladas</summary>
+            <summary data-i18n="stats.stack">Barras apiladas</summary>
             <div id="chart-stack" class="rl-chart rl-chart--med" role="img" aria-label="Volumen apilado diario"></div>
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Riesgo</summary>
+            <summary data-i18n="stats.risk">Riesgo</summary>
             <div id="chart-risk" class="rl-chart rl-chart--sm" role="img" aria-label="Distribución de riesgo"></div>
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Severidad rivales</summary>
+            <summary data-i18n="stats.severity">Severidad rivales</summary>
             <div id="chart-severity" class="rl-chart rl-chart--sm" role="img" aria-label="Severidad de alertas"></div>
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Top rivales</summary>
+            <summary data-i18n="stats.topRivals">Top rivales</summary>
             <div id="chart-rivals" class="rl-chart rl-chart--sm" role="img" aria-label="Alertas por competidor"></div>
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Canales</summary>
+            <summary data-i18n="stats.channels">Canales</summary>
             <div id="chart-channels" class="rl-chart rl-chart--sm" role="img" aria-label="Volumen por canal"></div>
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Tonos usados</summary>
+            <summary data-i18n="stats.tones">Tonos usados</summary>
             <div id="chart-tones" class="rl-chart rl-chart--sm" role="img" aria-label="Tonos de respuesta"></div>
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Acciones</summary>
+            <summary data-i18n="stats.actions">Acciones</summary>
             <div id="chart-actions" class="rl-chart rl-chart--sm" role="img" aria-label="Acciones recomendadas"></div>
           </details>
         </div>
@@ -364,8 +403,8 @@
       <!-- Historial -->
       <section id="panel-hist" class="rl-panel" role="tabpanel" hidden>
         <div class="rl-panel-head rl-panel-head--tight">
-          <h2>Historial</h2>
-          <button type="button" id="btn-export-history" class="rl-btn rl-btn--ghost">Exportar CSV</button>
+          <h2 data-i18n="hist.title">Historial</h2>
+          <button type="button" id="btn-export-history" class="rl-btn rl-btn--ghost"><span data-i18n="hist.export">Exportar CSV</span></button>
         </div>
         <div id="hist-list" class="rl-feed"></div>
       </section>
@@ -373,32 +412,44 @@
       <!-- Módulo C -->
       <section id="panel-cfg" class="rl-panel" role="tabpanel" hidden>
         <form id="cfg-form" class="rl-form rl-cfg-form">
+
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Perfil de la empresa</summary>
+            <summary data-i18n="cfg.profile">Perfil de la empresa</summary>
             <div class="rl-cfg-panel__body">
               <label>
-                Nombre
+                <span data-i18n="cfg.name">Nombre</span>
                 <input id="cfg-name" name="companyName" required maxlength="120" />
               </label>
               <label>
-                Qué vende
+                <span data-i18n="cfg.sells">Qué vende</span>
                 <textarea id="cfg-sells" name="whatTheySell" rows="3" required maxlength="800"></textarea>
               </label>
               <label>
-                Enlaces clave (uno por línea)
+                <span data-i18n="cfg.links">Enlaces clave (uno por línea)</span>
                 <textarea id="cfg-links" name="keyLinks" rows="3" maxlength="1200"></textarea>
               </label>
               <label>
-                Notas de voz de marca
+                <span data-i18n="cfg.voice">Notas de voz de marca</span>
                 <textarea id="cfg-voice" name="brandVoiceNotes" rows="2" maxlength="600"></textarea>
               </label>
+              <label>
+                <span data-i18n="cfg.roadmap">Mapa de producto / roadmap (una feature por línea)</span>
+                <textarea
+                  id="cfg-roadmap"
+                  name="productRoadmap"
+                  rows="3"
+                  maxlength="1200"
+                  placeholder="ej. SLA 99.9%&#10;Soporte humano &lt;1h&#10;Precios transparentes&#10;Migración asistida"
+                ></textarea>
+              </label>
+              <p class="rl-hint" data-i18n="cfg.roadmapHint">Se cruza con quejas del rival para Product Gap (promocionar vs programar).</p>
             </div>
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Competidores</summary>
+            <summary data-i18n="cfg.competitors">Competidores</summary>
             <div class="rl-cfg-panel__body">
-              <p class="rl-hint" style="margin-top:0">
+              <p class="rl-hint rl-hint--flush" data-i18n="cfg.competitorsHint">
                 Completá cada rival campo por campo. El logo se puede dejar vacío (usa el favicon del sitio).
               </p>
               <div id="cfg-competitors-list" class="rl-comp-editor" aria-live="polite"></div>
@@ -409,19 +460,44 @@
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Fuentes de escaneo</summary>
+            <summary data-i18n="cfg.scanSources">Fuentes de escaneo</summary>
             <div class="rl-cfg-panel__body">
-              <p class="rl-hint" style="margin-top:0">
+              <p class="rl-hint rl-hint--flush" data-i18n-html="cfg.scanSourcesHint">
                 Qué usa el botón <strong>Escanear ahora</strong>.
               </p>
               <div id="cfg-scan-sources" class="rl-platform-grid"></div>
             </div>
           </details>
 
-          <details class="rl-disclosure rl-cfg-panel">
-            <summary>Plataformas en página</summary>
+          <details class="rl-disclosure rl-cfg-panel" id="cfg-sessions-wrap">
+            <summary data-i18n="cfg.sessions">Sesiones en el navegador</summary>
             <div class="rl-cfg-panel__body">
-              <p class="rl-hint" style="margin-top:0">
+              <p class="rl-hint rl-hint--flush" data-i18n-html="cfg.sessionsHint">
+                Indicador <strong>heurístico</strong> en <strong>este perfil de Chrome</strong>.
+                No identifica qué usuario (Diego vs otro): solo si hay sesión.
+                Verde ≈ logueado · Rojo ≈ no · Gris ≈ no podemos ver cookies (otro perfil / sin permiso).
+                Para Google: abrí youtube.com o google.com y pulsá Actualizar.
+              </p>
+              <div id="cfg-sessions-list" class="rl-session-list" aria-live="polite"></div>
+              <p id="cfg-sessions-updated" class="rl-hint rl-hint--flush rl-sessions-updated" aria-live="polite"></p>
+              <button
+                type="button"
+                id="btn-refresh-sessions"
+                class="rl-btn rl-btn--soft rl-btn--block rl-sessions-refresh"
+                aria-busy="false"
+              >
+                <span class="rl-sessions-refresh__label" data-i18n="cfg.sessionsRefresh">Actualizar sesiones</span>
+                <span class="rl-dots" aria-hidden="true">
+                  <i></i><i></i><i></i>
+                </span>
+              </button>
+            </div>
+          </details>
+
+          <details class="rl-disclosure rl-cfg-panel">
+            <summary data-i18n="cfg.pagePlatforms">Plataformas en página</summary>
+            <div class="rl-cfg-panel__body">
+              <p class="rl-hint rl-hint--flush" data-i18n-html="cfg.pagePlatformsHint">
                 Dónde el content script busca comentarios negativos <strong>cuando vos abrís esa web</strong>.
                 La extensión no navega sola: usá el botón de abajo o abrí la pestaña a mano.
                 Podés agregar dominios nuevos (Chrome pedirá permiso al guardar).
@@ -439,7 +515,7 @@
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Detección en página</summary>
+            <summary data-i18n="cfg.detection">Detección en página</summary>
             <div class="rl-cfg-panel__body">
               <label>
                 Sensibilidad
@@ -469,9 +545,9 @@
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Alertas y notificaciones</summary>
+            <summary data-i18n="cfg.notify">Alertas y notificaciones</summary>
             <div class="rl-cfg-panel__body">
-              <p class="rl-hint" style="margin-top:0">
+              <p class="rl-hint rl-hint--flush" data-i18n-html="cfg.notifyHint">
                 En producción las alertas las empuja <strong>AWS</strong> (Lambda → AppSync).
                 El escaneo automático local solo corre si AppSync no está configurado.
               </p>
@@ -497,7 +573,7 @@
                 <select id="cfg-notify-severity">
                   <option value="LOW">Baja (todo)</option>
                   <option value="MEDIUM" selected>Media+</option>
-                  <option value="HIGH">Alta / crítica</option>
+                  <option value="HIGH" data-i18n="sev.high">Alta / crítica</option>
                   <option value="CRITICAL">Solo crítica</option>
                 </select>
               </label>
@@ -515,7 +591,7 @@
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>AppSync (cloud)</summary>
+            <summary data-i18n="cfg.appsync">AppSync (cloud)</summary>
             <div class="rl-cfg-panel__body">
               <label>
                 GraphQL URL
@@ -533,7 +609,7 @@
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Amazon Cognito</summary>
+            <summary data-i18n="cfg.cognito">Amazon Cognito</summary>
             <div class="rl-cfg-panel__body">
               <label>
                 Región AWS
@@ -551,9 +627,9 @@
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Fuentes profesionales (API)</summary>
+            <summary data-i18n="cfg.proSources">Fuentes profesionales (API)</summary>
             <div class="rl-cfg-panel__body">
-              <p class="rl-hint" style="margin-top:0">
+              <p class="rl-hint rl-hint--flush" data-i18n-html="cfg.proSourcesHint">
                 Reddit OAuth (app script) y NewsAPI elevan la calidad del escaneo.
                 Sin keys se usan RSS/públicos. Ver <code>docs/product-sources.md</code>.
               </p>
@@ -585,9 +661,9 @@
           </details>
 
           <details class="rl-disclosure rl-cfg-panel">
-            <summary>Integraciones CRM</summary>
+            <summary data-i18n="cfg.crm">Integraciones CRM</summary>
             <div class="rl-cfg-panel__body">
-              <p class="rl-hint" style="margin-top:0">
+              <p class="rl-hint rl-hint--flush" data-i18n="cfg.crmHint">
                 Webhook genérico (Zapier, Make, Salesforce Flow…) y/o HubSpot Private App.
                 Requiere permiso de host al primer push (Chrome lo pide).
               </p>
@@ -620,7 +696,7 @@
                 <input id="cfg-share-ttl" type="number" min="1" max="720" value="168" />
               </label>
               <h3 class="rl-fieldset-sub">Contactos para compartir</h3>
-              <p class="rl-hint" style="margin-top:0">
+              <p class="rl-hint rl-hint--flush">
                 Destinatarios por defecto. Al compartir podés confirmarlos o cambiarlos.
               </p>
               <label>
@@ -643,8 +719,8 @@
           </details>
 
           <div class="rl-cfg-actions">
-            <button type="submit" class="rl-btn rl-btn--primary">Guardar</button>
-            <button type="button" id="btn-logout" class="rl-btn rl-btn--ghost rl-btn--block">Cerrar sesión</button>
+            <button type="submit" class="rl-btn rl-btn--primary"><span data-i18n="cfg.save">Guardar</span></button>
+            <button type="button" id="btn-logout" class="rl-btn rl-btn--ghost rl-btn--block"><span data-i18n="cfg.logout">Cerrar sesión</span></button>
             <p id="cfg-status" class="rl-status" role="status"></p>
           </div>
         </form>
@@ -656,47 +732,47 @@
       <div class="rl-modal__backdrop" data-share-cancel></div>
       <div class="rl-modal__card">
         <header class="rl-modal__head">
-          <h2 id="share-modal-title">¿Dónde querés compartir?</h2>
-          <button type="button" class="rl-btn rl-btn--ghost" data-share-cancel aria-label="Cerrar">✕</button>
+          <h2 id="share-modal-title" data-i18n="share.title">¿Dónde querés compartir?</h2>
+          <button type="button" class="rl-btn rl-btn--ghost" data-share-cancel aria-label="Cerrar" data-i18n-aria-label="share.close">✕</button>
         </header>
         <p class="rl-muted rl-modal__sub" id="share-modal-sub"></p>
 
         <div id="share-step-dest" class="rl-share-dests" role="list">
           <button type="button" class="rl-share-dest" data-share-dest="email" role="listitem">
-            <strong>Email</strong>
-            <span>A un correo concreto</span>
+            <strong data-i18n="share.email.title">Email</strong>
+            <span data-i18n="share.email.sub">A un correo concreto</span>
           </button>
           <button type="button" class="rl-share-dest" data-share-dest="whatsapp" role="listitem">
-            <strong>WhatsApp</strong>
-            <span>A un número (con código de país)</span>
+            <strong data-i18n="share.wa.title">WhatsApp</strong>
+            <span data-i18n="share.wa.sub">A un número (con código de país)</span>
           </button>
           <button type="button" class="rl-share-dest" data-share-dest="slack" role="listitem">
-            <strong>Slack</strong>
-            <span>Incoming Webhook o copiar al canal</span>
+            <strong data-i18n="share.slack.title">Slack</strong>
+            <span data-i18n="share.slack.sub">Incoming Webhook o copiar al canal</span>
           </button>
           <button type="button" class="rl-share-dest" data-share-dest="crm" role="listitem">
-            <strong>CRM</strong>
-            <span>Webhook / HubSpot configurados</span>
+            <strong data-i18n="share.crm.title">CRM</strong>
+            <span data-i18n="share.crm.sub">Webhook / HubSpot configurados</span>
           </button>
           <button type="button" class="rl-share-dest" data-share-dest="clipboard" role="listitem">
-            <strong>Portapapeles</strong>
-            <span>Sin destinatario · copiar link + token</span>
+            <strong data-i18n="share.clip.title">Portapapeles</strong>
+            <span data-i18n="share.clip.sub">Sin destinatario · copiar link + token</span>
           </button>
           <button type="button" class="rl-share-dest" data-share-dest="viewer" role="listitem">
-            <strong>Abrir visor</strong>
-            <span>Solo en esta extensión</span>
+            <strong data-i18n="share.viewer.title">Abrir visor</strong>
+            <span data-i18n="share.viewer.sub">Solo en esta extensión</span>
           </button>
         </div>
 
         <div id="share-step-contact" class="rl-share-contact" hidden>
           <label>
-            <span id="share-contact-label-text">Destinatario</span>
+            <span id="share-contact-label-text" data-i18n="share.recipient">Destinatario</span>
             <input id="share-contact-input" type="text" maxlength="300" autocomplete="off" />
           </label>
           <p class="rl-hint" id="share-contact-hint" style="margin:6px 0 0"></p>
           <div class="rl-modal__actions">
-            <button type="button" class="rl-btn rl-btn--ghost" id="btn-share-back">Atrás</button>
-            <button type="button" class="rl-btn rl-btn--primary" id="btn-share-send">Enviar</button>
+            <button type="button" class="rl-btn rl-btn--ghost" id="btn-share-back"><span data-i18n="share.back">Atrás</span></button>
+            <button type="button" class="rl-btn rl-btn--primary" id="btn-share-send"><span data-i18n="share.send">Enviar</span></button>
           </div>
         </div>
       </div>

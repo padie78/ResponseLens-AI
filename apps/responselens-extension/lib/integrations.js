@@ -98,21 +98,101 @@ export async function postSlackWebhook(webhookUrl, text) {
  * Payload canónico hacia CRM / webhook.
  */
 export function buildCrmPayload(alert, extras = {}) {
+  const prospect = extras.prospect || null;
   return {
     alertId: alert.alertId,
     userId: alert.userId || 'local-user',
-    competitorName: alert.competitorName,
+    competitorName: alert.competitorName || prospect?.competidor || null,
     originalComplaint: alert.originalComplaint,
-    sourceUrl: alert.sourceUrl || null,
+    sourceUrl: alert.sourceUrl || prospect?.url_comentario || null,
     channel: alert.channel || null,
     severity: alert.severity || null,
     frustrationScore: alert.frustrationScore ?? null,
-    salesPitch: alert.salesPitch || alert.salesPitches?.[0]?.body || null,
+    salesPitch:
+      alert.salesPitch ||
+      alert.salesPitches?.[0]?.body ||
+      prospect?.mensaje_sugerido_ia ||
+      null,
     status: alert.status || 'NEW',
     detectedAt: alert.detectedAt || null,
     companyName: extras.companyName || null,
     reportMarkdown: extras.reportMarkdown || null,
+    competidor: prospect?.competidor || alert.competitorName || null,
+    usuario_origen: prospect?.usuario_origen || null,
+    url_comentario: prospect?.url_comentario || alert.sourceUrl || null,
+    canal_tipo: prospect?.canal_tipo || null,
+    categoria_dolor: prospect?.categoria_dolor || null,
+    mensaje_sugerido_ia: prospect?.mensaje_sugerido_ia || null,
+    mensaje_publico_ia: prospect?.mensaje_publico_ia || null,
+    etiqueta: prospect?.etiqueta || null,
+    calificacion_oportunidad: prospect?.calificacion_oportunidad ?? null,
+    segmento: prospect?.segmento || null,
+    influencia: prospect?.influencia || null,
+    tarea: prospect?.tarea || null,
+    contactar_antes_de: prospect?.contactar_antes_de || null,
+    prioridad: prospect?.prioridad || null,
   };
+}
+
+/**
+ * Empuja lista de prospectos del intel pack.
+ * Webhook: un solo batch. HubSpot: un contacto/nota por prospecto (máx 15).
+ * @param {Array<object>} crmProspects
+ * @param {{ companyName?: string, competitorName?: string }} extras
+ */
+export async function pushRescueProspectsToCrm(crmProspects, extras = {}) {
+  const list = Array.isArray(crmProspects) ? crmProspects : [];
+  if (!list.length) {
+    return [{ provider: 'none', ok: false, detail: 'Sin prospectos con intención de cambio' }];
+  }
+
+  const cfg = await loadIntegrations();
+  /** @type {Array<{ provider: string, ok: boolean, externalId?: string, detail?: string }>} */
+  const results = [];
+  let any = false;
+
+  if (cfg.webhook?.enabled && cfg.webhook.url) {
+    any = true;
+    results.push(
+      await pushWebhook(cfg.webhook, {
+        kind: 'rescue_pack',
+        competitorName: extras.competitorName || list[0]?.competidor,
+        companyName: extras.companyName || null,
+        prospectos: list,
+        count: list.length,
+      }),
+    );
+  }
+
+  if (cfg.hubspot?.enabled && cfg.hubspot.accessToken) {
+    any = true;
+    for (const p of list.slice(0, 15)) {
+      const synthetic = {
+        alertId: `rescue_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        competitorName: p.competidor,
+        originalComplaint: `${p.categoria_dolor || ''} · ${p.usuario_origen || ''}`.trim(),
+        sourceUrl: p.url_comentario,
+        channel: p.canal_tipo,
+        salesPitch: p.mensaje_sugerido_ia,
+        status: 'NEW',
+      };
+      results.push(
+        await pushHubSpot(cfg.hubspot.accessToken, buildCrmPayload(synthetic, {
+          companyName: extras.companyName,
+          prospect: p,
+        })),
+      );
+    }
+  }
+
+  if (!any) {
+    results.push({
+      provider: 'none',
+      ok: false,
+      detail: 'Activá Webhook y/o HubSpot en Config → Integraciones',
+    });
+  }
+  return results;
 }
 
 export async function pushOpportunityToCrm(alert, extras = {}) {
@@ -166,7 +246,7 @@ async function pushWebhook(webhook, payload) {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        event: 'responselens.opportunity.push',
+    event: payload?.kind === 'rescue_pack' ? 'responselens.rescue_pack.push' : 'responselens.opportunity.push',
         version: 1,
         sentAt: new Date().toISOString(),
         payload,
@@ -192,14 +272,19 @@ async function pushHubSpot(token, payload) {
       .replace(/[^a-zA-Z0-9]/g, '')
       .slice(0, 24)}@responselens.local`.toLowerCase();
     const noteBody = [
-      `ResponseLens · Oportunidad vs ${payload.competitorName}`,
-      `Severidad: ${payload.severity || '—'} · Canal: ${payload.channel || '—'}`,
-      `Fuente: ${payload.sourceUrl || '—'}`,
+      `ResponseLens · ${payload.etiqueta || `Oportunidad vs ${payload.competitorName}`}`,
+      `Prioridad: ${payload.prioridad || '—'} · Score: ${payload.calificacion_oportunidad ?? '—'} · Segmento: ${payload.segmento || '—'}`,
+      `Tarea: ${payload.tarea || '—'} · Antes de: ${payload.contactar_antes_de || '—'}`,
+      `Severidad: ${payload.severity || '—'} · Canal: ${payload.channel || payload.canal_tipo || '—'}`,
+      `Usuario: ${payload.usuario_origen || '—'}`,
+      `Fuente: ${payload.sourceUrl || payload.url_comentario || '—'}`,
       '',
       'Queja:',
       payload.originalComplaint,
       '',
-      payload.salesPitch ? `Pitch:\n${payload.salesPitch}` : '',
+      payload.mensaje_sugerido_ia || payload.salesPitch
+        ? `Mensaje sugerido:\n${payload.mensaje_sugerido_ia || payload.salesPitch}`
+        : '',
     ]
       .filter(Boolean)
       .join('\n');
@@ -213,11 +298,12 @@ async function pushHubSpot(token, payload) {
       body: JSON.stringify({
         properties: {
           email,
-          firstname: 'Lead',
+          firstname: String(payload.usuario_origen || 'Lead').replace(/^[@u/]+/, '').slice(0, 40) || 'Lead',
           lastname: String(payload.competitorName || 'Rival').slice(0, 80),
           company: payload.companyName || '',
           hs_lead_status: 'NEW',
           message: String(payload.originalComplaint || '').slice(0, 65000),
+          hs_lead_status_note: payload.etiqueta || undefined,
         },
       }),
     });

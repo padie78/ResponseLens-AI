@@ -43,8 +43,8 @@ export const PAGE_PLATFORMS = [
   },
   {
     id: 'youtube',
-    label: 'YouTube',
-    hosts: ['youtube.com'],
+    label: 'YouTube / Google',
+    hosts: ['youtube.com', 'google.com'],
     openUrl: 'https://www.youtube.com/',
   },
   {
@@ -92,7 +92,7 @@ export const PAGE_PLATFORMS = [
   {
     id: 'threads',
     label: 'Threads',
-    hosts: ['threads.net'],
+    hosts: ['threads.net', 'threads.com'],
     openUrl: 'https://www.threads.net/search?q=shopify&serp_type=default',
   },
   {

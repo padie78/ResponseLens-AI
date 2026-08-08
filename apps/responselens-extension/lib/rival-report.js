@@ -6,6 +6,7 @@
 import { detectReplyLanguage, buildLocalTriage } from './local-fallback.js';
 import { lookupCompetitorProfile, scoreFrustration } from './competitor-opportunity.js';
 import { detectThemes } from './theme-rules.js';
+import { buildCompetitiveIntelPack } from './competitive-intel-pack.js';
 
 /**
  * @param {{
@@ -63,7 +64,18 @@ export function buildLocalRivalReport(input) {
     profile,
   });
 
-  const reportMarkdown = buildMarkdown({
+  const intelPack = buildCompetitiveIntelPack({
+    competitorName: rival,
+    mentions,
+    companyName: input.companyName,
+    whatTheySell: input.whatTheySell,
+    keyLinks: input.keyLinks,
+    productRoadmap: input.productRoadmap,
+    competitors: input.competitors || [],
+    competitorProfile: profile,
+  });
+
+  const legacyMarkdown = buildMarkdown({
     lang,
     rival,
     profile,
@@ -76,6 +88,8 @@ export function buildLocalRivalReport(input) {
     companyName: input.companyName,
   });
 
+  const reportMarkdown = [intelPack.reportMarkdown, '', '---', '', legacyMarkdown].join('\n');
+
   return {
     competitorName: rival,
     language: lang,
@@ -85,8 +99,9 @@ export function buildLocalRivalReport(input) {
     themes: mentions.length ? themes : [],
     conclusions,
     opportunities,
+    intelPack,
     reportMarkdown,
-    model: 'local-rival-heuristics',
+    model: 'local-rival-heuristics+intel-pack',
     generatedAt: new Date().toISOString(),
     sources: mentions.map((m) => m.sourceUrl).filter(Boolean).slice(0, 8),
   };

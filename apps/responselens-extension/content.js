@@ -696,11 +696,12 @@
     window.clearTimeout(rivalNotifyTimer);
     rivalNotifyTimer = window.setTimeout(() => {
       const rivals = collectRivalMentionsFromDom();
-      if (!rivals.length) return;
-      const key = rivals
-        .map((r) => `${r.name}:${r.mentions.length}`)
-        .sort()
-        .join('|');
+      const key = rivals.length
+        ? rivals
+            .map((r) => `${r.name}:${r.mentions.length}`)
+            .sort()
+            .join('|')
+        : `empty:${location.href}`;
       if (key === lastRivalNotifyKey) return;
       lastRivalNotifyKey = key;
       chrome.runtime
