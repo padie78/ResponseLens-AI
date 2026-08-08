@@ -31,7 +31,7 @@ Contrato JSON obligatorio:
 }
 
 Reglas:
-- Mismo idioma que la queja.
+- IDIOMA OBLIGATORIO: escribe body, rationale, label y triage.summary en el MISMO idioma que la queja original (detecta ES, EN, PT, FR, etc.). Si la queja está en inglés, TODO el texto generado va en inglés; si en español, en español. No mezcles idiomas.
 - No inventes políticas, plazos ni compensaciones.
 - Si hay amenaza legal/seguridad/privacidad: recommendedAction debe ser ESCALATE_* o PRIVATE_DM; body debe ser prudente.
 - riskScore entre 0 y 1.
@@ -58,6 +58,7 @@ const FLAGS: EscalationFlag[] = [
 function buildUserPrompt(input: AnalyzeReplyInputDto): string {
   return [
     'Analiza el riesgo y genera 3 respuestas para esta queja pública.',
+    'CRÍTICO: las 3 respuestas (body) y rationale deben estar en el mismo idioma que la queja.',
     `Canal: ${input.channel || 'unknown'}`,
     `URL: ${input.sourceUrl || 'n/a'}`,
     `Marca: ${input.companyName || 'n/a'}`,

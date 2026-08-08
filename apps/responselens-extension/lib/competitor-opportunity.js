@@ -132,6 +132,7 @@ export function craftSalesPitch({ companyName, whatTheySell, keyLinks, competito
 
 /**
  * Tres pitches de captación: suave (recomendado), directo y técnico.
+ * Idioma alineado al de la queja (ES/EN).
  */
 export function craftSalesPitchVariants({
   companyName,
@@ -140,13 +141,51 @@ export function craftSalesPitchVariants({
   competitorName,
   complaint,
 }) {
-  const brand = companyName?.trim() || 'nuestra solución';
+  const lang = detectComplaintLanguage(complaint);
+  const brand =
+    companyName?.trim() || (lang === 'en' ? 'our solution' : 'nuestra solución');
   const offer = whatTheySell?.trim()
     ? whatTheySell.trim().slice(0, 120)
-    : 'una alternativa más estable y con soporte humano';
+    : lang === 'en'
+      ? 'a more stable alternative with human support'
+      : 'una alternativa más estable y con soporte humano';
   const link = Array.isArray(keyLinks) && keyLinks[0] ? ` ${keyLinks[0]}` : '';
   const snippet = String(complaint || '').replace(/\s+/g, ' ').trim().slice(0, 90);
-  const rival = competitorName || 'ese proveedor';
+  const rival = competitorName || (lang === 'en' ? 'that provider' : 'ese proveedor');
+
+  if (lang === 'en') {
+    return [
+      {
+        id: 'soft',
+        label: 'Soft',
+        recommended: true,
+        rationale: 'Empathetic and non-aggressive — best for public comments.',
+        body:
+          `Sorry you're dealing with this on ${rival}. ` +
+          `If you ever explore alternatives, at ${brand} we focus on ${offer}. ` +
+          `Happy to help with a low-friction switch if useful.${link ? ` Info:${link}` : ''}`,
+      },
+      {
+        id: 'direct',
+        label: 'Direct',
+        recommended: false,
+        rationale: 'Clear value prop — good when people ask for alternatives.',
+        body:
+          `Saw your comment about ${rival} ("${snippet}${snippet.length >= 90 ? '…' : ''}"). ` +
+          `If you're looking for ${offer}, ${brand} solves that kind of friction. ` +
+          `We can support the transition.${link ? ` →${link}` : ''}`,
+      },
+      {
+        id: 'technical',
+        label: 'Technical',
+        recommended: false,
+        rationale: 'Stability/support focused — fits HN / devops audiences.',
+        body:
+          `If the pain with ${rival} is uptime/support, ${brand} prioritizes predictable ops and human response. ` +
+          `We offer ${offer}. Want a short migration checklist?${link ? ` ${link}` : ''}`,
+      },
+    ];
+  }
 
   return [
     {
@@ -179,6 +218,23 @@ export function craftSalesPitchVariants({
         `Ofrecemos ${offer}. Si querés, te paso un checklist de migración corta.${link ? ` ${link}` : ''}`,
     },
   ];
+}
+
+function detectComplaintLanguage(text) {
+  const t = String(text || '');
+  const esHits = (
+    t.match(
+      /\b(el|la|los|las|de|que|no|me|se|por|con|una|está|muy|pero|como|más|gracias|horrible|estafa|falla|pésimo|nunca|cambio)\b/gi,
+    ) || []
+  ).length;
+  const enHits = (
+    t.match(
+      /\b(the|and|is|are|to|of|for|with|this|that|not|have|was|very|but|from|your|scam|broken|terrible|never|switch|refund)\b/gi,
+    ) || []
+  ).length;
+  if (enHits > esHits + 1) return 'en';
+  if (/[áéíóúñ¿¡]/i.test(t)) return 'es';
+  return esHits >= enHits ? 'es' : 'en';
 }
 
 export function buildOpportunity({

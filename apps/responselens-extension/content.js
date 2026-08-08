@@ -133,13 +133,33 @@
     return null;
   }
 
+  function detectLang(text) {
+    const t = String(text || '');
+    const es = (t.match(/\b(el|la|de|que|no|me|por|con|está|falla|estafa|horrible)\b/gi) || []).length;
+    const en = (t.match(/\b(the|and|is|to|of|for|not|scam|broken|terrible)\b/gi) || []).length;
+    if (en > es + 1) return 'en';
+    if (/[áéíóúñ¿¡]/i.test(t)) return 'es';
+    return es >= en ? 'es' : 'en';
+  }
+
   function craftPitch(competitorName, complaint) {
     const brand = companyProfile.companyName || 'TuMarca';
-    const offer = companyProfile.whatTheySell || 'una alternativa más estable';
+    const offer = companyProfile.whatTheySell || '';
     const snippet = complaint.slice(0, 100);
+    const lang = detectLang(complaint);
+    if (lang === 'en') {
+      const offerEn = offer || 'a more stable alternative';
+      return (
+        `Saw your comment about ${competitorName}. ` +
+        `If you're looking for ${offerEn}, ${brand} can help ` +
+        `("${snippet}${complaint.length > 100 ? '…' : ''}"). ` +
+        `We can support a smooth transition.`
+      );
+    }
+    const offerEs = offer || 'una alternativa más estable';
     return (
       `Vi tu comentario sobre ${competitorName}. ` +
-      `Si buscas ${offer}, en ${brand} podemos ayudarte ` +
+      `Si buscas ${offerEs}, en ${brand} podemos ayudarte ` +
       `("${snippet}${complaint.length > 100 ? '…' : ''}"). ` +
       `Te acompañamos en la transición sin fricción.`
     );

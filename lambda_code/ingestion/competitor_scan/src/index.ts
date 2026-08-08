@@ -32,12 +32,32 @@ function severityFromScore(score: number): AlertSeverity {
   return 'LOW';
 }
 
+function detectLang(text: string): 'en' | 'es' {
+  const t = text || '';
+  const es = (t.match(/\b(el|la|de|que|no|me|por|con|está|falla|estafa|horrible)\b/gi) || []).length;
+  const en = (t.match(/\b(the|and|is|to|of|for|not|scam|broken|terrible)\b/gi) || []).length;
+  if (en > es + 1) return 'en';
+  if (/[áéíóúñ¿¡]/i.test(t)) return 'es';
+  return es >= en ? 'es' : 'en';
+}
+
 function craftPitch(companyName: string | undefined, competitorName: string, complaint: string): string {
-  const brand = companyName || 'nuestra solución';
+  const lang = detectLang(complaint);
+  const brand = companyName || (lang === 'en' ? 'our solution' : 'nuestra solución');
+  const snip = complaint.slice(0, 100);
+  const more = complaint.length > 100 ? '…' : '';
+  if (lang === 'en') {
+    return (
+      `Saw your comment about ${competitorName}. ` +
+      `If you're looking for a more stable alternative, ${brand} can help with that ` +
+      `("${snip}${more}"). ` +
+      `We're available for a low-friction transition.`
+    );
+  }
   return (
     `Vi tu comentario sobre ${competitorName}. ` +
     `Si buscas una alternativa más estable, ${brand} puede ayudarte a resolver eso ` +
-    `("${complaint.slice(0, 100)}${complaint.length > 100 ? '…' : ''}"). ` +
+    `("${snip}${more}"). ` +
     `Estamos disponibles para una transición sin fricción.`
   );
 }
