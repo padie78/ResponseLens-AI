@@ -1456,6 +1456,13 @@ h2 {
   color: #0e7490;
   text-transform: lowercase;
 }
+.rl-badge--platform {
+  background: #eef2ff;
+  color: #3730a3;
+  text-transform: none;
+  font-weight: 600;
+  letter-spacing: 0;
+}
 
 .rl-playbook {
   font-size: 12px;

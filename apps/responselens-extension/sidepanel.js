@@ -85,10 +85,13 @@ import {
   PAGE_PLATFORMS,
   collectPlatformPrefsFromDom,
   defaultPlatformPrefs,
+  fillPlatformFilterSelect,
   listOpenUrlsForPrefs,
   matchPatternsForHost,
   normalizeHost,
   normalizePlatformPrefs,
+  platformDisplayLabel,
+  resolvePlatformKey,
 } from './lib/platforms.js';
 import { listPlatformSessions, requestSessionHostAccess, SESSION_GOOGLE_ORIGINS } from './lib/platform-sessions.js';
 
@@ -1480,36 +1483,26 @@ function alertDetectedTs(alert) {
 }
 
 function alertPlatformKey(alert) {
-  if (alert._source === 'hackernews') return 'hackernews';
-  if (alert._source === 'reddit') return 'reddit';
-  if (alert._source === 'news') return 'news';
-  if (alert._source === 'page') return 'page';
-  if (alert._demo) return 'manual';
-  if (alert._synthetic) return 'manual';
-  const ch = String(alert.channel || '').toLowerCase();
-  const url = String(alert.sourceUrl || '').toLowerCase();
-  if (ch === 'manual' || url.startsWith('manual://')) return 'manual';
-  if (ch.includes('reddit') || url.includes('reddit.com')) return 'reddit';
-  if (ch === 'news' || url.includes('news.google') || url.includes('/rss/')) return 'news';
-  if (ch.includes('hn') || url.includes('ycombinator') || url.includes('hn.algolia')) return 'hackernews';
-  if (ch.includes('amazon') || url.includes('amazon.')) return 'amazon';
-  if (ch.includes('ebay') || url.includes('ebay.')) return 'ebay';
-  if (ch.includes('youtube') || url.includes('youtube.') || url.includes('youtu.be')) return 'youtube';
-  if (ch === 'x' || ch.includes('twitter') || url.includes('x.com') || url.includes('twitter.com')) return 'x';
-  if (ch.includes('facebook') || url.includes('facebook.') || url.includes('fb.com')) return 'facebook';
-  if (ch.includes('instagram') || url.includes('instagram.')) return 'instagram';
-  if (ch.includes('tiktok') || url.includes('tiktok.')) return 'tiktok';
-  if (ch.includes('threads') || url.includes('threads.')) return 'threads';
-  if (ch.includes('linkedin') || url.includes('linkedin.')) return 'linkedin';
-  if (ch.includes('bluesky') || ch.includes('bsky') || url.includes('bsky.app')) return 'bluesky';
-  if (ch.includes('glassdoor') || url.includes('glassdoor.')) return 'glassdoor';
-  if (ch === 'g2' || url.includes('g2.com')) return 'g2';
-  if (ch.includes('capterra') || url.includes('capterra.')) return 'capterra';
-  if (ch.includes('producthunt') || url.includes('producthunt.')) return 'producthunt';
-  if (ch.includes('indeed') || url.includes('indeed.')) return 'indeed';
-  if (ch.includes('trustpilot') || url.includes('trustpilot.')) return 'trustpilot';
-  if (url) return 'page';
-  return 'manual';
+  return resolvePlatformKey(alert);
+}
+
+function platformUiLabel(alertOrKey) {
+  return platformDisplayLabel(alertOrKey, {
+    news: t('platform.news'),
+    page: t('platform.page'),
+    manual: t('platform.manual'),
+  });
+}
+
+function syncPlatformFilterSelects() {
+  const labels = {
+    allLabel: t('platform.all'),
+    newsLabel: t('platform.news'),
+    pageLabel: t('platform.page'),
+    manualLabel: t('platform.manual'),
+  };
+  fillPlatformFilterSelect(els.ownFilterPlatform, labels);
+  fillPlatformFilterSelect(els.alertFilterPlatform, labels);
 }
 
 function getCompFilterState() {
@@ -2608,12 +2601,7 @@ async function collectOwnPageMentions(companyName, aliases = []) {
 }
 
 function ownSourceLabel(alert) {
-  if (alert._source === 'hackernews') return 'Hacker News';
-  if (alert._source === 'reddit') return 'Reddit';
-  if (alert._source === 'news') return t('own.sourceNews');
-  if (alert._source === 'youtube' || alert.channel === 'youtube') return 'YouTube';
-  if (alert._source === 'page') return t('own.sourcePage');
-  return sourceLabel(alert) || alert.channel || '';
+  return platformUiLabel(alert);
 }
 
 function sentimentLabel(sent) {
@@ -2715,7 +2703,9 @@ function renderOwnAlertCard(alert, company = null) {
   const isOpen = expandedOwnAlertId === alert.alertId;
   node.className = `rl-alert rl-alert--accordion${isOpen ? ' is-expanded' : ''}`;
   node.dataset.alertId = alert.alertId || '';
+  node.dataset.platform = alertPlatformKey(alert);
   const sev = String(alert.severity || 'MEDIUM').toUpperCase();
+  const platKey = alertPlatformKey(alert);
   const src = ownSourceLabel(alert);
   const status = alert.status || 'NEW';
   const sent = String(alert._sentiment || '').toUpperCase();
@@ -2749,13 +2739,14 @@ function renderOwnAlertCard(alert, company = null) {
         <span class="rl-alert__title-row">
           <strong>${escapeHtml(title)}</strong>
           <span class="rl-alert__title-badges">
+            ${src ? `<span class="rl-badge rl-badge--platform" data-platform="${escapeHtml(platKey)}" title="${escapeHtml(src)}">${escapeHtml(src)}</span>` : ''}
             ${sentLab ? `<span class="rl-badge ${sentCls}">${escapeHtml(sentLab)}</span>` : ''}
             <span class="rl-badge rl-badge--${escapeHtml(sev.toLowerCase())}">${escapeHtml(sevShort(sev))}</span>
           </span>
         </span>
         <span class="rl-alert__snippet">${escapeHtml(truncateText(alert.originalComplaint || '', 100))}</span>
         <span class="rl-alert__meta">
-          ${[src, when, themeLab].filter(Boolean).map((x) => escapeHtml(x)).join(' · ')}
+          ${[when, themeLab].filter(Boolean).map((x) => escapeHtml(x)).join(' · ')}
         </span>
       </span>
       <span class="rl-alert__chevron" data-chevron aria-hidden="true">${isOpen ? '▾' : '▸'}</span>
@@ -2763,13 +2754,13 @@ function renderOwnAlertCard(alert, company = null) {
     <div class="rl-alert__body" data-own-body ${isOpen ? '' : 'hidden'}>
       <p class="rl-alert__meta-row">
         <span class="rl-badge rl-badge--status">${escapeHtml(status)}</span>
+        ${src ? `<span class="rl-badge rl-badge--platform" data-platform="${escapeHtml(platKey)}">${escapeHtml(src)}</span>` : ''}
         ${themeLab ? `<span class="rl-badge rl-badge--theme">${escapeHtml(themeLab)}</span>` : ''}
         ${
           friction != null
             ? `<span class="rl-muted">${escapeHtml(t('own.friction', { n: friction }))}</span>`
             : ''
         }
-        ${src ? `<span class="rl-muted">${escapeHtml(src)}</span>` : ''}
         ${when ? `<span class="rl-muted">${escapeHtml(when)}</span>` : ''}
         ${
           alert.sourceUrl && !String(alert.sourceUrl).startsWith('manual://')
@@ -3421,15 +3412,7 @@ async function prependOpportunity(opp) {
 }
 
 function sourceLabel(alert) {
-  if (alert._brandScope === 'own') return 'prensa · tu marca';
-  if (alert._source === 'appsync') return 'aws';
-  if (alert._source === 'hackernews') return 'hn';
-  if (alert._source === 'reddit') return 'reddit';
-  if (alert._source === 'news') return 'noticias';
-  if (alert._source === 'page') return 'página';
-  if (alert._demo) return 'ejemplo';
-  if (alert._synthetic) return 'simulado';
-  return '';
+  return platformUiLabel(alert);
 }
 
 async function refreshNotifyModeUi() {
@@ -3527,10 +3510,13 @@ function renderAlertCard(alert, company = null) {
     const c = alert.competitor || lookupCompetitorProfile(alert.competitorName) || {};
     const logo = c.logoUrl || lookupCompetitorProfile(alert.competitorName)?.logoUrl;
     const isOpen = expandedAlertId === alert.alertId;
+    const platKey = alertPlatformKey(alert);
     const src = sourceLabel(alert);
+    const when = formatRelativeTime(alert);
     const node = document.createElement('article');
     node.className = `rl-alert rl-alert--accordion${isOpen ? ' is-expanded' : ''}`;
     node.dataset.alertId = alert.alertId;
+    node.dataset.platform = platKey;
 
     node.innerHTML = `
       <button type="button" class="rl-alert__summary" data-alert-toggle aria-expanded="${isOpen ? 'true' : 'false'}">
@@ -3539,6 +3525,7 @@ function renderAlertCard(alert, company = null) {
           <span class="rl-alert__title-row">
             <strong>${escapeHtml(alert.competitorName || 'Rival')}</strong>
             <span class="rl-alert__title-badges">
+            ${src ? `<span class="rl-badge rl-badge--platform" data-platform="${escapeHtml(platKey)}" title="${escapeHtml(src)}">${escapeHtml(src)}</span>` : ''}
             ${
               alert._brandScope === 'own'
                 ? '<span class="rl-badge rl-badge--own">Tu marca</span>'
@@ -3557,13 +3544,16 @@ function renderAlertCard(alert, company = null) {
             </span>
           </span>
           <span class="rl-alert__snippet">${escapeHtml(truncateText(alert.originalComplaint, 100))}</span>
+          <span class="rl-alert__meta">
+            ${[when].filter(Boolean).map((x) => escapeHtml(x)).join(' · ')}
+          </span>
         </span>
         <span class="rl-alert__chevron" data-chevron aria-hidden="true">${isOpen ? '▾' : '▸'}</span>
       </button>
       <div class="rl-alert__body" data-alert-body ${isOpen ? '' : 'hidden'}>
         <p class="rl-alert__meta-row">
           <span class="rl-badge rl-badge--status">${escapeHtml(alert.status || 'NEW')}</span>
-          ${src ? `<span class="rl-muted">${escapeHtml(src)}</span>` : ''}
+          ${src ? `<span class="rl-badge rl-badge--platform" data-platform="${escapeHtml(platKey)}">${escapeHtml(src)}</span>` : ''}
           ${
             alert.themeId
               ? `<span class="rl-badge rl-badge--theme">${escapeHtml(alert.themeId)}</span>`
@@ -5032,6 +5022,7 @@ async function onLocaleChange(next) {
   await persistLocale(/** @type {*} */ (next));
   syncLocaleSelects(getLocale());
   applyDomI18n();
+  syncPlatformFilterSelects();
   try {
     await refreshAlerts();
   } catch {
@@ -5070,6 +5061,7 @@ async function onLocaleChange(next) {
     await loadStoredLocale();
     syncLocaleSelects(getLocale());
     applyDomI18n();
+    syncPlatformFilterSelects();
   } catch (err) {
     console.warn('[RL] i18n boot', err);
   }
@@ -5090,6 +5082,7 @@ async function onLocaleChange(next) {
       setLocale(changes.rl_locale.newValue);
       syncLocaleSelects(getLocale());
       applyDomI18n();
+      syncPlatformFilterSelects();
     }
   });
   await loadUiZoom();

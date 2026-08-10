@@ -6,6 +6,7 @@
  */
 
 import { hasSocialCrawl } from './scan-credentials.js';
+import { normalizePlatformChannel } from './platforms.js';
 
 const BASE = 'https://www.socialcrawl.dev';
 
@@ -122,10 +123,11 @@ function extractItems(envelope) {
 
 function mapItemToMention(item) {
   if (!item || typeof item !== 'object') return null;
-  const platform = String(item.source || item.platform || item.provider || 'web')
+  const rawPlatform = String(item.source || item.platform || item.provider || 'web')
     .toLowerCase()
     .replace(/-ai-search$/, '')
     .replace(/^twitter$/, 'x');
+  const platform = normalizePlatformChannel(rawPlatform) || rawPlatform || 'web';
 
   const title = String(item.title || item.headline || '').trim();
   const body = String(

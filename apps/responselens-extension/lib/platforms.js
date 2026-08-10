@@ -33,6 +33,211 @@ export const SCAN_SOURCES = [
   },
 ];
 
+/** Plataformas para filtros / etiquetas en Propios y Competencia (incl. SocialCrawl). */
+export const PLATFORM_FILTER_OPTIONS = [
+  { id: 'hackernews', label: 'Hacker News' },
+  { id: 'reddit', label: 'Reddit' },
+  { id: 'news', label: 'Noticias' },
+  { id: 'page', label: 'Página' },
+  { id: 'web', label: 'Web' },
+  { id: 'amazon', label: 'Amazon' },
+  { id: 'ebay', label: 'eBay' },
+  { id: 'youtube', label: 'YouTube' },
+  { id: 'x', label: 'X / Twitter' },
+  { id: 'facebook', label: 'Facebook' },
+  { id: 'instagram', label: 'Instagram' },
+  { id: 'tiktok', label: 'TikTok' },
+  { id: 'threads', label: 'Threads' },
+  { id: 'linkedin', label: 'LinkedIn' },
+  { id: 'bluesky', label: 'Bluesky' },
+  { id: 'glassdoor', label: 'Glassdoor' },
+  { id: 'g2', label: 'G2' },
+  { id: 'capterra', label: 'Capterra' },
+  { id: 'producthunt', label: 'Product Hunt' },
+  { id: 'indeed', label: 'Indeed' },
+  { id: 'trustpilot', label: 'Trustpilot' },
+  { id: 'manual', label: 'Manual' },
+];
+
+const PLATFORM_LABEL_BY_ID = Object.fromEntries(
+  PLATFORM_FILTER_OPTIONS.map((p) => [p.id, p.label]),
+);
+
+const CHANNEL_ALIASES = {
+  twitter: 'x',
+  hn: 'hackernews',
+  'hacker-news': 'hackernews',
+  'hacker news': 'hackernews',
+  ycombinator: 'hackernews',
+  google: 'news',
+  googlenews: 'news',
+  'google-news': 'news',
+  fb: 'facebook',
+  ig: 'instagram',
+  bsky: 'bluesky',
+  'product-hunt': 'producthunt',
+  product_hunt: 'producthunt',
+};
+
+/**
+ * @param {string} raw
+ * @returns {string | null}
+ */
+export function normalizePlatformChannel(raw) {
+  const ch = String(raw || '')
+    .toLowerCase()
+    .trim()
+    .replace(/-ai-search$/, '')
+    .replace(/\s+/g, ' ');
+  if (!ch) return null;
+  if (CHANNEL_ALIASES[ch]) return CHANNEL_ALIASES[ch];
+  if (PLATFORM_LABEL_BY_ID[ch]) return ch;
+  if (ch.includes('reddit')) return 'reddit';
+  if (ch.includes('youtube') || ch === 'yt') return 'youtube';
+  if (ch.includes('facebook')) return 'facebook';
+  if (ch.includes('instagram')) return 'instagram';
+  if (ch.includes('tiktok')) return 'tiktok';
+  if (ch.includes('threads')) return 'threads';
+  if (ch.includes('linkedin')) return 'linkedin';
+  if (ch.includes('bluesky') || ch.includes('bsky')) return 'bluesky';
+  if (ch.includes('amazon')) return 'amazon';
+  if (ch.includes('ebay')) return 'ebay';
+  if (ch.includes('glassdoor')) return 'glassdoor';
+  if (ch.includes('capterra')) return 'capterra';
+  if (ch.includes('producthunt') || ch.includes('product hunt')) return 'producthunt';
+  if (ch.includes('indeed')) return 'indeed';
+  if (ch.includes('trustpilot')) return 'trustpilot';
+  if (ch.includes('twitter') || ch === 'x') return 'x';
+  if (ch.includes('hacker') || ch === 'hn') return 'hackernews';
+  if (ch === 'news' || ch.includes('noticia')) return 'news';
+  if (ch === 'web' || ch === 'www' || ch === 'internet') return 'web';
+  if (ch === 'page' || ch === 'dom' || ch === 'active_page') return 'page';
+  if (ch === 'manual' || ch === 'demo' || ch === 'synthetic') return 'manual';
+  if (ch === 'g2') return 'g2';
+  return null;
+}
+
+/**
+ * @param {string} url
+ * @returns {string | null}
+ */
+export function platformKeyFromUrl(url) {
+  const u = String(url || '').toLowerCase();
+  if (!u) return null;
+  if (u.startsWith('manual://')) return 'manual';
+  if (u.includes('socialcrawl.dev')) return null;
+  if (u.includes('reddit.com')) return 'reddit';
+  if (u.includes('news.google') || u.includes('/rss/')) return 'news';
+  if (u.includes('ycombinator') || u.includes('hn.algolia') || u.includes('news.ycombinator')) {
+    return 'hackernews';
+  }
+  if (u.includes('amazon.')) return 'amazon';
+  if (u.includes('ebay.')) return 'ebay';
+  if (u.includes('youtube.') || u.includes('youtu.be')) return 'youtube';
+  if (u.includes('x.com/') || u.includes('twitter.com')) return 'x';
+  if (u.includes('facebook.') || u.includes('fb.com')) return 'facebook';
+  if (u.includes('instagram.')) return 'instagram';
+  if (u.includes('tiktok.')) return 'tiktok';
+  if (u.includes('threads.')) return 'threads';
+  if (u.includes('linkedin.')) return 'linkedin';
+  if (u.includes('bsky.app')) return 'bluesky';
+  if (u.includes('glassdoor.')) return 'glassdoor';
+  if (u.includes('g2.com')) return 'g2';
+  if (u.includes('capterra.')) return 'capterra';
+  if (u.includes('producthunt.')) return 'producthunt';
+  if (u.includes('indeed.')) return 'indeed';
+  if (u.includes('trustpilot.')) return 'trustpilot';
+  return null;
+}
+
+/**
+ * Clave estable de plataforma para filtros y badges.
+ * @param {object | null | undefined} alert
+ * @returns {string}
+ */
+export function resolvePlatformKey(alert) {
+  if (!alert || typeof alert !== 'object') return 'manual';
+
+  const src = String(alert._source || '').toLowerCase();
+  const chRaw = String(alert.channel || '').toLowerCase();
+  const url = String(alert.sourceUrl || '');
+  const fromChannel = normalizePlatformChannel(chRaw);
+  const fromUrl = platformKeyFromUrl(url);
+
+  if (src === 'hackernews') return 'hackernews';
+  if (src === 'reddit') return 'reddit';
+  if (src === 'news') return 'news';
+  if (src === 'youtube') return 'youtube';
+
+  // SocialCrawl / inbound: el canal real manda (tiktok, ig, …), no el proveedor
+  if (src === 'socialcrawl' || alert._provider === 'socialcrawl') {
+    return fromChannel || fromUrl || 'web';
+  }
+
+  if (src === 'page') return fromChannel || fromUrl || 'page';
+
+  if (fromChannel) return fromChannel;
+  if (fromUrl) return fromUrl;
+
+  if (alert._demo || alert._synthetic) return 'manual';
+  if (chRaw === 'manual' || url.toLowerCase().startsWith('manual://')) return 'manual';
+  if (url && !url.toLowerCase().includes('socialcrawl.dev')) return 'page';
+  return 'manual';
+}
+
+/**
+ * Etiqueta legible de plataforma.
+ * @param {string | object | null | undefined} keyOrAlert
+ * @param {{ news?: string, page?: string, manual?: string }} [i18n]
+ */
+export function platformDisplayLabel(keyOrAlert, i18n = {}) {
+  const key =
+    keyOrAlert && typeof keyOrAlert === 'object'
+      ? resolvePlatformKey(keyOrAlert)
+      : String(keyOrAlert || '');
+  if (key === 'news' && i18n.news) return i18n.news;
+  if (key === 'page' && i18n.page) return i18n.page;
+  if (key === 'manual' && i18n.manual) return i18n.manual;
+  return PLATFORM_LABEL_BY_ID[key] || (key ? key : '');
+}
+
+/**
+ * Rellena un <select> de filtro de plataforma (conserva selección).
+ * @param {HTMLSelectElement | null} selectEl
+ * @param {{ allLabel?: string, newsLabel?: string, pageLabel?: string, manualLabel?: string }} [labels]
+ */
+export function fillPlatformFilterSelect(selectEl, labels = {}) {
+  if (!selectEl) return;
+  const prev = selectEl.value || 'all';
+  const opts = [
+    { id: 'all', label: labels.allLabel || 'Todas' },
+    ...PLATFORM_FILTER_OPTIONS.map((p) => {
+      if (p.id === 'news') return { id: p.id, label: labels.newsLabel || p.label };
+      if (p.id === 'page') return { id: p.id, label: labels.pageLabel || p.label };
+      if (p.id === 'manual') return { id: p.id, label: labels.manualLabel || p.label };
+      return p;
+    }),
+  ];
+  selectEl.innerHTML = opts
+    .map(
+      (o) =>
+        `<option value="${o.id}"${o.id === prev ? ' selected' : ''}>${escapeAttr(o.label)}</option>`,
+    )
+    .join('');
+  if (![...selectEl.options].some((o) => o.value === prev)) {
+    selectEl.value = 'all';
+  } else {
+    selectEl.value = prev;
+  }
+}
+
+function escapeAttr(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/"/g, '&quot;');
+}
+
 export const PAGE_PLATFORMS = [
   {
     id: 'amazon',
