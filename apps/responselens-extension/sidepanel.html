@@ -127,31 +127,196 @@
         <div class="rl-panel-head">
           <div class="rl-panel-head__copy">
             <h2 data-i18n="own.title">Propios</h2>
-            <p class="rl-panel-lead" data-i18n="own.lead">Respuestas a quejas de tu marca.</p>
+            <p class="rl-panel-lead" data-i18n="own.lead">
+              Reputación de tu marca: escaneo + respuesta a quejas.
+            </p>
+          </div>
+          <div class="rl-head-actions">
+            <button
+              type="button"
+              id="btn-scan-own"
+              class="rl-btn rl-btn--primary"
+              title="Busca menciones negativas de tu empresa"
+              data-i18n-title="own.scanTitle"
+              data-i18n="own.scan"
+            >
+              Escanear marca
+            </button>
+            <button
+              type="button"
+              id="btn-refresh-own"
+              class="rl-btn rl-btn--ghost rl-btn--icon"
+              title="Actualizar lista"
+              data-i18n-title="own.refresh"
+            >
+              ↻
+            </button>
           </div>
         </div>
 
-        <div id="own-empty" class="rl-empty" data-i18n="own.empty">Seleccioná un comentario en la página, o pegá el texto abajo.</div>
+        <p id="own-scan-status" class="rl-hint rl-hint--flush" aria-live="polite"></p>
+        <p id="own-filter-count" class="rl-filter-count" aria-live="polite"></p>
+
+        <div id="own-brand-bar" class="rl-own-brand-bar" hidden>
+          <div class="rl-own-brand-bar__top">
+            <img id="own-brand-logo" class="rl-comp-logo rl-comp-logo--sm" alt="" width="28" height="28" hidden />
+            <div class="rl-own-brand-bar__copy">
+              <span class="rl-own-brand-bar__k" data-i18n="own.brandBarLabel">Escaneando como</span>
+              <strong id="own-brand-name">—</strong>
+              <span id="own-brand-meta" class="rl-muted"></span>
+              <span id="own-brand-aliases" class="rl-muted"></span>
+            </div>
+          </div>
+          <div class="rl-own-brand-bar__actions">
+            <button type="button" id="btn-own-brand-report" class="rl-btn rl-btn--primary rl-btn--sm" data-i18n="own.reportGenerate">
+              Informe vida digital
+            </button>
+            <button type="button" id="btn-open-own-channels" class="rl-btn rl-btn--soft rl-btn--sm" data-i18n="own.openChannels">
+              Abrir mis canales
+            </button>
+            <button type="button" id="btn-goto-brand-cfg" class="rl-btn rl-btn--ghost rl-btn--sm" data-i18n="own.editBrand">
+              Editar marca
+            </button>
+          </div>
+          <p class="rl-hint rl-hint--flush rl-own-brand-bar__hint" data-i18n="own.reportHint">
+            Generá un informe de cómo se ve tu marca en HN, Reddit, noticias y YouTube.
+          </p>
+        </div>
+        <p id="own-brand-missing" class="rl-hint rl-hint--flush is-error" hidden data-i18n-html="own.brandMissing">
+          Falta el nombre de tu empresa. Andá a <strong>Config → Mi empresa</strong> y guardá.
+        </p>
 
         <details class="rl-disclosure rl-cfg-panel">
-          <summary data-i18n="own.pasteSummary">Pegar queja / review</summary>
+          <summary data-i18n="own.filters">Filtros</summary>
+          <div class="rl-filters" id="own-filters" aria-label="Filtros de menciones propias" data-i18n-aria-label="own.filtersAria">
+            <label class="rl-filter">
+              <span data-i18n="own.filter.status">Estado</span>
+              <select id="own-filter-status" class="rl-select" aria-label="Filtro de estado">
+                <option value="OPEN" data-i18n="status.open">Abiertas</option>
+                <option value="ALL" data-i18n="status.all">Todas</option>
+                <option value="RESPONDED" data-i18n="status.responded">Respondidas</option>
+                <option value="DISMISSED" data-i18n="status.dismissed">Descartadas</option>
+              </select>
+            </label>
+            <label class="rl-filter">
+              <span data-i18n="own.filter.date">Fecha</span>
+              <select id="own-filter-date" class="rl-select" aria-label="Filtro de fecha">
+                <option value="all" data-i18n="date.all">Todas</option>
+                <option value="1" data-i18n="date.today">Hoy</option>
+                <option value="7" selected data-i18n="date.7">7 días</option>
+                <option value="14" data-i18n="date.14">14 días</option>
+                <option value="30" data-i18n="date.30">30 días</option>
+              </select>
+            </label>
+            <label class="rl-filter">
+              <span data-i18n="own.filter.platform">Plataforma</span>
+              <select id="own-filter-platform" class="rl-select" aria-label="Filtro de plataforma">
+                <option value="all" data-i18n="platform.all">Todas</option>
+                <option value="hackernews">Hacker News</option>
+                <option value="reddit">Reddit</option>
+                <option value="news" data-i18n="platform.news">Noticias</option>
+                <option value="page" data-i18n="platform.page">Página</option>
+                <option value="amazon">Amazon</option>
+                <option value="youtube">YouTube</option>
+                <option value="x">X / Twitter</option>
+                <option value="facebook">Facebook</option>
+                <option value="instagram">Instagram</option>
+                <option value="tiktok">TikTok</option>
+                <option value="threads">Threads</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="glassdoor">Glassdoor</option>
+                <option value="g2">G2</option>
+                <option value="trustpilot">Trustpilot</option>
+                <option value="manual" data-i18n="platform.manual">Manual</option>
+              </select>
+            </label>
+            <label class="rl-filter">
+              <span data-i18n="own.filter.severity">Severidad</span>
+              <select id="own-filter-severity" class="rl-select" aria-label="Filtro de severidad">
+                <option value="all" data-i18n="sev.all">Todas</option>
+                <option value="HIGH" data-i18n="sev.high">Alta / crítica</option>
+                <option value="MEDIUM" data-i18n="sev.medium">Media</option>
+                <option value="LOW" data-i18n="sev.low">Baja</option>
+              </select>
+            </label>
+            <label class="rl-filter">
+              <span data-i18n="own.filter.sentiment">Sentimiento</span>
+              <select id="own-filter-sentiment" class="rl-select" aria-label="Filtro de sentimiento">
+                <option value="all" data-i18n="sent.all">Todos</option>
+                <option value="NEGATIVE" data-i18n="sent.negative">Negativo</option>
+                <option value="POSITIVE" data-i18n="sent.positive">Positivo</option>
+                <option value="NEUTRAL" data-i18n="sent.neutral">Neutro / mixto</option>
+              </select>
+            </label>
+            <label class="rl-filter rl-filter--grow">
+              <span data-i18n="own.filter.search">Buscar</span>
+              <input
+                id="own-filter-q"
+                type="search"
+                maxlength="120"
+                placeholder="Texto en la queja…"
+                data-i18n-placeholder="own.filter.searchPh"
+                aria-label="Buscar en menciones"
+              />
+            </label>
+          </div>
+        </details>
+
+        <p class="rl-hint rl-hint--flush" data-i18n-html="own.feedHint">
+          HN · Reddit · <strong>noticias/artículos</strong> · <strong>YouTube</strong> y la pestaña abierta.
+          Incluye menciones <strong>positivas y negativas</strong>. Tocá una card para responder.
+        </p>
+
+        <div id="own-alerts" class="rl-feed" aria-live="polite">
+          <div class="rl-empty rl-empty--comp" data-i18n-html="own.feedEmptyHtml">
+            Todavía no hay menciones.<br />Escaneá tu marca o agregá una queja real.
+          </div>
+        </div>
+
+        <details class="rl-disclosure rl-cfg-panel">
+          <summary data-i18n="own.pasteSummary">Agregar queja real (texto o link)</summary>
+          <p class="rl-hint rl-hint--flush" data-i18n-html="own.manualHint">
+            No publica nada. Solo importa al panel una queja que <strong>vos ya encontraste</strong>
+            (review, post, DM) para triage y respuesta.
+          </p>
           <form id="own-manual" class="rl-manual rl-manual--nested">
             <label>
-              <span data-i18n="own.text">Texto</span>
-              <textarea id="manual-text" rows="3" maxlength="4000" placeholder="Pega aquí el texto negativo…" data-i18n-placeholder="own.textPh"></textarea>
+              <span data-i18n="own.text">Texto de la queja</span>
+              <textarea
+                id="manual-text"
+                rows="3"
+                maxlength="4000"
+                placeholder="Pega aquí el texto negativo…"
+                data-i18n-placeholder="own.textPh"
+              ></textarea>
             </label>
-            <button type="submit" class="rl-btn rl-btn--ghost" data-i18n="own.analyze">Analizar texto</button>
+            <label>
+              <span data-i18n="own.manualUrl">Link a la publicación (opcional)</span>
+              <input id="manual-url" type="url" placeholder="https://…" data-i18n-placeholder="own.manualUrlPh" />
+            </label>
+            <div class="rl-tools-row">
+              <button type="submit" class="rl-btn rl-btn--primary" data-i18n="own.manualCreate">
+                Crear mención
+              </button>
+              <button type="button" id="btn-own-analyze-now" class="rl-btn rl-btn--ghost" data-i18n="own.analyze">
+                Analizar ya
+              </button>
+            </div>
           </form>
         </details>
 
-        <div id="own-loader" class="rl-loader" hidden>
-          <div class="rl-spinner" aria-hidden="true"></div>
-          <p data-i18n="own.loader">Triaging riesgo y redactando 3 enfoques…</p>
+        <div id="own-workspace" class="rl-own-workspace">
+          <div id="own-empty" class="rl-empty" data-i18n="own.empty">
+            Seleccioná una mención arriba, un comentario en la página, o pegá el texto.
+          </div>
+          <div id="own-loader" class="rl-loader" hidden>
+            <div class="rl-spinner" aria-hidden="true"></div>
+            <p data-i18n="own.loader">Triaging riesgo y redactando 3 enfoques…</p>
+          </div>
+          <div id="own-triage" class="rl-triage" hidden></div>
+          <div id="own-complaint" class="rl-complaint" hidden></div>
+          <div id="own-cards" class="rl-cards" hidden></div>
         </div>
-
-        <div id="own-triage" class="rl-triage" hidden></div>
-        <div id="own-complaint" class="rl-complaint" hidden></div>
-        <div id="own-cards" class="rl-cards" hidden></div>
       </section>
 
       <!-- Módulo B -->
@@ -413,36 +578,172 @@
       <section id="panel-cfg" class="rl-panel" role="tabpanel" hidden>
         <form id="cfg-form" class="rl-form rl-cfg-form">
 
-          <details class="rl-disclosure rl-cfg-panel">
-            <summary data-i18n="cfg.profile">Perfil de la empresa</summary>
+          <details class="rl-disclosure rl-cfg-panel" id="cfg-brand-wrap" open>
+            <summary data-i18n="cfg.profile">Mi empresa (para escanear)</summary>
             <div class="rl-cfg-panel__body">
-              <label>
-                <span data-i18n="cfg.name">Nombre</span>
-                <input id="cfg-name" name="companyName" required maxlength="120" />
-              </label>
-              <label>
-                <span data-i18n="cfg.sells">Qué vende</span>
-                <textarea id="cfg-sells" name="whatTheySell" rows="3" required maxlength="800"></textarea>
-              </label>
-              <label>
-                <span data-i18n="cfg.links">Enlaces clave (uno por línea)</span>
-                <textarea id="cfg-links" name="keyLinks" rows="3" maxlength="1200"></textarea>
-              </label>
-              <label>
-                <span data-i18n="cfg.voice">Notas de voz de marca</span>
-                <textarea id="cfg-voice" name="brandVoiceNotes" rows="2" maxlength="600"></textarea>
-              </label>
-              <label>
-                <span data-i18n="cfg.roadmap">Mapa de producto / roadmap (una feature por línea)</span>
-                <textarea
-                  id="cfg-roadmap"
-                  name="productRoadmap"
-                  rows="3"
-                  maxlength="1200"
-                  placeholder="ej. SLA 99.9%&#10;Soporte humano &lt;1h&#10;Precios transparentes&#10;Migración asistida"
-                ></textarea>
-              </label>
-              <p class="rl-hint" data-i18n="cfg.roadmapHint">Se cruza con quejas del rival para Product Gap (promocionar vs programar).</p>
+              <p class="rl-hint rl-hint--flush" data-i18n-html="cfg.profileHint">
+                Estos datos alimentan <strong>Propios → Escanear marca</strong> (HN, Reddit, noticias)
+                y la detección en páginas que abrís.
+              </p>
+
+              <fieldset class="rl-cfg-fieldset">
+                <legend data-i18n="cfg.scanIdentity">Identidad a buscar</legend>
+                <label>
+                  <span data-i18n="cfg.name">Nombre de la marca</span>
+                  <input
+                    id="cfg-name"
+                    name="companyName"
+                    required
+                    maxlength="120"
+                    placeholder="Ej. Acme Pay"
+                    data-i18n-placeholder="cfg.namePh"
+                    autocomplete="organization"
+                  />
+                </label>
+                <label>
+                  <span data-i18n="cfg.aliases">También buscar como… (uno por línea)</span>
+                  <textarea
+                    id="cfg-aliases"
+                    name="companyAliases"
+                    rows="3"
+                    maxlength="400"
+                    placeholder="AcmePay&#10;Acme Pay Inc&#10;acme-pay"
+                    data-i18n-placeholder="cfg.aliasesPh"
+                  ></textarea>
+                </label>
+                <p class="rl-hint rl-hint--flush" data-i18n="cfg.aliasesHint">
+                  Incluí el nombre legal, app store, handle o typos frecuentes.
+                </p>
+                <div class="rl-brand-preview" id="cfg-brand-preview" aria-live="polite">
+                  <span class="rl-brand-preview__label" data-i18n="cfg.scanPreview">Se buscará:</span>
+                  <div class="rl-brand-preview__chips" id="cfg-brand-chips"></div>
+                </div>
+                <label>
+                  <span data-i18n="cfg.website">Sitio web</span>
+                  <input
+                    id="cfg-website"
+                    name="websiteUrl"
+                    type="url"
+                    maxlength="300"
+                    placeholder="https://…"
+                    data-i18n-placeholder="cfg.websitePh"
+                  />
+                </label>
+                <label>
+                  <span data-i18n="cfg.logo">Logo URL (opcional)</span>
+                  <input
+                    id="cfg-logo"
+                    name="logoUrl"
+                    type="url"
+                    maxlength="400"
+                    placeholder="https://…/logo.png"
+                    data-i18n-placeholder="cfg.logoPh"
+                  />
+                </label>
+                <label>
+                  <span data-i18n="cfg.industry">Industria</span>
+                  <input
+                    id="cfg-industry"
+                    name="industry"
+                    maxlength="120"
+                    placeholder="Fintech / pagos B2B"
+                    data-i18n-placeholder="cfg.industryPh"
+                  />
+                </label>
+                <label>
+                  <span data-i18n="cfg.description">Descripción / posicionamiento</span>
+                  <textarea
+                    id="cfg-description"
+                    name="description"
+                    rows="2"
+                    maxlength="400"
+                    placeholder="Qué sos y cómo te diferenciás…"
+                    data-i18n-placeholder="cfg.descriptionPh"
+                  ></textarea>
+                </label>
+                <label>
+                  <span data-i18n="cfg.socialHandles">Redes / handles (uno por línea)</span>
+                  <textarea
+                    id="cfg-social-handles"
+                    name="socialHandles"
+                    rows="2"
+                    maxlength="400"
+                    placeholder="@acmepay&#10;acmepay"
+                    data-i18n-placeholder="cfg.socialHandlesPh"
+                  ></textarea>
+                </label>
+                <p class="rl-hint rl-hint--flush" data-i18n="cfg.socialHandlesHint">
+                  Se suman a la búsqueda junto con los aliases.
+                </p>
+                <label>
+                  <span data-i18n="cfg.knownRisks">Quejas / riesgos frecuentes</span>
+                  <textarea
+                    id="cfg-known-risks"
+                    name="knownRisks"
+                    rows="2"
+                    maxlength="400"
+                    placeholder="Cobros duplicados, demora en soporte…"
+                    data-i18n-placeholder="cfg.knownRisksPh"
+                  ></textarea>
+                </label>
+              </fieldset>
+
+              <fieldset class="rl-cfg-fieldset">
+                <legend data-i18n="cfg.ownChannels">Mis canales (URLs)</legend>
+                <p class="rl-hint rl-hint--flush" data-i18n-html="cfg.ownChannelsHint">
+                  Perfiles y reviews <strong>tuyos</strong> (IG, YT, Trustpilot, LinkedIn…).
+                  No se scrapean solos: <strong>Abrir mis canales</strong> en Propios abre las pestañas
+                  para que el plugin lea quejas en el DOM.
+                </p>
+                <label>
+                  <span data-i18n="cfg.ownChannelsLabel">URLs (una por línea)</span>
+                  <textarea
+                    id="cfg-own-channels"
+                    name="ownChannels"
+                    rows="4"
+                    maxlength="2000"
+                    placeholder="https://www.trustpilot.com/review/acme.com&#10;https://www.instagram.com/acmepay/&#10;https://www.youtube.com/@acmepay/videos"
+                    data-i18n-placeholder="cfg.ownChannelsPh"
+                  ></textarea>
+                </label>
+              </fieldset>
+
+              <fieldset class="rl-cfg-fieldset">
+                <legend data-i18n="cfg.brandVoiceBlock">Voz y producto (respuestas IA)</legend>
+                <label>
+                  <span data-i18n="cfg.sells">Qué vende</span>
+                  <textarea
+                    id="cfg-sells"
+                    name="whatTheySell"
+                    rows="2"
+                    required
+                    maxlength="800"
+                    placeholder="Pagos B2B con soporte humano…"
+                    data-i18n-placeholder="cfg.sellsPh"
+                  ></textarea>
+                </label>
+                <label>
+                  <span data-i18n="cfg.links">Enlaces para respuestas (uno por línea)</span>
+                  <textarea id="cfg-links" name="keyLinks" rows="2" maxlength="1200"></textarea>
+                </label>
+                <label>
+                  <span data-i18n="cfg.voice">Notas de voz de marca</span>
+                  <textarea id="cfg-voice" name="brandVoiceNotes" rows="2" maxlength="600"></textarea>
+                </label>
+                <label>
+                  <span data-i18n="cfg.roadmap">Mapa de producto / roadmap (una feature por línea)</span>
+                  <textarea
+                    id="cfg-roadmap"
+                    name="productRoadmap"
+                    rows="2"
+                    maxlength="1200"
+                    placeholder="ej. SLA 99.9%&#10;Soporte humano &lt;1h"
+                  ></textarea>
+                </label>
+                <p class="rl-hint" data-i18n="cfg.roadmapHint">
+                  Se cruza con quejas del rival para Product Gap (promocionar vs programar).
+                </p>
+              </fieldset>
             </div>
           </details>
 
@@ -657,6 +958,39 @@
                 NewsAPI key
                 <input id="cfg-newsapi-key" type="password" maxlength="200" autocomplete="off" />
               </label>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-youtube-api" />
+                <span data-i18n="cfg.youtubeApi">YouTube Data API habilitado</span>
+              </label>
+              <label>
+                <span data-i18n="cfg.youtubeKey">YouTube API key</span>
+                <input id="cfg-youtube-key" type="password" maxlength="200" autocomplete="off" />
+              </label>
+              <p class="rl-hint rl-hint--flush" data-i18n="cfg.youtubeHint">
+                Sin key, Propios usa índice News (site:youtube.com). Con key: búsqueda real de videos.
+              </p>
+              <label class="rl-check">
+                <input type="checkbox" id="cfg-socialcrawl" />
+                <span data-i18n="cfg.socialcrawl">SocialCrawl habilitado</span>
+              </label>
+              <label>
+                <span data-i18n="cfg.socialcrawlKey">SocialCrawl API key</span>
+                <input id="cfg-socialcrawl-key" type="password" maxlength="80" autocomplete="off" />
+              </label>
+              <label>
+                <span data-i18n="cfg.socialcrawlSources">Fuentes (CSV opcional)</span>
+                <input
+                  id="cfg-socialcrawl-sources"
+                  type="text"
+                  maxlength="200"
+                  placeholder="reddit,youtube,tiktok,instagram,threads,linkedin"
+                  autocomplete="off"
+                />
+              </label>
+              <p class="rl-hint rl-hint--flush" data-i18n-html="cfg.socialcrawlHint">
+                Escucha multi-plataforma vía <code>socialcrawl.dev</code>. La key solo vive en
+                <code>chrome.storage.local</code> (nunca en prompts LLM). Rotá cualquier key filtrada.
+              </p>
             </div>
           </details>
 

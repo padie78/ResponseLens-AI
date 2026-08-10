@@ -1,5 +1,8 @@
 import type { AlertSeverity, AlertWorkflowStatus } from '../value-objects/reply-tone';
 
+/** Origen de alcance: marca propia (reputación) vs rival (captación). */
+export type BrandScope = 'own' | 'rival';
+
 export interface CompetitorAlert {
   alertId: string;
   userId: string;
@@ -13,4 +16,9 @@ export interface CompetitorAlert {
   detectedAt: string;
   status?: AlertWorkflowStatus;
   notes?: string | null;
+  /** own = Propios; rival / omitido = Competencia */
+  brandScope?: BrandScope | null;
+  sentiment?: string | null;
+  /** mention | brandwatch | meltwater | sprout | zapier | … */
+  inboundSource?: string | null;
 }

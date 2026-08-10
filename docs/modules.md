@@ -3,8 +3,11 @@
 ## Idioma (i18n)
 Selector **ES/EN/FR/IT/DE** en el header (junto al zoom). Persistido en `rl_locale`. Catálogos en `locales/*.js`. Informes largos siguen ES|EN según el texto.
 
-## Triage de crisis
+## Triage de crisis (Propios)
 Cada análisis incluye `riskScore`, `riskLevel`, flags de escalado y acción recomendada (público / DM / legal / safety).
+
+### Escaneo de marca propia
+Tab **Propios** → **Escanear marca** + **Informe vida digital**: score de reputación, mix +/−, temas, lectura y acciones (defense). Fuentes: HN + Reddit + noticias/artículos + YouTube + pestaña. Config → Mi empresa (ficha + canales).
 
 ## Historial + KPIs
 Las inyecciones quedan en `rl_reply_history` (export CSV). Cabecera con respuestas/7d, alertas abiertas, críticas y win rate.
@@ -48,6 +51,7 @@ Estados: NEW → CONTACTED / WON / DISMISSED.
 - **Fuente de verdad:** DynamoDB single-table (`USER#` / `ALERT#`).
 - Extensión: cache local + hydrate `getUserConfig` / `listCompetitorAlerts` al entrar.
 - Escaneo / captura / cron → `upsertCompetitorAlert` (persist) + `publishCompetitorAlert` (WS).
+- **Inbound webhook** (Mention/Zapier/etc.) → API Gateway `POST /v1/webhooks/mentions` → Lambda `mention-webhook` → Dynamo + AppSync. Ver `docs/integrations.md`.
 - Pipeline Contactado/Ganado/Descartar → `updateCompetitorAlert`.
 - Config empresa/rivales → `saveUserConfig`.
 - Secretos (API keys CRM, Reddit, NewsAPI), detection UI y zoom: solo local.

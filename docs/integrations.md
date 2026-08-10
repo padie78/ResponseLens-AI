@@ -97,6 +97,52 @@ Puertos / use cases ya en monorepo:
 - `ICrmPort`, `PushOpportunityToCrmUseCase`
 - `IShareLinkPort`, `CreateShareLinkUseCase`
 - Adapters: `WebhookCrmAdapter`, `HubSpotCrmAdapter`
+- **Inbound mentions:** `IngestInboundMentionUseCase` + Lambda `mention-webhook`
+
+### Webhook entrante (AWS) — Mention / Meltwater / Brandwatch / Zapier
+
+Tras `terraform apply` + `scripts/deploy-lambdas.sh`:
+
+```bash
+terraform output -raw mentions_webhook_url
+terraform output -raw inbound_webhook_secret
+```
+
+```http
+POST {mentions_webhook_url}
+Content-Type: application/json
+X-ResponseLens-Secret: {inbound_webhook_secret}
+```
+
+```json
+{
+  "event": "responselens.mention.inbound",
+  "userId": "local-user",
+  "brandScope": "own",
+  "source": "mention",
+  "text": "Terrible soporte, nadie responde.",
+  "sourceUrl": "https://…",
+  "channel": "twitter",
+  "detectedAt": "2026-08-10T12:00:00Z",
+  "sentiment": "NEGATIVE",
+  "competitorName": "MiMarca"
+}
+```
+
+- `brandScope: "own"` → feed **Propios** (via AppSync `onNewCompetitorAlert` + `_brandScope`)
+- `brandScope: "rival"` (default) → **Competencia**
+- Respuesta `202` con `alertId`
+
+Flujo: API Gateway HTTP → Lambda → DynamoDB → `publishCompetitorAlert` → extensión.
+
+Compatible con Zapier/Make: Webhooks by Zapier → POST a esa URL.
+
+### SocialCrawl (escucha multi-plataforma)
+
+- Config → Fuentes profesionales → SocialCrawl API key (solo `chrome.storage.local`).
+- Cliente HTTP: `lib/socialcrawl-client.js` → `GET /v1/search/everywhere`.
+- Análisis (sin secrets): `lib/mention-intelligence.js` — tono por plataforma, sentimiento, moderación.
+- La API key **nunca** entra en prompts LLM. Si se filtró: rotarla en SocialCrawl.
 
 Próximo paso cloud (opcional): mutations AppSync `pushOpportunityToCrm` / `createShareLink` + S3 público firmado para shares HTTPS.
 
@@ -105,3 +151,4 @@ Próximo paso cloud (opcional): mutations AppSync `pushOpportunityToCrm` / `crea
 2. Config → activá webhook de prueba (webhook.site) o HubSpot token → Guardar
 3. Competencia → expandí alerta → **CRM** / **Share**
 4. Ficha rival → **Compartir ficha**
+5. Inbound: `curl` al `mentions_webhook_url` con secret → mirá Propios/Competencia

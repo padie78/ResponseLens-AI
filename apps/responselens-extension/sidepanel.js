@@ -15,6 +15,7 @@ import {
 } from './lib/auth.js';
 import { buildLocalReplyOptions } from './lib/local-fallback.js';
 import { buildLocalRivalReport, normalizeRivalReport } from './lib/rival-report.js';
+import { buildLocalOwnBrandReport } from './lib/own-brand-report.js';
 import {
   buildCompetitiveIntelPack,
   formatIntelPackHtml,
@@ -34,13 +35,14 @@ import {
   findMentionedCompetitor,
   lookupCompetitorProfile,
 } from './lib/competitor-opportunity.js';
-import { runCompetitorScan } from './lib/competitor-scan.js';
+import { runCompetitorScan, runOwnBrandScan } from './lib/competitor-scan.js';
 import { mentionDedupeKey } from './lib/mention-dedupe.js';
 import {
   buildCapturePlaybook,
   buildDefensePlaybook,
   formatPlaybookHtml,
 } from './lib/playbooks.js';
+import { primaryTheme, THEME_RULES } from './lib/theme-rules.js';
 import {
   createSharePackage,
   formatPushSummary,
@@ -53,6 +55,7 @@ import {
   saveIntegrations,
 } from './lib/integrations.js';
 import { loadScanCredentials, saveScanCredentials } from './lib/scan-credentials.js';
+import { analyzeBrandMention } from './lib/mention-intelligence.js';
 import {
   hydrateFromCloud,
   updateAlertStatusInCloud,
@@ -533,6 +536,28 @@ const els = {
   triage: document.getElementById('own-triage'),
   complaint: document.getElementById('own-complaint'),
   cards: document.getElementById('own-cards'),
+  ownAlerts: document.getElementById('own-alerts'),
+  ownScanStatus: document.getElementById('own-scan-status'),
+  ownFilterCount: document.getElementById('own-filter-count'),
+  ownFilterStatus: document.getElementById('own-filter-status'),
+  ownFilterDate: document.getElementById('own-filter-date'),
+  ownFilterPlatform: document.getElementById('own-filter-platform'),
+  ownFilterSeverity: document.getElementById('own-filter-severity'),
+  ownFilterSentiment: document.getElementById('own-filter-sentiment'),
+  ownFilterQ: document.getElementById('own-filter-q'),
+  scanOwn: document.getElementById('btn-scan-own'),
+  refreshOwn: document.getElementById('btn-refresh-own'),
+  workspace: document.getElementById('own-workspace'),
+  ownBrandBar: document.getElementById('own-brand-bar'),
+  ownBrandLogo: document.getElementById('own-brand-logo'),
+  ownBrandName: document.getElementById('own-brand-name'),
+  ownBrandMeta: document.getElementById('own-brand-meta'),
+  ownBrandAliases: document.getElementById('own-brand-aliases'),
+  ownBrandMissing: document.getElementById('own-brand-missing'),
+  openOwnChannels: document.getElementById('btn-open-own-channels'),
+  ownBrandReport: document.getElementById('btn-own-brand-report'),
+  gotoBrandCfg: document.getElementById('btn-goto-brand-cfg'),
+  ownAnalyzeNow: document.getElementById('btn-own-analyze-now'),
   feed: document.getElementById('comp-feed'),
   histList: document.getElementById('hist-list'),
   form: document.getElementById('cfg-form'),
@@ -636,6 +661,10 @@ function activateTab(name) {
   const kpis = document.getElementById('ops-kpis');
   if (kpis) kpis.hidden = name !== 'stats';
   if (name === 'hist') void renderHistory();
+  if (name === 'own') {
+    void refreshOwnBrandBar().catch(() => {});
+    void refreshOwnAlerts().catch((err) => console.error('[RL] refreshOwnAlerts', err));
+  }
   if (name === 'comp') void refreshAlerts().catch((err) => console.error('[RL] refreshAlerts', err));
   if (name === 'rank') void refreshRivalRanking().catch((err) => console.error('[RL] refreshRivalRanking', err));
   if (name === 'stats') void renderStats().catch((err) => console.error('[RL] renderStats', err));
@@ -749,11 +778,11 @@ function escapeHtml(str) {
 }
 
 function setOwnState({ loading = false, hasComplaint = false } = {}) {
-  els.empty.hidden = hasComplaint || loading;
-  els.loader.hidden = !loading;
-  els.triage.hidden = !hasComplaint || loading;
-  els.complaint.hidden = !hasComplaint || loading;
-  els.cards.hidden = !hasComplaint || loading;
+  if (els.empty) els.empty.hidden = hasComplaint || loading;
+  if (els.loader) els.loader.hidden = !loading;
+  if (els.triage) els.triage.hidden = !hasComplaint || loading;
+  if (els.complaint) els.complaint.hidden = !hasComplaint || loading;
+  if (els.cards) els.cards.hidden = !hasComplaint || loading;
 }
 
 async function refreshKpis() {
@@ -1478,6 +1507,7 @@ function alertPlatformKey(alert) {
   if (ch.includes('capterra') || url.includes('capterra.')) return 'capterra';
   if (ch.includes('producthunt') || url.includes('producthunt.')) return 'producthunt';
   if (ch.includes('indeed') || url.includes('indeed.')) return 'indeed';
+  if (ch.includes('trustpilot') || url.includes('trustpilot.')) return 'trustpilot';
   if (url) return 'page';
   return 'manual';
 }
@@ -1494,6 +1524,9 @@ function getCompFilterState() {
 }
 
 function matchesCompFilters(alert, filters) {
+  // Propios vive en su panel — no mezclar captación con reputación propia
+  if (alert?._brandScope === 'own') return false;
+
   if (!matchesAlertFilter(alert, filters.status)) return false;
 
   if (filters.days && filters.days !== 'all') {
@@ -1577,7 +1610,8 @@ async function refreshAlerts() {
   await ensureCompetitorsReady();
   await fillRivalSelect();
   const data = await storageGet([STORAGE.alerts, STORAGE.config, STORAGE.pageRivals]);
-  const all = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+  const allStored = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+  const all = allStored.filter((a) => a?._brandScope !== 'own');
   fillRivalFilterOptions(all, data[STORAGE.config]?.competitors || []);
   const filters = getCompFilterState();
   const alerts = all.filter((a) => matchesCompFilters(a, filters));
@@ -1590,13 +1624,14 @@ async function refreshAlerts() {
   const company = data[STORAGE.config]?.company || null;
   await refreshRivalRanking({
     competitors: data[STORAGE.config]?.competitors || [],
-    alerts: all,
+    alerts: allStored,
     pageRivals: data[STORAGE.pageRivals]?.rivals || [],
   });
   await fillFichaRivalSelect();
   renderAlerts(alerts, company);
   await refreshPageRivalBanner();
   await refreshKpis();
+  await refreshOwnAlerts();
 }
 
 async function refreshRivalRanking(preloaded = null) {
@@ -1945,7 +1980,8 @@ function renderRivalTrend(el, series) {
 async function gatherMentionsForRival(competitorName, extraMentions = []) {
   const data = await storageGet([STORAGE.alerts, STORAGE.pageRivals]);
   const alerts = (data[STORAGE.alerts] || []).filter(
-    (a) => String(a.competitorName || '').trim() === competitorName,
+    (a) =>
+      String(a.competitorName || '').trim() === competitorName && a._brandScope !== 'own',
   );
   const pageRival = (data[STORAGE.pageRivals]?.rivals || []).find(
     (r) => r.name === competitorName,
@@ -1975,6 +2011,319 @@ async function gatherMentionsForRival(competitorName, extraMentions = []) {
     unique.push(m);
   }
   return unique;
+}
+
+async function gatherMentionsForOwnBrand(companyName, extraMentions = []) {
+  const name = String(companyName || '').trim();
+  const data = await storageGet([STORAGE.alerts]);
+  const alerts = (data[STORAGE.alerts] || []).filter((a) => a?._brandScope === 'own');
+  const mentions = [
+    ...extraMentions,
+    ...alerts.map((a) => ({
+      text: a.originalComplaint,
+      sourceUrl: a.sourceUrl,
+      channel: a.channel || a._source,
+      competitorName: name,
+      detectedAt: a.detectedAt || a.createdAt || a.at,
+      _sentiment: a._sentiment,
+      sentiment: a._sentiment,
+    })),
+  ];
+  const seen = new Set();
+  const unique = [];
+  for (const m of mentions) {
+    const key = mentionDedupeKey({
+      text: m.text,
+      sourceUrl: m.sourceUrl,
+      competitorName: name || 'own',
+    });
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(m);
+  }
+  return unique;
+}
+
+async function generateOwnBrandReport() {
+  const {
+    [STORAGE.config]: cfg,
+    [STORAGE.appsync]: appsync,
+    [STORAGE.detection]: detection,
+  } = await storageGet([STORAGE.config, STORAGE.appsync, STORAGE.detection]);
+  const company = cfg?.company || {};
+  const name = String(company.companyName || '').trim();
+  if (!name || name.toLowerCase() === 'tumarca') {
+    if (els.ownScanStatus) {
+      els.ownScanStatus.classList.add('is-error');
+      els.ownScanStatus.textContent = t('own.needCompany');
+    }
+    goToBrandConfig();
+    return null;
+  }
+
+  openReportPage({
+    title: t('own.reportTitleNamed', { name }),
+    subtitle: t('own.reportLoading'),
+    loadingHtml: `
+      <div class="rl-loader">
+        <div class="rl-spinner" aria-hidden="true"></div>
+        <p>${escapeHtml(t('own.reportLoading'))}</p>
+      </div>`,
+  });
+
+  let mentions = await gatherMentionsForOwnBrand(name);
+
+  // Enriquecer con escaneo propio si hay pocas menciones
+  if (mentions.length < 4) {
+    try {
+      const pageMentions = await collectOwnPageMentions(name, company.aliases || []);
+      const scan = await runOwnBrandScan({
+        company,
+        userId: cfg?.userId || 'local-user',
+        pageMentions,
+        sources: {
+          hackernews: true,
+          reddit_api: true,
+          news_portals: true,
+          youtube_api: true,
+          active_page: true,
+        },
+        credentials: await loadScanCredentials(),
+      });
+      if (scan.opportunities?.length) {
+        await mergeScanOpportunities(scan.opportunities);
+      }
+      for (const opp of scan.opportunities || []) {
+        if (opp._synthetic) continue;
+        mentions.push({
+          text: opp.originalComplaint,
+          sourceUrl: opp.sourceUrl,
+          channel: opp.channel || opp._source,
+          _sentiment: opp._sentiment,
+          sentiment: opp._sentiment,
+        });
+      }
+    } catch (err) {
+      console.warn('[RL] own brand report enrich', err);
+    }
+  }
+
+  mentions = await gatherMentionsForOwnBrand(name, mentions);
+
+  const allowOffline = detection?.offlineFallback !== false;
+  let report = null;
+
+  if (appsync?.graphqlUrl && appsync?.apiKey) {
+    try {
+      const data = await gqlRequest({
+        url: appsync.graphqlUrl,
+        apiKey: appsync.apiKey,
+        query: ANALYZE_RIVAL_MUTATION,
+        variables: {
+          input: {
+            userId: cfg?.userId || 'local-user',
+            competitorName: name,
+            mentions: mentions.map((m) => m.text).slice(0, 12),
+            channel: mentions[0]?.channel || 'web',
+            sourceUrl: mentions[0]?.sourceUrl || '',
+            companyName: name,
+            whatTheySell: company.whatTheySell,
+            brandVoiceNotes: company.brandVoiceNotes,
+          },
+        },
+      });
+      report = normalizeRivalReport(data.analyzeRivalReport, name);
+      if (report) {
+        report._reportKind = 'own_brand';
+        report.model = `${report.model || 'cloud'}+own-brand`;
+      }
+    } catch (err) {
+      console.warn('[RL] own brand cloud report failed', err);
+      if (!allowOffline) throw err;
+    }
+  }
+
+  if (!report) {
+    report = buildLocalOwnBrandReport({
+      companyName: name,
+      mentions,
+      whatTheySell: company.whatTheySell,
+      brandVoiceNotes: company.brandVoiceNotes,
+      industry: company.industry,
+      knownRisks: company.knownRisks,
+      aliases: company.aliases,
+    });
+  } else if (!report.sentimentCounts) {
+    const sentimentCounts = { POSITIVE: 0, NEGATIVE: 0, NEUTRAL: 0, MIXED: 0 };
+    for (const m of mentions) {
+      const s = String(m._sentiment || m.sentiment || 'NEUTRAL').toUpperCase();
+      if (s in sentimentCounts) sentimentCounts[s] += 1;
+      else sentimentCounts.NEUTRAL += 1;
+    }
+    report.sentimentCounts = sentimentCounts;
+  }
+
+  const alertsData = await storageGet([STORAGE.alerts]);
+  const perception = computeRivalPerception({
+    competitorName: name,
+    mentions,
+    alerts: alertsData[STORAGE.alerts] || [],
+    days: statsRangeDays(),
+    brandScope: 'own',
+  });
+  // Voice line for own brand
+  if (perception && report.sentimentCounts) {
+    const sc = report.sentimentCounts;
+    perception.voiceLine = t('own.reportVoice', {
+      pos: sc.POSITIVE || 0,
+      neg: sc.NEGATIVE || 0,
+      n: report.mentionCount || 0,
+    });
+  }
+
+  const digitalLife = scoreCompetitorDigitalLife({
+    competitorName: name,
+    mentions,
+    alerts: alertsData[STORAGE.alerts] || [],
+    days: 14,
+    brandScope: 'own',
+  });
+  rivalScoreIndex[name] = {
+    score: digitalLife.score,
+    band: digitalLife.band,
+    bandLabel: digitalLife.bandLabel,
+    drivers: digitalLife.drivers,
+  };
+
+  const playbook = buildDefensePlaybook({
+    complaint: mentions.map((m) => m.text).join('\n') || name,
+    companyName: name,
+  });
+
+  const stored = await storageGet([STORAGE.rivalReports]);
+  const map =
+    stored[STORAGE.rivalReports] && typeof stored[STORAGE.rivalReports] === 'object'
+      ? stored[STORAGE.rivalReports]
+      : {};
+  map[`__own__:${name}`] = { ...report, perception, playbook, digitalLife };
+  await storageSet({ [STORAGE.rivalReports]: map });
+
+  openReportPage({
+    title: t('own.reportTitleNamed', { name }),
+    subtitle: `${digitalLife.bandLabel} · score ${digitalLife.score}/100 · ${perception.voiceLine || ''}`,
+  });
+  renderOwnBrandReport(report, perception, playbook, digitalLife);
+  await refreshOwnAlerts();
+  return report;
+}
+
+function renderOwnBrandReport(report, perception = null, playbook = null, digitalLife = null) {
+  const panel = els.rivalReportPanel;
+  if (!panel || !report) return;
+  const name = report.competitorName || '';
+  const themes = (report.themes || []).map((t) => t.label || t).join(' · ');
+  const perc = perception;
+  const empty = !report.mentionCount;
+  const dls = digitalLife || rivalScoreIndex[name] || null;
+  const sc = report.sentimentCounts || {};
+
+  openReportPage({
+    title: t('own.reportTitleNamed', { name }),
+    subtitle: perc?.voiceLine || t('own.reportSubtitle'),
+  });
+
+  panel.innerHTML = `
+    ${
+      dls
+        ? `<div class="rl-dls-hero rl-dls-hero--${escapeHtml(dls.band)}">
+      <span class="rl-dls-hero__score">${escapeHtml(String(dls.score))}</span>
+      <span><strong>${escapeHtml(t('own.reportDlsTitle', { band: dls.bandLabel }))}</strong>
+      <span class="rl-muted">${escapeHtml(dls.bandHint || t('own.reportDlsHint'))}</span>
+      ${
+        dls.drivers?.length
+          ? `<ul class="rl-dls-drivers">${dls.drivers
+              .slice(0, 4)
+              .map(
+                (d) =>
+                  `<li>${escapeHtml(d.label)} <span class="rl-muted">(+${escapeHtml(String(d.points))})</span></li>`,
+              )
+              .join('')}</ul>`
+          : ''
+      }
+      </span>
+    </div>`
+        : ''
+    }
+    ${
+      empty
+        ? `<p class="rl-empty rl-empty--sm">${escapeHtml(t('own.reportEmpty'))}</p>`
+        : ''
+    }
+    ${
+      !empty
+        ? `
+    <p class="rl-rival-voice">${escapeHtml(perc?.voiceLine || '')}</p>
+    <div class="rl-rival-kpis" aria-label="KPIs de marca propia">
+      ${kpiTile(`${perc?.perceptionScore ?? '—'}`, t('own.kpiPerception'))}
+      ${kpiTile(perc?.mentionCount ?? report.mentionCount, t('own.kpiMentions'))}
+      ${kpiTile(sc.POSITIVE ?? 0, t('sent.positive'))}
+      ${kpiTile(sc.NEGATIVE ?? 0, t('sent.negative'))}
+      ${kpiTile(perc?.avgFrustration ?? report.avgFrustration, t('own.kpiFriction'))}
+      ${kpiTile(report.riskLevel || '—', t('own.kpiRisk'))}
+    </div>
+    <details class="rl-disclosure rl-cfg-panel" open>
+      <summary>${escapeHtml(t('own.reportReading'))}</summary>
+      <ul>${(report.conclusions || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+    </details>
+    <details class="rl-disclosure rl-cfg-panel" open>
+      <summary>${escapeHtml(t('own.reportActions'))}</summary>
+      <ul>${(report.opportunities || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+    </details>
+    ${
+      perc?.sampleQuotes?.length
+        ? `<details class="rl-disclosure rl-cfg-panel">
+      <summary>${escapeHtml(t('own.reportQuotes'))}</summary>
+      <ul class="rl-rival-quotes">${perc.sampleQuotes
+        .map(
+          (q) => `<li>“${escapeHtml(q.text)}”<span class="rl-muted">${escapeHtml(q.channel || '')}${
+            q.sourceUrl ? ` · ${escapeHtml(q.sourceUrl.slice(0, 48))}` : ''
+          }</span></li>`,
+        )
+        .join('')}</ul>
+    </details>`
+        : ''
+    }`
+        : ''
+    }
+    ${
+      playbook
+        ? `<details class="rl-disclosure rl-cfg-panel">
+      <summary>${escapeHtml(t('own.playbook'))}</summary>
+      <div class="rl-playbook">${formatPlaybookHtml(playbook)}</div>
+    </details>`
+        : ''
+    }
+    <details class="rl-disclosure">
+      <summary>${escapeHtml(t('own.reportMarkdown'))}</summary>
+      <pre class="rl-rival-report__md">${escapeHtml(report.reportMarkdown || '')}</pre>
+    </details>
+    <p class="rl-rival-report__meta">
+      ${escapeHtml(report.riskLevel || '')} · ${escapeHtml(String(report.mentionCount ?? 0))} ${escapeHtml(t('own.kpiMentions').toLowerCase())}
+      · ${escapeHtml(report.model || '')}
+      ${themes ? ` · ${escapeHtml(themes)}` : ''}
+    </p>
+    <div class="rl-rival-report__actions">
+      <button type="button" class="rl-btn rl-btn--primary" data-copy-report>${escapeHtml(t('own.reportCopy'))}</button>
+      <button type="button" class="rl-btn rl-btn--ghost" data-close-report-own>${escapeHtml(t('own.reportBack'))}</button>
+    </div>
+  `;
+
+  panel.querySelector('[data-copy-report]')?.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(report.reportMarkdown || '');
+  });
+  panel.querySelector('[data-close-report-own]')?.addEventListener('click', () => {
+    activateTab('own');
+  });
 }
 
 async function generateRivalReport(competitorName, extraMentions = []) {
@@ -2240,6 +2589,717 @@ async function collectPageMentions() {
     return Array.isArray(res?.items) ? res.items : [];
   } catch {
     return [];
+  }
+}
+
+async function collectOwnPageMentions(companyName, aliases = []) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) return [];
+    const res = await chrome.tabs.sendMessage(tab.id, {
+      type: 'RL_LIST_OWN_CANDIDATES',
+      companyName,
+      aliases,
+    });
+    return Array.isArray(res?.items) ? res.items : [];
+  } catch {
+    return [];
+  }
+}
+
+function ownSourceLabel(alert) {
+  if (alert._source === 'hackernews') return 'Hacker News';
+  if (alert._source === 'reddit') return 'Reddit';
+  if (alert._source === 'news') return t('own.sourceNews');
+  if (alert._source === 'youtube' || alert.channel === 'youtube') return 'YouTube';
+  if (alert._source === 'page') return t('own.sourcePage');
+  return sourceLabel(alert) || alert.channel || '';
+}
+
+function sentimentLabel(sent) {
+  const s = String(sent || '').toUpperCase();
+  if (s === 'POSITIVE') return t('sent.positive');
+  if (s === 'NEGATIVE') return t('sent.negative');
+  if (s === 'MIXED') return t('sent.mixed');
+  if (s === 'NEUTRAL') return t('sent.neutral');
+  return '';
+}
+
+function getOwnFilterState() {
+  return {
+    status: els.ownFilterStatus?.value || 'OPEN',
+    days: els.ownFilterDate?.value || 'all',
+    platform: els.ownFilterPlatform?.value || 'all',
+    severity: els.ownFilterSeverity?.value || 'all',
+    sentiment: els.ownFilterSentiment?.value || 'all',
+    q: (els.ownFilterQ?.value || '').trim().toLowerCase(),
+  };
+}
+
+function matchesOwnFilters(alert, filters) {
+  if (alert?._brandScope !== 'own') return false;
+  if (!matchesAlertFilter(alert, filters.status)) return false;
+
+  if (filters.days && filters.days !== 'all') {
+    const days = Number(filters.days);
+    const ts = alertDetectedTs(alert);
+    if (ts == null) return false;
+    if (filters.days === '1') {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      if (ts < start.getTime()) return false;
+    } else {
+      const since = Date.now() - days * 24 * 60 * 60 * 1000;
+      if (ts < since) return false;
+    }
+  }
+
+  if (filters.platform && filters.platform !== 'all') {
+    if (alertPlatformKey(alert) !== filters.platform) return false;
+  }
+
+  if (filters.severity && filters.severity !== 'all') {
+    const sev = String(alert.severity || 'MEDIUM').toUpperCase();
+    if (filters.severity === 'HIGH') {
+      if (sev !== 'HIGH' && sev !== 'CRITICAL') return false;
+    } else if (sev !== filters.severity) {
+      return false;
+    }
+  }
+
+  if (filters.sentiment && filters.sentiment !== 'all') {
+    const sent = String(alert._sentiment || 'NEUTRAL').toUpperCase();
+    if (filters.sentiment === 'NEUTRAL') {
+      if (sent !== 'NEUTRAL' && sent !== 'MIXED') return false;
+    } else if (sent !== filters.sentiment) {
+      return false;
+    }
+  }
+
+  if (filters.q) {
+    const hay = `${alert.competitorName || ''} ${alert.originalComplaint || ''} ${alert.notes || ''}`.toLowerCase();
+    if (!hay.includes(filters.q)) return false;
+  }
+
+  return true;
+}
+
+/** @type {string | null} */
+let expandedOwnAlertId = null;
+
+function setOwnAlertExpanded(node, open) {
+  node.classList.toggle('is-expanded', open);
+  const body = node.querySelector('[data-own-body]');
+  const toggle = node.querySelector('[data-own-toggle]');
+  if (body) {
+    body.hidden = !open;
+    body.setAttribute('aria-hidden', open ? 'false' : 'true');
+  }
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const chev = toggle.querySelector('[data-chevron]');
+    if (chev) chev.textContent = open ? '▾' : '▸';
+  }
+}
+
+function collapseAllOwnAlerts(exceptId = null) {
+  if (!els.ownAlerts) return;
+  els.ownAlerts.querySelectorAll('.rl-alert--accordion').forEach((el) => {
+    if (exceptId && el.dataset.alertId === exceptId) return;
+    setOwnAlertExpanded(el, false);
+  });
+}
+
+function renderOwnAlertCard(alert, company = null) {
+  const node = document.createElement('article');
+  const isOpen = expandedOwnAlertId === alert.alertId;
+  node.className = `rl-alert rl-alert--accordion${isOpen ? ' is-expanded' : ''}`;
+  node.dataset.alertId = alert.alertId || '';
+  const sev = String(alert.severity || 'MEDIUM').toUpperCase();
+  const src = ownSourceLabel(alert);
+  const status = alert.status || 'NEW';
+  const sent = String(alert._sentiment || '').toUpperCase();
+  const sentLab = sentimentLabel(sent);
+  const sentCls =
+    sent === 'POSITIVE'
+      ? 'rl-badge--sent-pos'
+      : sent === 'NEGATIVE'
+        ? 'rl-badge--sent-neg'
+        : sent
+          ? 'rl-badge--sent-neu'
+          : '';
+  const title = alert.competitorName || t('own.badge');
+  const logo = String(company?.logoUrl || '').trim();
+  const themeLab = resolveThemeLabel(alert);
+  const when = formatRelativeTime(alert);
+  const friction =
+    typeof alert.frustrationScore === 'number' && Number.isFinite(alert.frustrationScore)
+      ? Math.round(Math.min(1, Math.max(0, alert.frustrationScore)) * 100)
+      : null;
+  const brandName = String(company?.companyName || alert.competitorName || '').trim();
+
+  node.innerHTML = `
+    <button type="button" class="rl-alert__summary" data-own-toggle aria-expanded="${isOpen ? 'true' : 'false'}">
+      ${
+        logo
+          ? `<img class="rl-comp-logo rl-comp-logo--sm" src="${escapeHtml(logo)}" alt="" width="28" height="28" decoding="async" />`
+          : `<span class="rl-hist-kind rl-hist-kind--own" aria-hidden="true">P</span>`
+      }
+      <span class="rl-alert__summary-text">
+        <span class="rl-alert__title-row">
+          <strong>${escapeHtml(title)}</strong>
+          <span class="rl-alert__title-badges">
+            ${sentLab ? `<span class="rl-badge ${sentCls}">${escapeHtml(sentLab)}</span>` : ''}
+            <span class="rl-badge rl-badge--${escapeHtml(sev.toLowerCase())}">${escapeHtml(sevShort(sev))}</span>
+          </span>
+        </span>
+        <span class="rl-alert__snippet">${escapeHtml(truncateText(alert.originalComplaint || '', 100))}</span>
+        <span class="rl-alert__meta">
+          ${[src, when, themeLab].filter(Boolean).map((x) => escapeHtml(x)).join(' · ')}
+        </span>
+      </span>
+      <span class="rl-alert__chevron" data-chevron aria-hidden="true">${isOpen ? '▾' : '▸'}</span>
+    </button>
+    <div class="rl-alert__body" data-own-body ${isOpen ? '' : 'hidden'}>
+      <p class="rl-alert__meta-row">
+        <span class="rl-badge rl-badge--status">${escapeHtml(status)}</span>
+        ${themeLab ? `<span class="rl-badge rl-badge--theme">${escapeHtml(themeLab)}</span>` : ''}
+        ${
+          friction != null
+            ? `<span class="rl-muted">${escapeHtml(t('own.friction', { n: friction }))}</span>`
+            : ''
+        }
+        ${src ? `<span class="rl-muted">${escapeHtml(src)}</span>` : ''}
+        ${when ? `<span class="rl-muted">${escapeHtml(when)}</span>` : ''}
+        ${
+          alert.sourceUrl && !String(alert.sourceUrl).startsWith('manual://')
+            ? `<a href="${escapeHtml(alert.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(t('own.openSource'))}</a>`
+            : ''
+        }
+      </p>
+      <p class="rl-alert__complaint">${escapeHtml(alert.originalComplaint || '')}</p>
+      <p class="rl-muted rl-alert__section-label">${escapeHtml(t('own.sectionDrafts'))}</p>
+      <div class="rl-pitch-tabs" data-own-reply-tabs></div>
+      <div class="rl-pitch-preview" data-own-reply-preview></div>
+      <div class="rl-action-bar rl-action-bar--primary" data-own-actions>
+        <div class="rl-action-bar__group">
+          <div class="rl-action-bar__row">
+            <button type="button" class="rl-btn rl-btn--soft" data-own-copy>${escapeHtml(t('own.copy'))}</button>
+            <button type="button" class="rl-btn rl-btn--primary" data-own-inject>${escapeHtml(t('own.inject'))}</button>
+          </div>
+          <div class="rl-action-bar__row rl-action-bar__row--seg">
+            <button type="button" class="rl-btn" data-own-respond>${escapeHtml(t('own.analyze'))}</button>
+            <button type="button" class="rl-btn" data-own-done>${escapeHtml(t('own.markResponded'))}</button>
+            <button type="button" class="rl-btn rl-btn--warn" data-own-dismiss>${escapeHtml(t('own.dismiss'))}</button>
+          </div>
+        </div>
+      </div>
+      <details class="rl-disclosure rl-cfg-panel rl-alert__more">
+        <summary>${escapeHtml(t('own.playbook'))}</summary>
+        <div class="rl-playbook" data-own-playbook></div>
+      </details>
+    </div>
+  `;
+
+  const playbookEl = node.querySelector('[data-own-playbook]');
+  if (playbookEl) {
+    const pb = buildDefensePlaybook({
+      complaint: alert.originalComplaint || '',
+      companyName: brandName,
+      lang: contentLang(getLocale()),
+    });
+    playbookEl.innerHTML = formatPlaybookHtml(pb);
+  }
+
+  const drafts = buildLocalReplyOptions({
+    text: alert.originalComplaint || '',
+    companyName: brandName,
+  });
+  const intel =
+    alert._intel ||
+    analyzeBrandMention({
+      text: alert.originalComplaint || '',
+      channel: alert.channel || alert._source,
+      sourceUrl: alert.sourceUrl,
+      brandScope: 'own',
+      companyName: brandName,
+      systemContext: { alertId: alert.alertId },
+    }).analisis_comentario_recibido;
+  if (intel?.respuesta_sugerida_publica && drafts.options?.[0]) {
+    const suggested = intel.respuesta_sugerida_publica;
+    drafts.options = drafts.options.map((o, i) =>
+      i === 0 ? { ...o, body: suggested, rationale: o.rationale || 'Tono adaptado a la plataforma' } : o,
+    );
+  }
+  let selected = drafts.options?.find((o) => o.recommended) || drafts.options?.[0] || null;
+  const tabsEl = node.querySelector('[data-own-reply-tabs]');
+  const previewEl = node.querySelector('[data-own-reply-preview]');
+  const renderDraftUi = () => {
+    if (!tabsEl || !previewEl) return;
+    tabsEl.innerHTML = (drafts.options || [])
+      .map((opt) => {
+        const on = selected?.tone === opt.tone;
+        return `<button type="button" class="rl-pitch-tab${on ? ' is-active' : ''}${
+          opt.recommended ? ' is-rec' : ''
+        }" data-tone="${escapeHtml(opt.tone)}">${escapeHtml(opt.label)}</button>`;
+      })
+      .join('');
+    previewEl.innerHTML = `
+      ${selected?.rationale ? `<p class="rl-rationale">${escapeHtml(selected.rationale)}</p>` : ''}
+      <p><em>${escapeHtml(selected?.body || '')}</em></p>
+    `;
+    tabsEl.querySelectorAll('[data-tone]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selected =
+          (drafts.options || []).find((o) => o.tone === btn.getAttribute('data-tone')) || selected;
+        renderDraftUi();
+      });
+    });
+  };
+  renderDraftUi();
+
+  node.querySelector('[data-own-toggle]')?.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const willOpen = !node.classList.contains('is-expanded');
+    collapseAllOwnAlerts(willOpen ? alert.alertId : null);
+    expandedOwnAlertId = willOpen ? alert.alertId : null;
+    setOwnAlertExpanded(node, willOpen);
+    if (willOpen) {
+      requestAnimationFrame(() => {
+        node.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    }
+  });
+
+  node.querySelector('[data-own-copy]')?.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    const btn = ev.currentTarget;
+    await navigator.clipboard.writeText(selected?.body || '');
+    if (btn instanceof HTMLButtonElement) {
+      const prev = btn.textContent;
+      btn.textContent = t('own.copied');
+      setTimeout(() => {
+        btn.textContent = prev;
+      }, 1000);
+    }
+  });
+
+  node.querySelector('[data-own-inject]')?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    void (async () => {
+      const btn = ev.currentTarget;
+      if (btn instanceof HTMLButtonElement) btn.disabled = true;
+      try {
+        const text = selected?.body || '';
+        if (!text) return;
+        const res = await chrome.runtime.sendMessage({
+          type: 'RL_INJECT_REPLY',
+          text,
+          complaintId: alert.alertId || null,
+        });
+        await appendHistory({
+          kind: 'propios',
+          at: new Date().toISOString(),
+          tone: selected?.tone,
+          label: selected?.label || t('own.inject'),
+          body: text,
+          channel: alert.channel || alert._source,
+          sourceUrl: alert.sourceUrl,
+          originalText: alert.originalComplaint,
+          injectResult: res?.reason || (res?.ok ? 'ok' : 'unknown'),
+          model: drafts.model || 'local-fallback',
+          recommended: Boolean(selected?.recommended),
+          alertId: alert.alertId,
+        });
+        await refreshKpis();
+        if (btn instanceof HTMLButtonElement) {
+          const prev = btn.textContent;
+          btn.textContent = res?.ok ? t('own.injected') : t('own.injectFail');
+          setTimeout(() => {
+            btn.textContent = prev;
+          }, 1400);
+        }
+      } finally {
+        if (btn instanceof HTMLButtonElement) btn.disabled = false;
+      }
+    })();
+  });
+
+  node.querySelector('[data-own-respond]')?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    void (async () => {
+      await analyzeComplaint({
+        id: alert.alertId || `own_${Date.now()}`,
+        text: alert.originalComplaint || '',
+        severity: alert.severity || 'MEDIUM',
+        sourceUrl: alert.sourceUrl || '',
+        channel: alert.channel || alert._source || 'web',
+        companyName: alert.competitorName || brandName,
+      });
+      document.getElementById('own-workspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    })();
+  });
+
+  node.querySelector('[data-own-done]')?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    void setOwnAlertStatus(alert.alertId, 'RESPONDED');
+  });
+
+  node.querySelector('[data-own-dismiss]')?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    void setOwnAlertStatus(alert.alertId, 'DISMISSED');
+  });
+
+  return node;
+}
+
+function resolveThemeLabel(alert) {
+  const lang = contentLang(getLocale());
+  const id = String(alert.themeId || '').trim();
+  if (id) {
+    const rule = THEME_RULES.find((r) => r.id === id);
+    if (rule) return (lang === 'en' ? rule.en : rule.es) || rule.label;
+  }
+  return primaryTheme(alert.originalComplaint || '', lang).label;
+}
+
+function formatRelativeTime(alert) {
+  const ts = alertDetectedTs(alert);
+  if (ts == null) return '';
+  const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (sec < 60) return t('time.justNow');
+  const min = Math.floor(sec / 60);
+  if (min < 60) return tp('time.minutesAgo', min);
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return tp('time.hoursAgo', hr);
+  const days = Math.floor(hr / 24);
+  if (days < 45) return tp('time.daysAgo', days);
+  try {
+    return new Date(ts).toLocaleDateString(getLocale());
+  } catch {
+    return new Date(ts).toISOString().slice(0, 10);
+  }
+}
+
+function parseLinesOrComma(raw) {
+  return String(raw || '')
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function socialHandlesAsAliases(handles = []) {
+  return (handles || [])
+    .map((h) => String(h || '').trim().replace(/^@/, ''))
+    .filter(Boolean);
+}
+
+function collectBrandQueryTermsFromDom() {
+  const name = (document.getElementById('cfg-name')?.value || '').trim();
+  const aliases = (document.getElementById('cfg-aliases')?.value || '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const socials = socialHandlesAsAliases(
+    parseLinesOrComma(document.getElementById('cfg-social-handles')?.value || ''),
+  );
+  const terms = [];
+  for (const t of [name, ...aliases, ...socials]) {
+    if (!t) continue;
+    if (!terms.some((x) => x.toLowerCase() === t.toLowerCase())) terms.push(t);
+  }
+  return terms.slice(0, 8);
+}
+
+function syncBrandScanPreview() {
+  const chips = document.getElementById('cfg-brand-chips');
+  if (!chips) return;
+  const terms = collectBrandQueryTermsFromDom().filter(
+    (t) => t.toLowerCase() !== 'tumarca',
+  );
+  if (!terms.length) {
+    chips.innerHTML = `<span class="rl-brand-chip rl-brand-chip--empty">${escapeHtml(t('cfg.scanPreviewEmpty'))}</span>`;
+    return;
+  }
+  chips.innerHTML = terms
+    .map((term, i) => {
+      const cls = i === 0 ? 'rl-brand-chip rl-brand-chip--primary' : 'rl-brand-chip';
+      return `<span class="${cls}">${escapeHtml(term)}</span>`;
+    })
+    .join('');
+}
+
+function parseUrlLines(raw) {
+  return String(raw || '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((line) => {
+      if (/^https?:\/\//i.test(line)) return line;
+      if (/^[\w.-]+\.[a-z]{2,}/i.test(line)) return `https://${line}`;
+      return line;
+    })
+    .filter((u) => /^https?:\/\//i.test(u));
+}
+
+async function refreshOwnBrandBar() {
+  const data = await storageGet([STORAGE.config]);
+  const company = data[STORAGE.config]?.company || {};
+  const name = String(company.companyName || '').trim();
+  const ready = Boolean(name) && name.toLowerCase() !== 'tumarca';
+  if (els.ownBrandBar) els.ownBrandBar.hidden = !ready;
+  if (els.ownBrandMissing) els.ownBrandMissing.hidden = ready;
+  if (els.ownBrandName) els.ownBrandName.textContent = ready ? name : '—';
+  if (els.ownBrandMeta) {
+    const bits = [company.industry, company.websiteUrl].filter(Boolean);
+    els.ownBrandMeta.textContent = bits.length ? `· ${bits.join(' · ')}` : '';
+  }
+  if (els.ownBrandLogo) {
+    const logo = String(company.logoUrl || '').trim();
+    if (logo) {
+      els.ownBrandLogo.hidden = false;
+      els.ownBrandLogo.src = logo;
+    } else {
+      els.ownBrandLogo.hidden = true;
+      els.ownBrandLogo.removeAttribute('src');
+    }
+  }
+  if (els.ownBrandAliases) {
+    const aliases = [
+      ...(company.aliases || []),
+      ...socialHandlesAsAliases(company.socialHandles || []),
+    ].filter(Boolean);
+    els.ownBrandAliases.textContent = aliases.length
+      ? `· ${aliases.slice(0, 4).join(' · ')}${aliases.length > 4 ? '…' : ''}`
+      : '';
+  }
+  if (els.openOwnChannels) {
+    const n = (company.ownChannels || []).length;
+    els.openOwnChannels.disabled = n === 0;
+    els.openOwnChannels.title = n
+      ? t('own.openChannelsTitle', { n })
+      : t('own.openChannelsEmpty');
+  }
+  if (els.scanOwn) els.scanOwn.disabled = !ready;
+  if (els.ownBrandReport) els.ownBrandReport.disabled = !ready;
+}
+
+async function openConfiguredOwnChannels() {
+  const data = await storageGet([STORAGE.config]);
+  const urls = data[STORAGE.config]?.company?.ownChannels || [];
+  if (!urls.length) {
+    if (els.ownScanStatus) {
+      els.ownScanStatus.classList.add('is-error');
+      els.ownScanStatus.textContent = t('own.openChannelsEmpty');
+    }
+    return;
+  }
+  for (let i = 0; i < urls.length; i += 1) {
+    await chrome.tabs.create({ url: urls[i], active: i === 0 });
+  }
+  if (els.ownScanStatus) {
+    els.ownScanStatus.classList.remove('is-error');
+    els.ownScanStatus.textContent = t('own.channelsOpened', { n: urls.length });
+  }
+}
+
+function goToBrandConfig() {
+  activateTab('cfg');
+  const wrap = document.getElementById('cfg-brand-wrap');
+  if (wrap instanceof HTMLDetailsElement) {
+    wrap.open = true;
+    wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  document.getElementById('cfg-name')?.focus();
+}
+
+async function refreshOwnAlerts() {
+  await refreshOwnBrandBar();
+  const root = els.ownAlerts;
+  if (!root) return;
+  const data = await storageGet([STORAGE.alerts, STORAGE.config]);
+  const company = data[STORAGE.config]?.company || {};
+  const allOwn = (Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : []).filter(
+    (a) => a?._brandScope === 'own',
+  );
+  const filters = getOwnFilterState();
+  const own = allOwn
+    .filter((a) => matchesOwnFilters(a, filters))
+    .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime());
+
+  if (els.ownFilterCount) {
+    els.ownFilterCount.textContent = t('own.filterCount', {
+      shown: own.length,
+      total: allOwn.length,
+    });
+  }
+
+  root.innerHTML = '';
+  if (!own.length) {
+    root.innerHTML = `
+      <div class="rl-empty rl-empty--comp">
+        ${escapeHtml(t('own.feedEmpty'))}<br/>
+        ${escapeHtml(t('own.feedEmptyHint'))}
+        <button type="button" class="rl-btn rl-btn--primary" id="btn-empty-scan-own" style="margin-top:12px">
+          ${escapeHtml(t('own.scan'))}
+        </button>
+      </div>`;
+    document.getElementById('btn-empty-scan-own')?.addEventListener('click', () => {
+      void scanOwnBrand();
+    });
+    return;
+  }
+
+  if (expandedOwnAlertId && !own.some((a) => a.alertId === expandedOwnAlertId)) {
+    expandedOwnAlertId = null;
+  }
+
+  for (const alert of own.slice(0, 60)) {
+    root.appendChild(renderOwnAlertCard(alert, company));
+  }
+}
+
+async function setOwnAlertStatus(alertId, status) {
+  if (!alertId) return;
+  const data = await storageGet([STORAGE.alerts]);
+  const list = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+  const next = list.map((a) => (a.alertId === alertId ? { ...a, status } : a));
+  await storageSet({ [STORAGE.alerts]: next });
+  await refreshOwnAlerts();
+  await refreshKpis();
+}
+
+async function dismissOwnAlert(alertId) {
+  await setOwnAlertStatus(alertId, 'DISMISSED');
+}
+
+async function createOwnManualMention({ text, sourceUrl, analyze = false } = {}) {
+  const complaint = String(text || '').trim();
+  if (!complaint) return null;
+  const { [STORAGE.config]: cfg } = await storageGet([STORAGE.config]);
+  const company = cfg?.company || {};
+  const brand = String(company.companyName || '').trim() || t('own.badge');
+  const opp = buildOpportunity({
+    competitorName: brand,
+    complaint,
+    sourceUrl: sourceUrl || 'manual://propios',
+    channel: 'manual',
+    company,
+    userId: cfg?.userId || 'local-user',
+    competitors: [],
+  });
+  opp._brandScope = 'own';
+  opp._source = 'manual';
+  await mergeScanOpportunities([opp]);
+  if (els.ownFilterStatus) els.ownFilterStatus.value = 'OPEN';
+  expandedOwnAlertId = opp.alertId;
+  await refreshOwnAlerts();
+  await refreshKpis();
+  if (analyze) {
+    await setOwnAlertStatus(opp.alertId, 'RESPONDED');
+    await analyzeComplaint({
+      id: opp.alertId,
+      text: complaint,
+      severity: opp.severity,
+      sourceUrl: opp.sourceUrl,
+      channel: 'manual',
+      companyName: brand,
+    });
+  }
+  return opp;
+}
+
+async function mergeScanOpportunities(opportunities) {
+  const data = await storageGet([STORAGE.alerts]);
+  const existing = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+  const existingIds = new Set(existing.map((a) => a.alertId));
+  const kept = existing.filter((a) => !a._synthetic && !a._demo && a._source !== 'synthetic');
+  const byId = new Map(kept.map((a) => [a.alertId, a]));
+  const fresh = [];
+  for (const opp of opportunities) {
+    if (opp._synthetic) continue;
+    if (!existingIds.has(opp.alertId)) fresh.push(opp);
+    byId.set(opp.alertId, { ...byId.get(opp.alertId), ...opp });
+  }
+  const merged = [...byId.values()]
+    .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime())
+    .slice(0, 120);
+  await storageSet({ [STORAGE.alerts]: merged });
+  return { merged, fresh };
+}
+
+async function scanOwnBrand() {
+  if (!els.scanOwn) return;
+  els.scanOwn.disabled = true;
+  if (els.ownScanStatus) {
+    els.ownScanStatus.classList.remove('is-error');
+    els.ownScanStatus.textContent = t('own.scanning');
+  }
+  try {
+    const { [STORAGE.config]: cfg } = await storageGet([STORAGE.config]);
+    const company = cfg?.company || {};
+    if (!company.companyName?.trim() || company.companyName.trim().toLowerCase() === 'tumarca') {
+      if (els.ownScanStatus) {
+        els.ownScanStatus.classList.add('is-error');
+        els.ownScanStatus.textContent = t('own.needCompany');
+      }
+      return;
+    }
+    const detectionData = await storageGet([STORAGE.detection]);
+    const platformPrefs = normalizePlatformPrefs(detectionData[STORAGE.detection]?.platforms);
+    const pageMentions = await collectOwnPageMentions(
+      company.companyName,
+      company.aliases || [],
+    );
+    const { opportunities, stats, errors } = await runOwnBrandScan({
+      company,
+      userId: cfg?.userId || 'local-user',
+      pageMentions,
+      sources: platformPrefs.scanSources,
+      credentials: await loadScanCredentials(),
+    });
+    const { fresh } = await mergeScanOpportunities(opportunities);
+    if (fresh.length) {
+      await notifyNewCompetitorAlerts(fresh);
+      void upsertAlertsToCloud(fresh, cfg?.userId || 'local-user');
+    }
+    const parts = [];
+    if (stats.hn) parts.push(`${stats.hn} HN`);
+    if (stats.reddit) {
+      parts.push(
+        `${stats.reddit} Reddit${stats.providers?.reddit === 'oauth' ? ' (OAuth)' : ''}`,
+      );
+    }
+    if (stats.news) {
+      const newsMode = stats.providers?.news === 'newsapi' ? 'NewsAPI' : 'RSS';
+      parts.push(`${stats.news} ${newsMode}`);
+    }
+    if (stats.youtube) {
+      const ytMode = stats.providers?.youtube === 'youtube_api' ? 'YT API' : 'YT';
+      parts.push(`${stats.youtube} ${ytMode}`);
+    }
+    if (stats.page) parts.push(`${stats.page} ${t('own.sourcePage').toLowerCase()}`);
+    const errHint =
+      errors?.length > 0
+        ? ` · ${errors.slice(0, 2).join(' · ')}${errors.length > 2 ? '…' : ''}`
+        : '';
+    if (els.ownScanStatus) {
+      els.ownScanStatus.textContent = parts.length
+        ? `${t('own.scanDone')}: ${parts.join(' · ')}${errHint}`
+        : `${t('own.scanNone')}${errHint}`;
+    }
+    await refreshOwnAlerts();
+    await refreshKpis();
+  } catch (err) {
+    console.error('[RL] own brand scan', err);
+    if (els.ownScanStatus) {
+      els.ownScanStatus.classList.add('is-error');
+      els.ownScanStatus.textContent = err instanceof Error ? err.message : String(err);
+    }
+  } finally {
+    if (els.scanOwn) els.scanOwn.disabled = false;
   }
 }
 
@@ -3019,6 +4079,10 @@ function sessionStatusText(status) {
 function sessionMethodText(row) {
   const method = row.method || 'none';
   const detail = row.methodDetail || '';
+  if (detail === 'empty') return t('cfg.sessionDetailEmpty');
+  if (detail === 'anon') return t('cfg.sessionDetailAnon');
+  if (detail === 'no-LOGIN_INFO') return t('cfg.sessionDetailNoYtLogin');
+  if (detail === 'signin-dom') return t('cfg.sessionDetailSignInDom');
   if (method === 'cookie') {
     return detail
       ? t('cfg.sessionMethodCookieNamed', { name: detail })
@@ -3028,9 +4092,6 @@ function sessionMethodText(row) {
   if (method === 'permission') return t('cfg.sessionMethodPerm');
   if (method === 'unavailable') return t('cfg.sessionMethodApi');
   if (method === 'heuristic') return t('cfg.sessionMethodHeuristic');
-  if (detail === 'empty') return t('cfg.sessionDetailEmpty');
-  if (detail === 'anon') return t('cfg.sessionDetailAnon');
-  if (detail === 'signin-dom') return t('cfg.sessionDetailSignInDom');
   return t('cfg.sessionMethodNone');
 }
 
@@ -3203,12 +4264,30 @@ async function loadConfigForm() {
   document.getElementById('cfg-user-id').value = session?.userId || cfg.userId || 'local-user';
   syncLocaleSelects(getLocale());
   document.getElementById('cfg-name').value = cfg.company?.companyName || '';
+  const aliasesEl = document.getElementById('cfg-aliases');
+  if (aliasesEl) aliasesEl.value = (cfg.company?.aliases || []).join('\n');
+  const websiteEl = document.getElementById('cfg-website');
+  if (websiteEl) websiteEl.value = cfg.company?.websiteUrl || '';
+  const logoEl = document.getElementById('cfg-logo');
+  if (logoEl) logoEl.value = cfg.company?.logoUrl || '';
+  const industryEl = document.getElementById('cfg-industry');
+  if (industryEl) industryEl.value = cfg.company?.industry || '';
+  const descEl = document.getElementById('cfg-description');
+  if (descEl) descEl.value = cfg.company?.description || '';
+  const socialEl = document.getElementById('cfg-social-handles');
+  if (socialEl) socialEl.value = (cfg.company?.socialHandles || []).join('\n');
+  const risksEl = document.getElementById('cfg-known-risks');
+  if (risksEl) risksEl.value = cfg.company?.knownRisks || '';
+  const ownChEl = document.getElementById('cfg-own-channels');
+  if (ownChEl) ownChEl.value = (cfg.company?.ownChannels || []).join('\n');
   document.getElementById('cfg-sells').value = cfg.company?.whatTheySell || '';
   document.getElementById('cfg-links').value = (cfg.company?.keyLinks || []).join('\n');
   document.getElementById('cfg-voice').value = cfg.company?.brandVoiceNotes || '';
   document.getElementById('cfg-roadmap').value = Array.isArray(cfg.company?.productRoadmap)
     ? cfg.company.productRoadmap.join('\n')
     : cfg.company?.productRoadmap || '';
+  syncBrandScanPreview();
+  void refreshOwnBrandBar();
   renderCompetitorEditor(cfg.competitors?.length ? cfg.competitors : defaultCompetitorSeed());
   document.getElementById('cfg-gql').value = appsync.graphqlUrl || '';
   document.getElementById('cfg-rt').value = appsync.realtimeUrl || '';
@@ -3243,6 +4322,16 @@ async function loadConfigForm() {
     scanCreds.reddit?.userAgent || 'ResponseLensAI/0.7 (professional-scan)';
   document.getElementById('cfg-newsapi').checked = Boolean(scanCreds.newsapi?.enabled);
   document.getElementById('cfg-newsapi-key').value = scanCreds.newsapi?.apiKey || '';
+  const ytEn = document.getElementById('cfg-youtube-api');
+  if (ytEn) ytEn.checked = Boolean(scanCreds.youtube?.enabled);
+  const ytKey = document.getElementById('cfg-youtube-key');
+  if (ytKey) ytKey.value = scanCreds.youtube?.apiKey || '';
+  const scEn = document.getElementById('cfg-socialcrawl');
+  if (scEn) scEn.checked = Boolean(scanCreds.socialcrawl?.enabled);
+  const scKey = document.getElementById('cfg-socialcrawl-key');
+  if (scKey) scKey.value = scanCreds.socialcrawl?.apiKey || '';
+  const scSrc = document.getElementById('cfg-socialcrawl-sources');
+  if (scSrc) scSrc.value = scanCreds.socialcrawl?.sources || '';
 
   const notify = await loadNotifyPrefs();
   document.getElementById('cfg-notify-enabled').checked = notify.enabled !== false;
@@ -3384,6 +4473,18 @@ els.form?.addEventListener('submit', async (ev) => {
   document.getElementById('cfg-user-id').value = userId;
   const company = {
     companyName: document.getElementById('cfg-name').value.trim(),
+    aliases: document
+      .getElementById('cfg-aliases')
+      .value.split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    websiteUrl: document.getElementById('cfg-website')?.value.trim() || '',
+    logoUrl: document.getElementById('cfg-logo')?.value.trim() || '',
+    industry: document.getElementById('cfg-industry')?.value.trim() || '',
+    description: document.getElementById('cfg-description')?.value.trim() || '',
+    socialHandles: parseLinesOrComma(document.getElementById('cfg-social-handles')?.value || ''),
+    knownRisks: document.getElementById('cfg-known-risks')?.value.trim() || '',
+    ownChannels: parseUrlLines(document.getElementById('cfg-own-channels')?.value || ''),
     whatTheySell: document.getElementById('cfg-sells').value.trim(),
     keyLinks: document
       .getElementById('cfg-links')
@@ -3476,6 +4577,16 @@ els.form?.addEventListener('submit', async (ev) => {
         enabled: document.getElementById('cfg-newsapi')?.checked,
         apiKey: document.getElementById('cfg-newsapi-key')?.value?.trim() || '',
       },
+      youtube: {
+        enabled: document.getElementById('cfg-youtube-api')?.checked,
+        apiKey: document.getElementById('cfg-youtube-key')?.value?.trim() || '',
+      },
+      socialcrawl: {
+        enabled: document.getElementById('cfg-socialcrawl')?.checked,
+        apiKey: document.getElementById('cfg-socialcrawl-key')?.value?.trim() || '',
+        sources: document.getElementById('cfg-socialcrawl-sources')?.value?.trim() || '',
+        lookbackDays: 7,
+      },
     });
 
     await saveNotifyPrefs({
@@ -3523,6 +4634,8 @@ els.form?.addEventListener('submit', async (ev) => {
     await chrome.runtime.sendMessage({ type: 'RL_START_SUBSCRIPTION', userId });
     await fillRivalSelect();
     await refreshNotifyModeUi();
+    syncBrandScanPreview();
+    await refreshOwnBrandBar();
     els.status.textContent = appsync.graphqlUrl
       ? 'Guardado. Alertas de competencia vía AWS AppSync.'
       : 'Configuración guardada. Competidores listos para captación.';
@@ -3537,12 +4650,25 @@ els.manual?.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const text = document.getElementById('manual-text').value.trim();
   if (!text) return;
-  await analyzeComplaint({
-    id: `manual_${Date.now()}`,
-    text,
-    sourceUrl: 'manual://sidepanel',
-    channel: 'manual',
-  });
+  const url = document.getElementById('manual-url')?.value.trim() || '';
+  await createOwnManualMention({ text, sourceUrl: url, analyze: false });
+  document.getElementById('manual-text').value = '';
+  const urlEl = document.getElementById('manual-url');
+  if (urlEl) urlEl.value = '';
+  if (els.ownScanStatus) {
+    els.ownScanStatus.classList.remove('is-error');
+    els.ownScanStatus.textContent = t('own.manualCreated');
+  }
+});
+
+els.ownAnalyzeNow?.addEventListener('click', async () => {
+  const text = document.getElementById('manual-text')?.value.trim();
+  if (!text) return;
+  const url = document.getElementById('manual-url')?.value.trim() || '';
+  await createOwnManualMention({ text, sourceUrl: url, analyze: true });
+  document.getElementById('manual-text').value = '';
+  const urlEl = document.getElementById('manual-url');
+  if (urlEl) urlEl.value = '';
 });
 
 els.compManual?.addEventListener('submit', async (ev) => {
@@ -3597,6 +4723,56 @@ els.alertFilterQ?.addEventListener('input', () => {
 els.scanComp?.addEventListener('click', () => {
   void scanCompetitorMarket();
 });
+
+els.scanOwn?.addEventListener('click', () => {
+  void scanOwnBrand();
+});
+els.refreshOwn?.addEventListener('click', () => {
+  void refreshOwnAlerts();
+  void refreshOwnBrandBar();
+});
+els.ownFilterStatus?.addEventListener('change', () => {
+  void refreshOwnAlerts();
+});
+els.ownFilterDate?.addEventListener('change', () => {
+  void refreshOwnAlerts();
+});
+els.ownFilterPlatform?.addEventListener('change', () => {
+  void refreshOwnAlerts();
+});
+els.ownFilterSeverity?.addEventListener('change', () => {
+  void refreshOwnAlerts();
+});
+els.ownFilterSentiment?.addEventListener('change', () => {
+  void refreshOwnAlerts();
+});
+let ownFilterQTimer = 0;
+els.ownFilterQ?.addEventListener('input', () => {
+  window.clearTimeout(ownFilterQTimer);
+  ownFilterQTimer = window.setTimeout(() => {
+    void refreshOwnAlerts();
+  }, 220);
+});
+els.openOwnChannels?.addEventListener('click', () => {
+  void openConfiguredOwnChannels();
+});
+els.ownBrandReport?.addEventListener('click', () => {
+  void generateOwnBrandReport().catch((err) => {
+    console.error('[RL] own brand report', err);
+    if (els.rivalReportPanel) {
+      els.rivalReportPanel.innerHTML = `<p class="rl-status is-error">${escapeHtml(
+        err instanceof Error ? err.message : String(err),
+      )}</p>`;
+    }
+  });
+});
+els.gotoBrandCfg?.addEventListener('click', () => {
+  goToBrandConfig();
+});
+
+document.getElementById('cfg-name')?.addEventListener('input', syncBrandScanPreview);
+document.getElementById('cfg-aliases')?.addEventListener('input', syncBrandScanPreview);
+document.getElementById('cfg-social-handles')?.addEventListener('input', syncBrandScanPreview);
 
 document.getElementById('btn-open-capture-demo')?.addEventListener('click', async () => {
   if (!(await isDevToolsEnabled())) return;

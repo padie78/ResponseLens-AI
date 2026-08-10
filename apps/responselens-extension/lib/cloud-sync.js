@@ -52,6 +52,9 @@ const LIST_ALERTS = `
       detectedAt
       status
       notes
+      brandScope
+      sentiment
+      inboundSource
     }
   }
 `;
@@ -109,6 +112,9 @@ export function toCloudAlertInput(alert, userId) {
     detectedAt: alert.detectedAt || new Date().toISOString(),
     status: alert.status || 'NEW',
     notes: alert.notes || null,
+    brandScope: alert.brandScope || (alert._brandScope === 'own' ? 'own' : 'rival'),
+    sentiment: alert.sentiment || alert._sentiment || null,
+    inboundSource: alert.inboundSource || null,
   };
 }
 
@@ -175,7 +181,12 @@ export async function hydrateFromCloud(userId) {
         ...prev,
         ...a,
         status: a.status || prev.status || 'NEW',
-        _source: prev._source === 'appsync' || !prev._source ? 'appsync' : prev._source,
+        _brandScope:
+          a.brandScope === 'own' || prev._brandScope === 'own' ? 'own' : prev._brandScope || a.brandScope || undefined,
+        _sentiment: a.sentiment || prev._sentiment,
+        _source:
+          a.inboundSource ||
+          (prev._source === 'appsync' || !prev._source ? 'appsync' : prev._source),
         _cloud: true,
       });
     }

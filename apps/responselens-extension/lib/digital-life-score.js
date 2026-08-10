@@ -19,14 +19,18 @@ const ADVERSE_NEWS_RE =
  *   alerts?: object[],
  *   mentions?: object[],
  *   days?: number,
+ *   brandScope?: 'rival'|'own',
  * }} opts
  */
 export function scoreCompetitorDigitalLife(opts) {
   const name = String(opts.competitorName || '').trim() || 'Rival';
   const days = Math.max(1, Number(opts.days) || 14);
-  const alerts = (opts.alerts || []).filter(
-    (a) => String(a.competitorName || '').trim() === name && !a._brandScope,
-  );
+  const brandScope = opts.brandScope === 'own' ? 'own' : 'rival';
+  const alerts = (opts.alerts || []).filter((a) => {
+    if (String(a.competitorName || '').trim() !== name) return false;
+    if (brandScope === 'own') return a._brandScope === 'own';
+    return a._brandScope !== 'own';
+  });
   const mentions = opts.mentions || [];
 
   const perception = computeRivalPerception({
@@ -34,6 +38,7 @@ export function scoreCompetitorDigitalLife(opts) {
     alerts,
     mentions,
     days,
+    brandScope,
   });
 
   const feed = [
@@ -137,7 +142,10 @@ export function scoreCompetitorDigitalLife(opts) {
     score += pipePts;
     drivers.push({
       id: 'pipeline',
-      label: `${openOps} oportunidad(es) abiertas`,
+      label:
+        brandScope === 'own'
+          ? `${openOps} mención(es) abiertas`
+          : `${openOps} oportunidad(es) abiertas`,
       points: pipePts,
     });
   }
@@ -147,13 +155,16 @@ export function scoreCompetitorDigitalLife(opts) {
     drivers.length = 0;
     drivers.push({
       id: 'empty',
-      label: 'Sin señal digital aún — escaneá o abrí su página',
+      label:
+        brandScope === 'own'
+          ? 'Sin señal digital aún — escaneá tu marca o abrí tus canales'
+          : 'Sin señal digital aún — escaneá o abrí su página',
       points: 0,
     });
   }
 
   score = Math.max(0, Math.min(100, Math.round(score)));
-  const band = bandFromScore(score, churn.inCrisis, perception.mentionCount);
+  const band = bandFromScore(score, churn.inCrisis, perception.mentionCount, brandScope);
   drivers.sort((a, b) => b.points - a.points);
 
   return {
@@ -240,33 +251,42 @@ function normalizeItem(raw) {
   };
 }
 
-function bandFromScore(score, inCrisis, mentionCount) {
+function bandFromScore(score, inCrisis, mentionCount, brandScope = 'rival') {
+  const own = brandScope === 'own';
   if (inCrisis || score >= 80) {
     return {
       id: 'crisis',
       label: t('rank.band.crisis'),
-      hint: 'Vida digital bajo fuego: priorizá captación y ads.',
+      hint: own
+        ? 'Reputación bajo fuego: priorizá triage y respuesta pública.'
+        : 'Vida digital bajo fuego: priorizá captación y ads.',
     };
   }
   if (score >= 55) {
     return {
       id: 'pressure',
       label: t('rank.band.pressure'),
-      hint: 'Quejas y churn claros: buena ventana comercial.',
+      hint: own
+        ? 'Fricción clara: respondé clusters negativos y monitoreá prensa.'
+        : 'Quejas y churn claros: buena ventana comercial.',
     };
   }
   if (score >= 30) {
     return {
       id: 'noise',
       label: t('rank.band.noise'),
-      hint: 'Señal negativa moderada: monitoreá y filtrá intención de cambio.',
+      hint: own
+        ? 'Señal mixta: filtrá por sentimiento y cuidá los temas recurrentes.'
+        : 'Señal negativa moderada: monitoreá y filtrá intención de cambio.',
     };
   }
   if (mentionCount > 0 || score > 0) {
     return {
       id: 'stable',
       label: t('rank.band.weak'),
-      hint: 'Poca fricción pública visible en el feed actual.',
+      hint: own
+        ? 'Percepción estable en el feed actual — reforzá lo positivo.'
+        : 'Poca fricción pública visible en el feed actual.',
     };
   }
   return {

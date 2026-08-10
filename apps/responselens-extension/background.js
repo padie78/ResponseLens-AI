@@ -509,7 +509,10 @@ async function handleMessage(message, sender) {
         /^https:\/\/([a-z0-9-]+\.)?reddit\.com\//i.test(url) ||
         /^https:\/\/old\.reddit\.com\//i.test(url) ||
         /^https:\/\/oauth\.reddit\.com\//i.test(url) ||
-        /^https:\/\/newsapi\.org\//i.test(url);
+        /^https:\/\/newsapi\.org\//i.test(url) ||
+        /^https:\/\/www\.googleapis\.com\/youtube\//i.test(url) ||
+        /^https:\/\/googleapis\.com\/youtube\//i.test(url) ||
+        /^https:\/\/(www\.)?socialcrawl\.dev\//i.test(url);
       if (!allowed) {
         return { ok: false, error: 'url_not_allowed' };
       }
@@ -660,6 +663,11 @@ async function ensureRealtimeSubscription(userId) {
             frustrationScore
             salesPitch
             detectedAt
+            status
+            notes
+            brandScope
+            sentiment
+            inboundSource
           }
         }
       `;
@@ -718,7 +726,14 @@ async function ensureRealtimeSubscription(userId) {
 async function prependAlert(alert) {
   const data = await getLocal([STORAGE_KEYS.alerts]);
   const list = Array.isArray(data[STORAGE_KEYS.alerts]) ? data[STORAGE_KEYS.alerts] : [];
-  const enriched = { status: 'NEW', ...alert };
+  const scope = alert.brandScope === 'own' || alert._brandScope === 'own' ? 'own' : alert._brandScope;
+  const enriched = {
+    status: 'NEW',
+    ...alert,
+    _brandScope: scope || undefined,
+    _sentiment: alert.sentiment || alert._sentiment || undefined,
+    _source: alert.inboundSource || alert._source || 'appsync',
+  };
   const next = [enriched, ...list.filter((a) => a.alertId !== alert.alertId)].slice(0, 100);
   await setLocal({ [STORAGE_KEYS.alerts]: next });
   await refreshCompetitorBadge();

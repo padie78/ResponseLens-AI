@@ -53,6 +53,9 @@ export class DynamoDbCompetitorAlertRepository implements ICompetitorAlertReposi
       detectedAt: skDetectedAt,
       status: alert.status || existing?.status || 'NEW',
       notes: alert.notes !== undefined ? alert.notes : existing?.notes ?? null,
+      brandScope: alert.brandScope ?? existing?.brandScope ?? null,
+      sentiment: alert.sentiment ?? existing?.sentiment ?? null,
+      inboundSource: alert.inboundSource ?? existing?.inboundSource ?? null,
     };
     const item: AlertItem = {
       PK: DynamoKeys.userPk(merged.userId),
@@ -141,6 +144,9 @@ export class DynamoDbCompetitorAlertRepository implements ICompetitorAlertReposi
       detectedAt: item.detectedAt,
       status: item.status || 'NEW',
       notes: item.notes ?? null,
+      brandScope: item.brandScope ?? null,
+      sentiment: item.sentiment ?? null,
+      inboundSource: item.inboundSource ?? null,
     };
   }
 }

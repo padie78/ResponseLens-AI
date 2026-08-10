@@ -154,6 +154,11 @@ type CompetitorAlert {
   detectedAt: AWSDateTime!
   status: AlertWorkflowStatus
   notes: String
+  """own = Propios (reputación); rival = Competencia (captación)."""
+  brandScope: String
+  sentiment: String
+  """Origen inbound: mention | brandwatch | meltwater | sprout | zapier | …"""
+  inboundSource: String
 }
 
 input PublishCompetitorAlertInput {
@@ -169,6 +174,9 @@ input PublishCompetitorAlertInput {
   detectedAt: AWSDateTime!
   status: AlertWorkflowStatus
   notes: String
+  brandScope: String
+  sentiment: String
+  inboundSource: String
 }
 
 input UpsertCompetitorAlertInput {
@@ -184,6 +192,9 @@ input UpsertCompetitorAlertInput {
   detectedAt: AWSDateTime!
   status: AlertWorkflowStatus
   notes: String
+  brandScope: String
+  sentiment: String
+  inboundSource: String
 }
 
 input UpdateCompetitorAlertInput {

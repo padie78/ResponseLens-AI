@@ -136,29 +136,21 @@ const SESSION_HINTS = {
  */
 const DOM_ACCOUNT_PROBES = {
   youtube: {
-    hostRe: /(?:^|\.)((?:google)|(youtube))\.com$/i,
+    // Solo pestañas YouTube. DOM solo detecta logout (Acceder); el login lo confirma LOGIN_INFO.
+    hostRe: /(?:^|\.)youtube\.com$/i,
     extract: () => {
-      const aria =
-        document.querySelector('a[aria-label*="@"]')?.getAttribute('aria-label') ||
-        document.querySelector('button[aria-label*="@"]')?.getAttribute('aria-label') ||
-        '';
-      const email = (aria.match(/[\w.+-]+@[\w.-]+\.\w+/) || [])[0] || '';
-      const nameMatch = aria.match(/Cuenta de Google:\s*([^(\n]+)/i) || aria.match(/Google Account:\s*([^(\n]+)/i);
-      const display = (nameMatch?.[1] || '').trim();
-      const avatar = Boolean(
-        document.querySelector(
-          'img.gbii, img.gb_P, #avatar-btn img, ytd-topbar-menu-button-renderer img#img, a[aria-label*="Google Account"], a[aria-label*="Cuenta de Google"]',
-        ),
-      );
       const signIn = Boolean(
         document.querySelector(
-          'a[href*="ServiceLogin"], a[href*="accounts.google.com/signin"], ytd-button-renderer a[href*="accounts.google.com"]',
+          'a[aria-label="Sign in"], a[aria-label="Acceder"], a[aria-label="Iniciar sesión"], ytd-button-renderer a[href*="ServiceLogin"], ytd-button-renderer a[href*="accounts.google.com/ServiceLogin"], a.yt-spec-button-shape-next[href*="ServiceLogin"], ytd-masthead a[href*="ServiceLogin"]',
         ),
       );
-      return {
-        loggedIn: avatar && !signIn,
-        account: email || display || '',
-      };
+      if (signIn) return { loggedIn: false, account: '' };
+
+      const avatarBtn = document.querySelector('#avatar-btn, button#avatar-btn');
+      const aria = avatarBtn?.getAttribute('aria-label') || '';
+      const email = (aria.match(/[\w.+-]+@[\w.-]+\.\w+/) || [])[0] || '';
+      // No devolvemos loggedIn:true desde DOM (daba falso verde). Solo account tip.
+      return { loggedIn: null, account: email };
     },
   },
   reddit: {
@@ -358,22 +350,31 @@ function cookieOnHosts(cookieDomain, hosts) {
   return hosts.some((h) => d === h || d.endsWith(`.${h}`));
 }
 
-/** @param {string} name */
-function isGoogleAuthCookieName(name) {
-  const n = String(name || '');
-  if (!n) return false;
-  if (
-    /^(LOGIN_INFO|SID|SSID|HSID|APISID|SAPISID|LSID|ACCOUNT_CHOOSER|__Host-GAPS|OSID|__Secure-OSID)$/i.test(
-      n,
-    )
-  ) {
-    return true;
+/**
+ * YouTube: solo cookies en youtube.com (LOGIN_INFO / PSID de YT).
+ * Ignora google.com, mail, docs — ahí puede haber sesión sin estar en YouTube.
+ * @param {string} cookieDomain
+ */
+function cookieOnYoutubeHosts(cookieDomain) {
+  const d = String(cookieDomain || '')
+    .replace(/^\./, '')
+    .toLowerCase();
+  return d === 'youtube.com' || d.endsWith('.youtube.com') || d === 'youtube-nocookie.com' || d.endsWith('.youtube-nocookie.com');
+}
+
+/**
+ * @param {chrome.cookies.Cookie[]} cookies
+ * @returns {chrome.cookies.Cookie | null}
+ */
+function findYoutubeAccountSession(cookies) {
+  for (const c of cookies) {
+    if (!cookieOnYoutubeHosts(c.domain)) continue;
+    const name = String(c.name || '');
+    const val = String(c.value || '');
+    // Única señal confiable de YouTube logueado
+    if (/^LOGIN_INFO$/i.test(name) && val.length >= 20) return c;
   }
-  if (/^__Secure-[13]PSID(TS)?$/i.test(n)) return true;
-  if (/^__Host-1PLSID$/i.test(n)) return true;
-  if (/PSID/i.test(n) && /__Secure|__Host/i.test(n)) return true;
-  if (/^SAPISIDHASH$/i.test(n)) return true;
-  return false;
+  return null;
 }
 
 /** @type {chrome.tabs.Tab[] | null} */
@@ -437,6 +438,8 @@ async function probeAccountFromOpenTabs(platformId) {
 }
 
 /**
+ * YouTube / Google (fila): verde solo con cookie LOGIN_INFO en youtube.com.
+ * El DOM ya no puede marcar “logueado” (falso verde por avatar / otras pestañas).
  * @returns {Promise<{ status: SessionStatus, method: SessionMethod, methodDetail?: string, account?: string }>}
  */
 async function probeGoogleSession() {
@@ -444,69 +447,57 @@ async function probeGoogleSession() {
     return { status: 'unknown', method: 'unavailable', methodDetail: 'api' };
   }
 
-  const permitted = await ensureOrigins(GOOGLE_ORIGINS, false);
-  if (!permitted) {
-    return { status: 'unknown', method: 'permission', methodDetail: 'perm' };
-  }
-
   /** @type {chrome.cookies.Cookie[]} */
   const bag = [];
-  bag.push(...(await allReadableCookies()));
-  for (const url of [
-    'https://www.google.com/',
-    'https://google.com/',
-    'https://accounts.google.com/',
-    'https://mail.google.com/',
-    'https://www.youtube.com/',
-    'https://myaccount.google.com/',
-  ]) {
+  // Todos los stores (perfil normal + otros)
+  try {
+    if (chrome.cookies.getAllCookieStores) {
+      const stores = await chrome.cookies.getAllCookieStores();
+      for (const store of stores || []) {
+        for (const url of ['https://www.youtube.com/', 'https://youtube.com/']) {
+          bag.push(...((await chrome.cookies.getAll({ url, storeId: store.id })) || []));
+        }
+        bag.push(...((await chrome.cookies.getAll({ domain: 'youtube.com', storeId: store.id })) || []));
+        bag.push(...((await chrome.cookies.getAll({ domain: '.youtube.com', storeId: store.id })) || []));
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  for (const url of ['https://www.youtube.com/', 'https://youtube.com/']) {
     bag.push(...(await cookiesForUrl(url)));
   }
-  for (const host of GOOGLE_HOSTS) {
-    bag.push(...(await cookiesForDomain(host)));
-  }
+  bag.push(...(await cookiesForDomain('youtube.com')));
 
   const map = new Map();
   for (const c of bag) {
     if (!c?.name) continue;
+    if (!cookieOnYoutubeHosts(c.domain)) continue;
     map.set(`${c.domain}|${c.name}|${c.path}|${c.storeId || ''}`, c);
   }
-
-  const onGoogle = [...map.values()].filter((c) => cookieOnHosts(c.domain, GOOGLE_HOSTS));
-  const auth = onGoogle.find((c) => c.value && isGoogleAuthCookieName(c.name));
-
+  const onYt = [...map.values()];
+  const auth = findYoutubeAccountSession(onYt);
   const dom = await probeAccountFromOpenTabs('youtube');
+
+  // Acceder visible → out aunque quede LOGIN_INFO vieja
+  if (dom?.loggedIn === false) {
+    return { status: 'out', method: 'dom', methodDetail: 'signin-dom' };
+  }
 
   if (auth) {
     return {
       status: 'in',
       method: 'cookie',
-      methodDetail: auth.name,
+      methodDetail: 'LOGIN_INFO',
       account: dom?.account || '',
     };
   }
 
-  if (dom?.loggedIn) {
-    return {
-      status: 'in',
-      method: 'dom',
-      methodDetail: 'dom',
-      account: dom.account || '',
-    };
-  }
-
-  if (onGoogle.length) {
-    if (dom && dom.loggedIn === false) {
-      return { status: 'out', method: 'dom', methodDetail: 'signin-dom' };
-    }
-    return { status: 'out', method: 'cookie', methodDetail: 'anon' };
-  }
-
-  if (dom && dom.loggedIn === false) {
-    return { status: 'out', method: 'dom', methodDetail: 'signin-dom' };
-  }
-
-  return { status: 'unknown', method: 'none', methodDetail: 'empty' };
+  return {
+    status: 'out',
+    method: 'cookie',
+    methodDetail: 'no-LOGIN_INFO',
+  };
 }
 
 /**

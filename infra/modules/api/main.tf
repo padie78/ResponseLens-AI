@@ -1,8 +1,8 @@
 data "aws_region" "current" {}
 
 locals {
-  api_datasource_name = "api"
-  direct_lambda_request_template = <<-EOT
+  api_datasource_name             = "api"
+  direct_lambda_request_template  = <<-EOT
     {
       "version": "2018-05-29",
       "operation": "Invoke",
@@ -125,7 +125,7 @@ resource "aws_appsync_resolver" "health" {
   field       = "health"
   data_source = aws_appsync_datasource.none.name
 
-  request_template = <<-VTPL
+  request_template  = <<-VTPL
     {
       "version": "2018-05-29",
       "payload": {}
@@ -142,7 +142,7 @@ resource "aws_appsync_resolver" "publish_competitor_alert" {
   field       = "publishCompetitorAlert"
   data_source = aws_appsync_datasource.none.name
 
-  request_template = <<-VTPL
+  request_template  = <<-VTPL
     {
       "version": "2018-05-29",
       "payload": $util.toJson($ctx.args.input)
@@ -155,13 +155,13 @@ resource "aws_appsync_resolver" "publish_competitor_alert" {
 
 locals {
   lambda_resolvers = {
-    "Query.getUserConfig"              = { type = "Query", field = "getUserConfig" }
-    "Query.listCompetitorAlerts"       = { type = "Query", field = "listCompetitorAlerts" }
-    "Mutation.analyzeReply"            = { type = "Mutation", field = "analyzeReply" }
-    "Mutation.analyzeRivalReport"      = { type = "Mutation", field = "analyzeRivalReport" }
-    "Mutation.saveUserConfig"          = { type = "Mutation", field = "saveUserConfig" }
-    "Mutation.upsertCompetitorAlert"   = { type = "Mutation", field = "upsertCompetitorAlert" }
-    "Mutation.updateCompetitorAlert"   = { type = "Mutation", field = "updateCompetitorAlert" }
+    "Query.getUserConfig"            = { type = "Query", field = "getUserConfig" }
+    "Query.listCompetitorAlerts"     = { type = "Query", field = "listCompetitorAlerts" }
+    "Mutation.analyzeReply"          = { type = "Mutation", field = "analyzeReply" }
+    "Mutation.analyzeRivalReport"    = { type = "Mutation", field = "analyzeRivalReport" }
+    "Mutation.saveUserConfig"        = { type = "Mutation", field = "saveUserConfig" }
+    "Mutation.upsertCompetitorAlert" = { type = "Mutation", field = "upsertCompetitorAlert" }
+    "Mutation.updateCompetitorAlert" = { type = "Mutation", field = "updateCompetitorAlert" }
   }
 }
 

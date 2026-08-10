@@ -23,6 +23,21 @@ output "competitor_scan_function_name" {
   value = module.lambdas.competitor_scan_function_name
 }
 
+output "mention_webhook_function_name" {
+  value = module.lambdas.mention_webhook_function_name
+}
+
+output "mentions_webhook_url" {
+  value       = module.http_api.mentions_webhook_url
+  description = "POST inbound mentions (Mention/Zapier/Meltwater). Header X-ResponseLens-Secret."
+}
+
+output "inbound_webhook_secret" {
+  value       = local.inbound_webhook_secret
+  sensitive   = true
+  description = "Shared secret for inbound webhook auth."
+}
+
 output "cognito_user_pool_id" {
   value = module.auth.user_pool_id
 }

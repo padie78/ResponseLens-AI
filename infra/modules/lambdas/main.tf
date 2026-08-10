@@ -77,6 +77,33 @@ resource "aws_cloudwatch_log_group" "competitor_scan" {
   retention_in_days = 14
 }
 
+resource "aws_lambda_function" "mention_webhook" {
+  function_name    = "${var.name_prefix}-mention-webhook"
+  role             = aws_iam_role.lambda_exec.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.bootstrap.output_path
+  source_code_hash = data.archive_file.bootstrap.output_base64sha256
+  timeout          = 29
+  memory_size      = 256
+  architectures    = ["arm64"]
+
+  environment {
+    variables = {
+      CORE_TABLE_NAME        = var.table_name
+      APPSYNC_GRAPHQL_URL    = ""
+      APPSYNC_API_KEY        = ""
+      INBOUND_WEBHOOK_SECRET = var.inbound_webhook_secret
+      LOG_LEVEL              = "INFO"
+    }
+  }
+}
+
+resource "aws_cloudwatch_log_group" "mention_webhook" {
+  name              = "/aws/lambda/${aws_lambda_function.mention_webhook.function_name}"
+  retention_in_days = 14
+}
+
 resource "aws_cloudwatch_event_rule" "competitor_scan" {
   name                = "${var.name_prefix}-competitor-scan"
   description         = "Competitive mention scan"

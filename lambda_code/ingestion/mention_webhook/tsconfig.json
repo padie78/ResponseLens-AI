@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": "./dist",
+    "types": ["node", "aws-lambda"],
+    "strict": true,
+    "esModuleInterop": true
+  },
+  "include": ["src/**/*.ts"]
+}

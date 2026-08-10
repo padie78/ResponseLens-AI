@@ -1,5 +1,5 @@
 /**
- * Credenciales de fuentes de escaneo profesionales (Reddit OAuth, NewsAPI).
+ * Credenciales de fuentes de escaneo profesionales (Reddit OAuth, NewsAPI, YouTube).
  * Persistidas en chrome.storage.local — no se suben a AppSync.
  */
 
@@ -18,6 +18,17 @@ export function defaultScanCredentials() {
       enabled: false,
       apiKey: '',
     },
+    youtube: {
+      enabled: false,
+      apiKey: '',
+    },
+    socialcrawl: {
+      enabled: false,
+      apiKey: '',
+      /** CSV opcional: reddit,youtube,tiktok,instagram,threads,linkedin,… */
+      sources: '',
+      lookbackDays: 7,
+    },
   };
 }
 
@@ -28,6 +39,8 @@ export async function loadScanCredentials() {
   return {
     reddit: { ...base.reddit, ...(raw.reddit || {}) },
     newsapi: { ...base.newsapi, ...(raw.newsapi || {}) },
+    youtube: { ...base.youtube, ...(raw.youtube || {}) },
+    socialcrawl: { ...base.socialcrawl, ...(raw.socialcrawl || {}) },
   };
 }
 
@@ -36,6 +49,8 @@ export async function saveScanCredentials(cfg) {
   const next = {
     reddit: { ...base.reddit, ...(cfg?.reddit || {}) },
     newsapi: { ...base.newsapi, ...(cfg?.newsapi || {}) },
+    youtube: { ...base.youtube, ...(cfg?.youtube || {}) },
+    socialcrawl: { ...base.socialcrawl, ...(cfg?.socialcrawl || {}) },
   };
   await chrome.storage.local.set({ [SCAN_CREDS_KEY]: next });
   return next;
@@ -47,4 +62,12 @@ export function hasRedditOAuth(creds) {
 
 export function hasNewsApi(creds) {
   return Boolean(creds?.newsapi?.enabled && creds.newsapi.apiKey);
+}
+
+export function hasYouTubeApi(creds) {
+  return Boolean(creds?.youtube?.enabled && creds.youtube.apiKey);
+}
+
+export function hasSocialCrawl(creds) {
+  return Boolean(creds?.socialcrawl?.enabled && String(creds.socialcrawl.apiKey || '').trim());
 }

@@ -59,3 +59,9 @@ variable "newsapi_api_key" {
   sensitive = true
   default   = ""
 }
+
+variable "inbound_webhook_secret" {
+  type        = string
+  sensitive   = true
+  description = "Shared secret for POST /v1/webhooks/mentions (X-ResponseLens-Secret)."
+}

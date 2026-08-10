@@ -19,12 +19,17 @@ export const SCAN_SOURCES = [
   {
     id: 'active_page',
     label: 'Pestaña activa',
-    hint: 'Importa quejas ya resaltadas en la página abierta',
+    hint: 'Importa menciones en la página abierta',
   },
   {
     id: 'news_portals',
     label: 'Portales de noticias',
-    hint: 'Google News RSS · rivales + tu marca',
+    hint: 'Google News RSS / NewsAPI · artículos de la marca',
+  },
+  {
+    id: 'youtube_api',
+    label: 'YouTube (videos)',
+    hint: 'Data API (key) o índice News site:youtube.com',
   },
 ];
 
@@ -43,7 +48,7 @@ export const PAGE_PLATFORMS = [
   },
   {
     id: 'youtube',
-    label: 'YouTube / Google',
+    label: 'YouTube',
     hosts: ['youtube.com', 'google.com'],
     openUrl: 'https://www.youtube.com/',
   },
@@ -146,6 +151,7 @@ export function defaultPlatformPrefs() {
       reddit_api: true,
       active_page: true,
       news_portals: true,
+      youtube_api: true,
     },
     pageEnabled: Object.fromEntries(PAGE_PLATFORMS.map((p) => [p.id, true])),
     custom: [],

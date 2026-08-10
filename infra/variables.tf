@@ -77,6 +77,13 @@ variable "newsapi_api_key" {
   description = "NewsAPI.org key para menciones de prensa en competitor_scan."
 }
 
+variable "inbound_webhook_secret" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Secret compartido para POST /v1/webhooks/mentions. Si vacío, Terraform genera uno."
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

@@ -15,6 +15,11 @@ const PUBLISH_MUTATION = `
       frustrationScore
       salesPitch
       detectedAt
+      status
+      notes
+      brandScope
+      sentiment
+      inboundSource
     }
   }
 `;
@@ -32,6 +37,24 @@ export class AppSyncCompetitorAlertPublisher implements ICompetitorAlertPublishe
       return;
     }
 
+    const input = {
+      alertId: alert.alertId,
+      userId: alert.userId,
+      competitorName: alert.competitorName,
+      originalComplaint: alert.originalComplaint,
+      sourceUrl: alert.sourceUrl,
+      channel: alert.channel ?? null,
+      severity: alert.severity,
+      frustrationScore: alert.frustrationScore ?? null,
+      salesPitch: alert.salesPitch,
+      detectedAt: alert.detectedAt,
+      status: alert.status || 'NEW',
+      notes: alert.notes ?? null,
+      brandScope: alert.brandScope ?? null,
+      sentiment: alert.sentiment ?? null,
+      inboundSource: alert.inboundSource ?? null,
+    };
+
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -40,7 +63,7 @@ export class AppSyncCompetitorAlertPublisher implements ICompetitorAlertPublishe
       },
       body: JSON.stringify({
         query: PUBLISH_MUTATION,
-        variables: { input: alert },
+        variables: { input },
       }),
     });
 

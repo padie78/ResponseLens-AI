@@ -46,3 +46,4 @@ zip_and_publish() {
 
 zip_and_publish "$ROOT/lambda_code/api/api" "${PREFIX}-appsync-api"
 zip_and_publish "$ROOT/lambda_code/ingestion/competitor_scan" "${PREFIX}-competitor-scan"
+zip_and_publish "$ROOT/lambda_code/ingestion/mention_webhook" "${PREFIX}-mention-webhook"

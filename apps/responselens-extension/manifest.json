@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "default_locale": "es",
   "name": "__MSG_extName__",
-  "version": "0.15.21",
+  "version": "0.17.0",
   "description": "__MSG_extDescription__",
   "permissions": [
     "sidePanel",
@@ -63,6 +63,8 @@
     "https://*.indeed.com/*",
     "https://www.indeed.com/*",
     "https://hn.algolia.com/*",
+    "https://www.socialcrawl.dev/*",
+    "https://socialcrawl.dev/*",
     "https://cognito-idp.us-east-1.amazonaws.com/*",
     "https://cognito-idp.us-east-2.amazonaws.com/*",
     "https://cognito-idp.us-west-1.amazonaws.com/*",
@@ -153,6 +155,6 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://hn.algolia.com https://www.reddit.com https://*.reddit.com https://old.reddit.com https://news.google.com https://newsapi.org https://*.amazonaws.com https://api.hubapi.com https://cognito-idp.us-east-1.amazonaws.com https://cognito-idp.us-east-2.amazonaws.com https://cognito-idp.us-west-1.amazonaws.com https://cognito-idp.us-west-2.amazonaws.com https://cognito-idp.eu-west-1.amazonaws.com https://cognito-idp.eu-west-2.amazonaws.com https://cognito-idp.eu-central-1.amazonaws.com https://cognito-idp.sa-east-1.amazonaws.com https://cognito-idp.ap-southeast-1.amazonaws.com https://cognito-idp.ap-northeast-1.amazonaws.com wss://*.amazonaws.com https://www.google.com"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://hn.algolia.com https://www.reddit.com https://*.reddit.com https://old.reddit.com https://news.google.com https://newsapi.org https://www.socialcrawl.dev https://socialcrawl.dev https://*.amazonaws.com https://api.hubapi.com https://cognito-idp.us-east-1.amazonaws.com https://cognito-idp.us-east-2.amazonaws.com https://cognito-idp.us-west-1.amazonaws.com https://cognito-idp.us-west-2.amazonaws.com https://cognito-idp.eu-west-1.amazonaws.com https://cognito-idp.eu-west-2.amazonaws.com https://cognito-idp.eu-central-1.amazonaws.com https://cognito-idp.sa-east-1.amazonaws.com https://cognito-idp.ap-southeast-1.amazonaws.com https://cognito-idp.ap-northeast-1.amazonaws.com wss://*.amazonaws.com https://www.google.com"
   }
 }

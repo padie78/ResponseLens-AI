@@ -268,6 +268,18 @@
     return null;
   }
 
+  function findOwnBrandInText(text) {
+    const lower = String(text || '').toLowerCase();
+    const primary = String(companyProfile.companyName || '').trim();
+    const names = [primary, ...(companyProfile.aliases || [])]
+      .map((n) => String(n || '').trim())
+      .filter((n) => n && n.toLowerCase() !== 'tumarca');
+    for (const name of names) {
+      if (lower.includes(name.toLowerCase())) return primary || name;
+    }
+    return null;
+  }
+
   function detectLang(text) {
     const t = String(text || '');
     const es = (t.match(/\b(el|la|de|que|no|me|por|con|está|falla|estafa|horrible)\b/gi) || []).length;
@@ -785,10 +797,12 @@
     processed.add(node);
     const id = uid();
     const severity = scoreSeverity(text);
+    const ownBrand = findOwnBrandInText(text);
     const competitorName = findCompetitorInText(text);
     node.setAttribute(RL_ATTR, id);
 
-    if (competitorName) {
+    // Si habla de tu marca → Propios (aunque también cite un rival)
+    if (competitorName && !ownBrand) {
       // Módulo B: queja sobre un rival → captación
       node.classList.add('rl-highlight', 'rl-highlight--capture');
       node.setAttribute('data-rl-competitor', competitorName);
@@ -924,6 +938,55 @@
           channel: detectChannel(),
           detectedAt: new Date().toISOString(),
         });
+      }
+      sendResponse({ ok: true, items, href: location.href, channel: detectChannel() });
+      return false;
+    }
+
+    if (message.type === 'RL_LIST_OWN_CANDIDATES') {
+      if (message.companyName) {
+        companyProfile = {
+          ...companyProfile,
+          companyName: message.companyName,
+          aliases: Array.isArray(message.aliases) ? message.aliases : companyProfile.aliases,
+        };
+      }
+      scan();
+      const items = [];
+      const seen = new Set();
+      for (const node of document.querySelectorAll(`[${RL_ATTR}]`)) {
+        if (!(node instanceof HTMLElement)) continue;
+        if (node.classList.contains('rl-highlight--capture')) continue;
+        const text = normalizeText(node.innerText || node.textContent);
+        if (!text || text.length < 12) continue;
+        // Propios: cualquier mención de marca (pos/neg/neutro), no solo crisis
+        if (!findOwnBrandInText(text)) continue;
+        const id = node.getAttribute(RL_ATTR);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        items.push({
+          id,
+          text,
+          sourceUrl: location.href,
+          channel: detectChannel(),
+          detectedAt: new Date().toISOString(),
+        });
+      }
+      for (const node of collectCandidates()) {
+        if (!(node instanceof HTMLElement)) continue;
+        const text = normalizeText(node.innerText || node.textContent);
+        if (!text || !findOwnBrandInText(text)) continue;
+        const key = text.slice(0, 80);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push({
+          id: `scan_${items.length}`,
+          text,
+          sourceUrl: location.href,
+          channel: detectChannel(),
+          detectedAt: new Date().toISOString(),
+        });
+        if (items.length >= 40) break;
       }
       sendResponse({ ok: true, items, href: location.href, channel: detectChannel() });
       return false;

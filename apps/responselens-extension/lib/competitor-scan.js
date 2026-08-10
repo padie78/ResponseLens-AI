@@ -4,15 +4,25 @@
  *  - Hacker News (Algolia, gratis)
  *  - Reddit: OAuth app-only si hay credenciales; si no, search.json público
  *  - News: NewsAPI si hay key; si no, Google News RSS
+ *  - YouTube: Data API si hay key; si no, Google News site:youtube.com
+ *  - SocialCrawl: GET /v1/search/everywhere si hay key local
  *  - Pestaña activa
+ *
+ * Propios (brandScope own / allSentiment): positivo + negativo + neutro.
+ * Competencia: prioriza señal negativa (captación).
  */
 
 import { buildOpportunity, scoreFrustration } from './competitor-opportunity.js';
 import { mentionDedupeKey } from './mention-dedupe.js';
-import { hasNewsApi, hasRedditOAuth } from './scan-credentials.js';
+import { hasNewsApi, hasRedditOAuth, hasSocialCrawl, hasYouTubeApi } from './scan-credentials.js';
+import { analyzeBrandMention, sentimentToStorage } from './mention-intelligence.js';
+import { fetchSocialCrawlMentions } from './socialcrawl-client.js';
 
 const NEGATIVE_HINT =
-  /\b(scam|outage|broken|terrible|horrible|awful|refund|downtime|fail(ure|ed|ing)?|bug|crash|estafa|falla|ca[ií]da|basura|caro|slow|unreliable|worst|hate|sucks|lawsuit|demanda|crisis|polémica|polemica|investigat|multa|breach|filtración|filtracion)\b/i;
+  /\b(scam|outage|broken|terrible|horrible|awful|refund|downtime|fail(ure|ed|ing)?|bug|crash|estafa|falla|ca[ií]da|basura|caro|slow|unreliable|worst|hate|sucks|lawsuit|demanda|crisis|polémica|polemica|investigat|multa|breach|filtración|filtracion|complaint|queja|estaf|fraude|boycott)\b/i;
+
+const POSITIVE_HINT =
+  /\b(love|great|amazing|awesome|excellent|fantastic|recommend|best|impressed|gracias|excelente|incre[ií]ble|recomiendo|genial|perfecto|útil|util|helpful|game[- ]?changer|won|éxito|exito|launch|partnership|award|premio|crecimiento)\b/i;
 
 function stripHtml(html) {
   return String(html || '')
@@ -29,6 +39,20 @@ function stripHtml(html) {
 
 function looksNegative(text) {
   return NEGATIVE_HINT.test(text) || scoreFrustration(text) >= 0.32;
+}
+
+function looksPositive(text) {
+  return POSITIVE_HINT.test(text) && scoreFrustration(text) < 0.45;
+}
+
+/** @returns {'NEGATIVE'|'POSITIVE'|'NEUTRAL'|'MIXED'} */
+export function classifySentiment(text) {
+  const neg = looksNegative(text);
+  const pos = looksPositive(text);
+  if (neg && pos) return scoreFrustration(text) >= 0.4 ? 'NEGATIVE' : 'MIXED';
+  if (neg) return 'NEGATIVE';
+  if (pos) return 'POSITIVE';
+  return 'NEUTRAL';
 }
 
 /** Nombres + aliases a consultar (máx 3 para no saturar APIs). */
@@ -162,17 +186,25 @@ function parseRssItems(xml) {
  * Portales de noticias vía Google News RSS (sin API key).
  * Cubre medios indexados que mencionan la marca / rival.
  * @param {string} subjectName
- * @param {{ limit?: number, brandScope?: 'rival'|'own' }} [opts]
+ * @param {{ limit?: number, brandScope?: 'rival'|'own', allSentiment?: boolean }} [opts]
  */
 export async function fetchNewsMentions(subjectName, opts = {}) {
   const limit = opts.limit ?? 6;
   const name = String(subjectName || '').trim();
   if (!name) return { mentions: [] };
 
-  const queries = [
-    `"${name}" (${opts.brandScope === 'own' ? 'crisis OR demanda OR falla OR outage OR multa OR investigación OR polémica' : 'scam OR outage OR crisis OR demanda OR falla OR problema OR multa OR lawsuit'})`,
-    `"${name}"`,
-  ];
+  const allSentiment = opts.allSentiment === true || opts.brandScope === 'own';
+
+  const queries = allSentiment
+    ? [
+        `"${name}"`,
+        `"${name}" (review OR artículo OR article OR análisis OR analysis OR launch OR partnership OR funding)`,
+        `"${name}" (crisis OR demanda OR falla OR outage OR multa OR polémica OR award OR éxito)`,
+      ]
+    : [
+        `"${name}" (${opts.brandScope === 'own' ? 'crisis OR demanda OR falla OR outage OR multa OR investigación OR polémica' : 'scam OR outage OR crisis OR demanda OR falla OR problema OR multa OR lawsuit'})`,
+        `"${name}"`,
+      ];
 
   const locales = [
     { hl: 'es-419', gl: 'AR', ceid: 'AR:es' },
@@ -199,9 +231,11 @@ export async function fetchNewsMentions(subjectName, opts = {}) {
       for (const item of parseRssItems(res.text)) {
         const text = [item.title, item.description].filter(Boolean).join('\n').slice(0, 2000);
         if (!text.toLowerCase().includes(name.toLowerCase())) continue;
-        // Primera query (con keywords): exigir señal; segunda: aceptar menciones con algo de fricción o título fuerte
-        if (query.includes('(') && !looksNegative(text) && scoreFrustration(text) < 0.28) continue;
-        if (!query.includes('(') && !looksNegative(text) && scoreFrustration(text) < 0.4) continue;
+        if (!allSentiment) {
+          // Primera query (con keywords): exigir señal; segunda: aceptar menciones con algo de fricción o título fuerte
+          if (query.includes('(') && !looksNegative(text) && scoreFrustration(text) < 0.28) continue;
+          if (!query.includes('(') && !looksNegative(text) && scoreFrustration(text) < 0.4) continue;
+        }
 
         const idKey = item.guid || item.link || item.title;
         if (!idKey || byId.has(idKey)) continue;
@@ -213,6 +247,7 @@ export async function fetchNewsMentions(subjectName, opts = {}) {
           channel: 'news',
           detectedAt: item.detectedAt,
           brandScope: opts.brandScope || 'rival',
+          sentiment: classifySentiment(text),
         });
       }
     }
@@ -232,22 +267,25 @@ function hashStr(s) {
 
 /**
  * @param {string} competitorName
- * @param {{ limit?: number }} [opts]
+ * @param {{ limit?: number, allSentiment?: boolean }} [opts]
  * @returns {Promise<{ mentions: object[], error?: string }>}
  */
 export async function fetchHnMentions(competitorName, opts = {}) {
   const limit = opts.limit ?? 8;
   const name = String(competitorName || '').trim();
   if (!name) return { mentions: [] };
+  const allSentiment = opts.allSentiment === true;
 
-  const queries = [
-    name,
-    `${name} scam`,
-    `${name} outage`,
-    `${name} broken`,
-    `${name} terrible`,
-    `${name} fail`,
-  ];
+  const queries = allSentiment
+    ? [name, `${name} review`, `${name} experience`]
+    : [
+        name,
+        `${name} scam`,
+        `${name} outage`,
+        `${name} broken`,
+        `${name} terrible`,
+        `${name} fail`,
+      ];
 
   const byId = new Map();
   let lastError = '';
@@ -259,7 +297,7 @@ export async function fetchHnMentions(competitorName, opts = {}) {
       if (byId.size >= limit) break;
       const url =
         `https://hn.algolia.com/api/v1/${endpoint}?query=${encodeURIComponent(query)}` +
-        `&tags=comment&hitsPerPage=12`;
+        `&tags=comment&hitsPerPage=${allSentiment ? 20 : 12}`;
 
       const res = await extensionFetchJson(url);
       if (!res.ok || !res.json) {
@@ -272,8 +310,10 @@ export async function fetchHnMentions(competitorName, opts = {}) {
         const text = stripHtml(hit.comment_text || hit.title || hit.story_title || '');
         if (!text || text.length < 20) continue;
         if (!text.toLowerCase().includes(name.toLowerCase())) continue;
-        if (query === name && !looksNegative(text)) continue;
-        if (query !== name && !looksNegative(text) && scoreFrustration(text) < 0.3) continue;
+        if (!allSentiment) {
+          if (query === name && !looksNegative(text)) continue;
+          if (query !== name && !looksNegative(text) && scoreFrustration(text) < 0.3) continue;
+        }
 
         const objectId = hit.objectID || hit.story_id;
         if (!objectId || byId.has(String(objectId))) continue;
@@ -290,6 +330,7 @@ export async function fetchHnMentions(competitorName, opts = {}) {
           sourceUrl,
           channel: 'hackernews',
           detectedAt: hit.created_at || new Date().toISOString(),
+          sentiment: classifySentiment(text),
         });
       }
     }
@@ -303,17 +344,20 @@ export async function fetchHnMentions(competitorName, opts = {}) {
 
 /**
  * @param {string} competitorName
- * @param {{ limit?: number }} [opts]
+ * @param {{ limit?: number, allSentiment?: boolean }} [opts]
  */
 export async function fetchRedditMentions(competitorName, opts = {}) {
   const limit = opts.limit ?? 5;
   const name = String(competitorName || '').trim();
   if (!name) return { mentions: [] };
+  const allSentiment = opts.allSentiment === true;
 
-  const q = `${name} (scam OR outage OR broken OR terrible OR estafa OR falla)`;
+  const q = allSentiment
+    ? `"${name}"`
+    : `${name} (scam OR outage OR broken OR terrible OR estafa OR falla)`;
   const url =
     `https://www.reddit.com/search.json?q=${encodeURIComponent(q)}` +
-    `&sort=new&limit=${limit}&t=year&type=link&raw_json=1`;
+    `&sort=new&limit=${Math.min(limit * 2, 25)}&t=year&type=link&raw_json=1`;
 
   const res = await extensionFetchJson(url);
   if (!res.ok || !res.json) {
@@ -332,7 +376,7 @@ export async function fetchRedditMentions(competitorName, opts = {}) {
     const text = [title, selftext].filter(Boolean).join('\n').slice(0, 2000);
     if (!text) continue;
     if (!text.toLowerCase().includes(name.toLowerCase())) continue;
-    if (!looksNegative(text)) continue;
+    if (!allSentiment && !looksNegative(text)) continue;
 
     mentions.push({
       id: `reddit_${d.id || Math.random().toString(36).slice(2, 9)}`,
@@ -343,7 +387,9 @@ export async function fetchRedditMentions(competitorName, opts = {}) {
         ? new Date(Number(d.created_utc) * 1000).toISOString()
         : new Date().toISOString(),
       _provider: 'reddit_public',
+      sentiment: classifySentiment(text),
     });
+    if (mentions.length >= limit) break;
   }
   return { mentions };
 }
@@ -402,10 +448,13 @@ export async function fetchRedditOAuthMentions(competitorName, opts = {}) {
     };
   }
 
-  const q = `${name} (scam OR outage OR broken OR terrible OR estafa OR falla OR refund)`;
+  const allSentiment = opts.allSentiment === true;
+  const q = allSentiment
+    ? `"${name}"`
+    : `${name} (scam OR outage OR broken OR terrible OR estafa OR falla OR refund)`;
   const url =
     `https://oauth.reddit.com/search?q=${encodeURIComponent(q)}` +
-    `&sort=new&limit=${limit}&t=year&type=link&raw_json=1`;
+    `&sort=new&limit=${Math.min(limit * 2, 25)}&t=year&type=link&raw_json=1`;
   const ua = opts.reddit.userAgent || 'ResponseLensAI/0.7';
   const res = await extensionFetchJson(url, {
     Authorization: `Bearer ${token}`,
@@ -426,7 +475,7 @@ export async function fetchRedditOAuthMentions(competitorName, opts = {}) {
     const selftext = String(d.selftext || '').trim();
     const text = [title, selftext].filter(Boolean).join('\n').slice(0, 2000);
     if (!text || !text.toLowerCase().includes(name.toLowerCase())) continue;
-    if (!looksNegative(text)) continue;
+    if (!allSentiment && !looksNegative(text)) continue;
     mentions.push({
       id: `reddit_oauth_${d.id || Math.random().toString(36).slice(2, 9)}`,
       text,
@@ -436,7 +485,9 @@ export async function fetchRedditOAuthMentions(competitorName, opts = {}) {
         ? new Date(Number(d.created_utc) * 1000).toISOString()
         : new Date().toISOString(),
       _provider: 'reddit_oauth',
+      sentiment: classifySentiment(text),
     });
+    if (mentions.length >= limit) break;
   }
   return { mentions };
 }
@@ -444,7 +495,7 @@ export async function fetchRedditOAuthMentions(competitorName, opts = {}) {
 /**
  * NewsAPI.org (everything). Requiere apiKey.
  * @param {string} subjectName
- * @param {{ limit?: number, apiKey?: string, brandScope?: string }} [opts]
+ * @param {{ limit?: number, apiKey?: string, brandScope?: string, allSentiment?: boolean }} [opts]
  */
 export async function fetchNewsApiMentions(subjectName, opts = {}) {
   const limit = opts.limit ?? 6;
@@ -452,14 +503,16 @@ export async function fetchNewsApiMentions(subjectName, opts = {}) {
   const apiKey = opts.apiKey;
   if (!name || !apiKey) return { mentions: [], error: 'missing_newsapi_key' };
 
-  const q =
-    opts.brandScope === 'own'
+  const allSentiment = opts.allSentiment === true || opts.brandScope === 'own';
+  const q = allSentiment
+    ? `"${name}"`
+    : opts.brandScope === 'own'
       ? `"${name}" AND (crisis OR lawsuit OR outage OR fine OR scandal OR demanda OR falla)`
       : `"${name}" AND (scam OR outage OR lawsuit OR broken OR crisis OR estafa OR falla OR refund)`;
 
   const url =
     `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}` +
-    `&language=en&sortBy=publishedAt&pageSize=${Math.min(limit, 20)}`;
+    `&sortBy=publishedAt&pageSize=${Math.min(Math.max(limit, 10), 25)}`;
 
   const res = await extensionFetchJson(url, { 'X-Api-Key': apiKey });
   if (!res.ok || !res.json) {
@@ -477,7 +530,7 @@ export async function fetchNewsApiMentions(subjectName, opts = {}) {
       .join('\n')
       .slice(0, 2000);
     if (!text || !text.toLowerCase().includes(name.toLowerCase())) continue;
-    if (!looksNegative(text) && scoreFrustration(text) < 0.28) continue;
+    if (!allSentiment && !looksNegative(text) && scoreFrustration(text) < 0.28) continue;
     mentions.push({
       id: `newsapi_${hashStr(a.url || a.title || text).toString(36)}`,
       text,
@@ -486,10 +539,108 @@ export async function fetchNewsApiMentions(subjectName, opts = {}) {
       detectedAt: a.publishedAt || new Date().toISOString(),
       _provider: 'newsapi',
       brandScope: opts.brandScope || 'rival',
+      sentiment: classifySentiment(text),
     });
     if (mentions.length >= limit) break;
   }
   return { mentions };
+}
+
+/**
+ * Videos de YouTube que mencionan la marca.
+ * Con API key → YouTube Data API search.
+ * Sin key → Google News RSS `site:youtube.com` (cobertura parcial).
+ * @param {string} subjectName
+ * @param {{ limit?: number, apiKey?: string }} [opts]
+ */
+export async function fetchYouTubeMentions(subjectName, opts = {}) {
+  const limit = opts.limit ?? 8;
+  const name = String(subjectName || '').trim();
+  if (!name) return { mentions: [] };
+
+  if (opts.apiKey) {
+    const url =
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video` +
+      `&maxResults=${Math.min(limit, 15)}` +
+      `&order=date&q=${encodeURIComponent(name)}` +
+      `&key=${encodeURIComponent(opts.apiKey)}`;
+    const res = await extensionFetchJson(url);
+    if (!res.ok || !res.json) {
+      return { mentions: [], error: res.error || `YouTube API HTTP ${res.status || '?'}` };
+    }
+    if (res.json.error) {
+      return {
+        mentions: [],
+        error: res.json.error?.message || 'YouTube API error',
+      };
+    }
+    const items = Array.isArray(res.json.items) ? res.json.items : [];
+    const mentions = [];
+    for (const it of items) {
+      const sn = it.snippet || {};
+      const vid = it.id?.videoId;
+      if (!vid) continue;
+      const text = [sn.title, sn.description, sn.channelTitle]
+        .filter(Boolean)
+        .join('\n')
+        .slice(0, 2000);
+      if (!text) continue;
+      mentions.push({
+        id: `yt_${vid}`,
+        text,
+        sourceUrl: `https://www.youtube.com/watch?v=${vid}`,
+        channel: 'youtube',
+        detectedAt: sn.publishedAt || new Date().toISOString(),
+        _provider: 'youtube_api',
+        sentiment: classifySentiment(text),
+      });
+      if (mentions.length >= limit) break;
+    }
+    return { mentions };
+  }
+
+  // Fallback gratis: noticias/índice que apuntan a YouTube
+  const query = `"${name}" site:youtube.com`;
+  const locales = [
+    { hl: 'es-419', gl: 'AR', ceid: 'AR:es' },
+    { hl: 'en-US', gl: 'US', ceid: 'US:en' },
+  ];
+  const byId = new Map();
+  let lastError = '';
+  for (const loc of locales) {
+    if (byId.size >= limit) break;
+    const url =
+      `https://news.google.com/rss/search?q=${encodeURIComponent(query)}` +
+      `&hl=${encodeURIComponent(loc.hl)}&gl=${encodeURIComponent(loc.gl)}&ceid=${encodeURIComponent(loc.ceid)}`;
+    const res = await extensionFetchText(url);
+    if (!res.ok || !res.text) {
+      lastError = res.error || `YT-RSS HTTP ${res.status || '?'}`;
+      continue;
+    }
+    for (const item of parseRssItems(res.text)) {
+      const text = [item.title, item.description].filter(Boolean).join('\n').slice(0, 2000);
+      const link = item.link || '';
+      const isYt =
+        /youtube\.com|youtu\.be/i.test(link) || /youtube\.com|youtu\.be/i.test(text);
+      if (!isYt && !text.toLowerCase().includes(name.toLowerCase())) continue;
+      if (!text.toLowerCase().includes(name.toLowerCase())) continue;
+      const idKey = item.guid || link || item.title;
+      if (!idKey || byId.has(idKey)) continue;
+      byId.set(idKey, {
+        id: `yt_rss_${Math.abs(hashStr(idKey)).toString(36)}`,
+        text,
+        sourceUrl: link || `https://www.youtube.com/results?search_query=${encodeURIComponent(name)}`,
+        channel: 'youtube',
+        detectedAt: item.detectedAt,
+        _provider: 'youtube_news_rss',
+        sentiment: classifySentiment(text),
+      });
+    }
+  }
+  return {
+    mentions: [...byId.values()].slice(0, limit),
+    error: byId.size ? undefined : lastError || undefined,
+  };
 }
 
 /** Nombres demo viejos → marcas reales buscables en HN. */
@@ -542,6 +693,7 @@ export async function runCompetitorScan({
     providers: {
       reddit: useRedditOauth ? 'oauth' : 'public',
       news: useNewsApi ? 'newsapi' : 'google_rss',
+      socialcrawl: hasSocialCrawl(credentials) ? 'socialcrawl' : 'off',
     },
     perCompetitor: {},
   };
@@ -569,6 +721,8 @@ export async function runCompetitorScan({
     });
     if (flags.page) {
       opp._source = 'page';
+    } else if (flags.socialcrawl) {
+      opp._source = 'socialcrawl';
     } else if (flags.hn) {
       opp._source = 'hackernews';
     } else if (flags.news) {
@@ -580,6 +734,26 @@ export async function runCompetitorScan({
     if (flags.ownBrand) {
       opp._brandScope = 'own';
       opp.notes = [opp.notes, 'Mención de tu marca en prensa'].filter(Boolean).join(' · ');
+    }
+    if (!flags.ownBrand) {
+      const intel = analyzeBrandMention({
+        text: partial.complaint,
+        channel: partial.channel || opp.channel,
+        sourceUrl: partial.sourceUrl || opp.sourceUrl,
+        brandScope: 'rival',
+        competitorName: partial.competitorName,
+        companyName: company?.companyName,
+        systemContext: { alertId: opp.alertId, provider: opp._source },
+      });
+      opp._intel = intel.analisis_comentario_recibido;
+      if (intel.analisis_comentario_recibido?.analisis_estrategico?.resumen_insight) {
+        opp.notes = [
+          opp.notes,
+          intel.analisis_comentario_recibido.analisis_estrategico.resumen_insight,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+      }
     }
     // Floor: descartar ruido casi nulo salvo página (usuario captó a mano)
     if (!flags.page && (opp.frustrationScore || 0) < 0.28 && !looksNegative(partial.complaint)) {
@@ -730,9 +904,365 @@ export async function runCompetitorScan({
     }
   }
 
+  if (hasSocialCrawl(credentials) && list.length) {
+    stats.socialcrawl = 0;
+    for (const competitor of list.slice(0, 5)) {
+      const name = competitor.name || competitor;
+      const sc = await fetchSocialCrawlMentions(credentials, name, {
+        lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 7,
+        sources: credentials.socialcrawl?.sources || '',
+      });
+      if (sc.error) errors.push(`SocialCrawl/${name}: ${sc.error}`);
+      for (const m of sc.mentions || []) {
+        if (
+          pushOpp(
+            {
+              alertId: m.id || null,
+              competitorName: name,
+              complaint: m.text,
+              sourceUrl: m.sourceUrl,
+              channel: m.channel,
+              detectedAt: m.detectedAt,
+            },
+            { socialcrawl: true },
+          )
+        ) {
+          stats.socialcrawl += 1;
+        }
+      }
+    }
+  }
+
   opportunities.sort(
     (a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime(),
   );
 
   return { opportunities, stats, errors, scannedNames, enabledSources: enabled };
 }
+
+/**
+ * Escaneo de reputación de la marca propia (HN · Reddit · News · pestaña).
+ * Misma forma de alertas que competencia, con `_brandScope: 'own'`.
+ *
+ * @param {{
+ *   company?: { companyName?: string, aliases?: string[], whatTheySell?: string },
+ *   userId?: string,
+ *   pageMentions?: Array<{ id?: string, text: string, sourceUrl?: string, channel?: string, detectedAt?: string }>,
+ *   sources?: Record<string, boolean> | null,
+ *   credentials?: object | null,
+ * }} [opts]
+ */
+export async function runOwnBrandScan({
+  company,
+  userId = 'local-user',
+  pageMentions = [],
+  sources = null,
+  credentials = null,
+} = {}) {
+  const ownName = String(company?.companyName || '').trim();
+  const opportunities = [];
+  const errors = [];
+  const scannedNames = [];
+  const enabled = {
+    hackernews: sources?.hackernews !== false,
+    reddit_api: sources?.reddit_api !== false,
+    active_page: sources?.active_page !== false,
+    news_portals: sources?.news_portals !== false,
+    youtube_api: sources?.youtube_api !== false,
+  };
+  const useYoutubeApi = hasYouTubeApi(credentials);
+  const stats = {
+    hn: 0,
+    reddit: 0,
+    news: 0,
+    youtube: 0,
+    page: 0,
+    socialcrawl: 0,
+    skippedDupes: 0,
+    providers: {
+      reddit: hasRedditOAuth(credentials) ? 'oauth' : 'public',
+      news: hasNewsApi(credentials) ? 'newsapi' : 'google_rss',
+      youtube: useYoutubeApi ? 'youtube_api' : 'youtube_news_rss',
+      socialcrawl: hasSocialCrawl(credentials) ? 'socialcrawl' : 'off',
+    },
+  };
+
+  if (!ownName || ownName.toLowerCase() === 'tumarca') {
+    return {
+      opportunities,
+      stats,
+      errors: ['Configurá el nombre de tu empresa en Config → Mi empresa'],
+      scannedNames,
+      enabledSources: enabled,
+    };
+  }
+
+  const queryNames = scanQueryNames({
+    name: ownName,
+    aliases: [
+      ...(company?.aliases || []),
+      ...(company?.socialHandles || [])
+        .map((h) => String(h || '').trim().replace(/^@/, ''))
+        .filter(Boolean),
+    ],
+  });
+  scannedNames.push(...queryNames.map((n) => `own:${n}`));
+
+  const useRedditOauth = hasRedditOAuth(credentials);
+  const useNewsApi = hasNewsApi(credentials);
+  const seen = new Set();
+
+  const pushOwn = (partial, flags) => {
+    const key = mentionDedupeKey({
+      text: partial.complaint,
+      sourceUrl: partial.sourceUrl,
+      competitorName: ownName,
+    });
+    if (seen.has(key)) {
+      stats.skippedDupes += 1;
+      return false;
+    }
+    seen.add(key);
+    const sentiment =
+      partial.sentiment || classifySentiment(partial.complaint || '');
+    const opp = buildOpportunity({
+      ...partial,
+      competitorName: ownName,
+      company,
+      userId,
+      competitors: [],
+      demo: false,
+      alertId: partial.alertId || null,
+      detectedAt: partial.detectedAt || null,
+    });
+    opp._brandScope = 'own';
+    opp._sentiment = sentiment;
+    const intel = analyzeBrandMention({
+      text: partial.complaint,
+      channel: partial.channel || opp.channel,
+      sourceUrl: partial.sourceUrl || opp.sourceUrl,
+      brandScope: 'own',
+      companyName: ownName,
+      systemContext: {
+        alertId: opp.alertId,
+        provider: flags.socialcrawl ? 'socialcrawl' : flags.page ? 'page' : 'scan',
+      },
+    });
+    opp._intel = intel.analisis_comentario_recibido;
+    if (intel.analisis_comentario_recibido?.respuesta_sugerida_publica) {
+      opp.salesPitch = intel.analisis_comentario_recibido.respuesta_sugerida_publica;
+    }
+    const mappedSent = sentimentToStorage(intel.analisis_comentario_recibido?.sentimiento);
+    if (mappedSent) opp._sentiment = mappedSent;
+    if (intel.analisis_comentario_recibido?.requiere_moderacion_humana) {
+      opp.severity = 'CRITICAL';
+      opp.notes = [opp.notes, 'Requiere moderación humana'].filter(Boolean).join(' · ');
+    }
+    if (sentiment === 'POSITIVE' || sentiment === 'NEUTRAL' || mappedSent === 'POSITIVE' || mappedSent === 'NEUTRAL') {
+      if (opp.severity !== 'CRITICAL') opp.severity = 'LOW';
+    }
+    if (flags.page) opp._source = 'page';
+    else if (flags.socialcrawl) {
+      opp._source = 'socialcrawl';
+      opp.channel = opp.channel || partial.channel || 'web';
+    } else if (flags.hn) opp._source = 'hackernews';
+    else if (flags.news) {
+      opp._source = 'news';
+      opp.channel = opp.channel || 'news';
+    } else if (flags.youtube) {
+      opp._source = 'youtube';
+      opp.channel = 'youtube';
+    } else opp._source = 'reddit';
+
+    const srcNote =
+      flags.page
+        ? 'Detectado en página abierta'
+        : flags.socialcrawl
+          ? 'SocialCrawl (multi-plataforma)'
+          : flags.hn
+            ? 'Mención de tu marca en Hacker News'
+            : flags.news
+              ? 'Artículo / noticia sobre tu marca'
+              : flags.youtube
+                ? 'Video / mención en YouTube'
+                : 'Mención de tu marca en Reddit';
+    const sentNote =
+      sentiment === 'POSITIVE'
+        ? 'Sentimiento positivo'
+        : sentiment === 'NEGATIVE'
+          ? 'Sentimiento negativo'
+          : sentiment === 'MIXED'
+            ? 'Sentimiento mixto'
+            : 'Sentimiento neutro';
+    opp.notes = [opp.notes, srcNote, sentNote].filter(Boolean).join(' · ');
+
+    // Propios: guardar todo (pos/neg/neutro). Solo descartamos texto vacío.
+    if (!String(partial.complaint || '').trim()) {
+      stats.skippedDupes += 1;
+      return false;
+    }
+    opportunities.push(opp);
+    return true;
+  };
+
+  if (enabled.active_page) {
+    for (const raw of pageMentions) {
+      if (!raw?.text) continue;
+      if (
+        pushOwn(
+          {
+            alertId: raw.id ? `own_page_${raw.id}` : null,
+            complaint: raw.text,
+            sourceUrl: raw.sourceUrl || 'page://active-tab',
+            channel: raw.channel || 'web',
+            detectedAt: raw.detectedAt || new Date().toISOString(),
+          },
+          { page: true },
+        )
+      ) {
+        stats.page += 1;
+      }
+    }
+  }
+
+  for (const qName of queryNames) {
+    if (enabled.hackernews) {
+      const part = await fetchHnMentions(qName, { limit: 10, allSentiment: true });
+      if (part.error) errors.push(`${qName}/HN: ${part.error}`);
+      for (const m of part.mentions || []) {
+        if (
+          pushOwn(
+            {
+              alertId: m.id || null,
+              complaint: m.text,
+              sourceUrl: m.sourceUrl,
+              channel: 'hackernews',
+              detectedAt: m.detectedAt,
+              sentiment: m.sentiment,
+            },
+            { hn: true },
+          )
+        ) {
+          stats.hn += 1;
+        }
+      }
+    }
+
+    if (enabled.reddit_api) {
+      const part = useRedditOauth
+        ? await fetchRedditOAuthMentions(qName, {
+            limit: 10,
+            reddit: credentials.reddit,
+            allSentiment: true,
+          })
+        : await fetchRedditMentions(qName, { limit: 8, allSentiment: true });
+      if (part.error) errors.push(`${qName}/Reddit: ${part.error}`);
+      for (const m of part.mentions || []) {
+        if (
+          pushOwn(
+            {
+              alertId: m.id || null,
+              complaint: m.text,
+              sourceUrl: m.sourceUrl,
+              channel: m.channel || 'reddit',
+              detectedAt: m.detectedAt,
+              sentiment: m.sentiment,
+            },
+            { reddit: true },
+          )
+        ) {
+          stats.reddit += 1;
+        }
+      }
+    }
+
+    if (enabled.news_portals) {
+      const part = useNewsApi
+        ? await fetchNewsApiMentions(qName, {
+            limit: 12,
+            apiKey: credentials.newsapi.apiKey,
+            brandScope: 'own',
+            allSentiment: true,
+          })
+        : await fetchNewsMentions(qName, {
+            limit: 12,
+            brandScope: 'own',
+            allSentiment: true,
+          });
+      if (part.error) errors.push(`${qName}/News: ${part.error}`);
+      for (const m of part.mentions || []) {
+        if (
+          pushOwn(
+            {
+              alertId: m.id || null,
+              complaint: m.text,
+              sourceUrl: m.sourceUrl,
+              channel: 'news',
+              detectedAt: m.detectedAt,
+              sentiment: m.sentiment,
+            },
+            { news: true },
+          )
+        ) {
+          stats.news += 1;
+        }
+      }
+    }
+
+    if (enabled.youtube_api) {
+      const part = await fetchYouTubeMentions(qName, {
+        limit: 8,
+        apiKey: useYoutubeApi ? credentials.youtube.apiKey : undefined,
+      });
+      if (part.error) errors.push(`${qName}/YouTube: ${part.error}`);
+      for (const m of part.mentions || []) {
+        if (
+          pushOwn(
+            {
+              alertId: m.id || null,
+              complaint: m.text,
+              sourceUrl: m.sourceUrl,
+              channel: 'youtube',
+              detectedAt: m.detectedAt,
+              sentiment: m.sentiment,
+            },
+            { youtube: true },
+          )
+        ) {
+          stats.youtube += 1;
+        }
+      }
+    }
+  }
+
+  if (hasSocialCrawl(credentials)) {
+    const sc = await fetchSocialCrawlMentions(credentials, ownName, {
+      lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 7,
+      sources: credentials.socialcrawl?.sources || '',
+    });
+    if (sc.error) errors.push(`SocialCrawl: ${sc.error}`);
+    for (const m of sc.mentions || []) {
+      if (
+        pushOwn(
+          {
+            alertId: m.id || null,
+            complaint: m.text,
+            sourceUrl: m.sourceUrl,
+            channel: m.channel,
+            detectedAt: m.detectedAt,
+          },
+          { socialcrawl: true },
+        )
+      ) {
+        stats.socialcrawl += 1;
+      }
+    }
+  }
+
+  opportunities.sort(
+    (a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime(),
+  );
+
+  return { opportunities, stats, errors, scannedNames, enabledSources: enabled };
+}
+

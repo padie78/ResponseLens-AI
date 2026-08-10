@@ -56,7 +56,12 @@ export function computeRivalPerception(opts) {
   }));
 
   const fromAlerts = (opts.alerts || [])
-    .filter((a) => String(a.competitorName || '').trim() === name)
+    .filter((a) => {
+      if (String(a.competitorName || '').trim() !== name) return false;
+      if (opts.brandScope === 'own') return a._brandScope === 'own';
+      if (opts.brandScope === 'rival') return a._brandScope !== 'own';
+      return true;
+    })
     .map((a) => ({
       text: String(a.originalComplaint || '').trim(),
       sourceUrl: a.sourceUrl || '',
