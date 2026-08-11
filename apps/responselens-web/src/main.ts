@@ -5,8 +5,10 @@ import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalo
 import { AppComponent } from './app/app.component';
 import { APP_ROUTES } from './app/app.routes';
 import { configureAmplify } from './app/amplify.config';
+import { RuntimeConfigService } from './app/core/config/runtime-config.service';
 import { environment } from './environments/environment';
 
+// Amplify base; RuntimeConfigService re-aplica override de localStorage al inyectarse.
 configureAmplify(environment);
 
 bootstrapApplication(AppComponent, {
@@ -16,4 +18,8 @@ bootstrapApplication(AppComponent, {
     provideRouter(APP_ROUTES, withComponentInputBinding()),
     provideAnimations(),
   ],
-}).catch((err: unknown) => console.error(err));
+})
+  .then((appRef) => {
+    appRef.injector.get(RuntimeConfigService).applyAmplify();
+  })
+  .catch((err: unknown) => console.error(err));

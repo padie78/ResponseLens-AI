@@ -7,6 +7,7 @@ import {
   mapAuthErrorMessage,
 } from '../../core/auth/auth.errors';
 import { AuthService } from '../../core/auth/auth.service';
+import { RuntimeConfigService } from '../../core/config/runtime-config.service';
 
 type AuthMode = 'signin' | 'signup' | 'confirm';
 
@@ -26,10 +27,29 @@ type AuthMode = 'signin' | 'signup' | 'confirm';
           </header>
 
           @if (!auth.isCognitoConfigured()) {
-            <p class="rl-auth__error" role="status">
-              Cognito vacío en <code>environment.ts</code>. Para login cloud:
-              <code>npm run sync:env</code> (tras terraform apply). Mientras tanto usá modo local.
-            </p>
+            <div class="rl-auth__hint" role="status">
+              <p>
+                La extensión guarda Cognito en <strong>Config</strong> (chrome.storage). La web no
+                hereda eso: pegá los <strong>mismos</strong> Region / Pool / Client acá.
+              </p>
+              <form class="rl-auth__form" [formGroup]="cloudForm" (ngSubmit)="saveCloud()">
+                <label class="rl-auth__label">
+                  Región
+                  <input class="rl-auth__input" formControlName="region" placeholder="eu-central-1" />
+                </label>
+                <label class="rl-auth__label">
+                  User Pool ID
+                  <input class="rl-auth__input" formControlName="userPoolId" placeholder="eu-central-1_xxxxx" />
+                </label>
+                <label class="rl-auth__label">
+                  App Client ID
+                  <input class="rl-auth__input" formControlName="clientId" placeholder="…" />
+                </label>
+                <button class="rl-auth__submit" type="submit" [disabled]="cloudForm.invalid">
+                  Guardar Cognito
+                </button>
+              </form>
+            </div>
           }
 
           @if (mode() !== 'confirm') {
@@ -90,7 +110,7 @@ type AuthMode = 'signin' | 'signup' | 'confirm';
           </button>
 
           <p class="rl-auth__switch">
-            La extensión Chrome sigue disponible para captura en página.
+            Extensión → Config → Cognito: copiá Region, Pool y Client hacia este formulario.
           </p>
         </div>
       </div>
@@ -99,6 +119,7 @@ type AuthMode = 'signin' | 'signup' | 'confirm';
 })
 export class AuthEntryPageComponent implements OnInit {
   readonly auth = inject(AuthService);
+  private readonly runtime = inject(RuntimeConfigService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly fb = inject(FormBuilder);
@@ -113,6 +134,12 @@ export class AuthEntryPageComponent implements OnInit {
     code: [''],
   });
 
+  readonly cloudForm = this.fb.nonNullable.group({
+    region: ['eu-central-1', Validators.required],
+    userPoolId: ['', Validators.required],
+    clientId: ['', Validators.required],
+  });
+
   readonly submitLabel = signal('Entrar');
 
   ngOnInit(): void {
@@ -121,6 +148,21 @@ export class AuthEntryPageComponent implements OnInit {
       this.mode.set('signup');
       this.submitLabel.set('Crear cuenta');
     }
+
+    const existing = this.runtime.override();
+    if (existing) {
+      this.cloudForm.patchValue({
+        region: existing.region || 'eu-central-1',
+        userPoolId: existing.userPoolId,
+        clientId: existing.clientId,
+      });
+    }
+  }
+
+  saveCloud(): void {
+    if (this.cloudForm.invalid) return;
+    this.runtime.saveOverride(this.cloudForm.getRawValue());
+    this.error.set(null);
   }
 
   async enterLocal(): Promise<void> {

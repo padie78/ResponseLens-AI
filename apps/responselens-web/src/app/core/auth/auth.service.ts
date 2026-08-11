@@ -1,4 +1,4 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   confirmSignUp,
   fetchAuthSession,
@@ -8,7 +8,7 @@ import {
   signOut,
   signUp,
 } from 'aws-amplify/auth';
-import { environment } from '../../../environments/environment';
+import { RuntimeConfigService } from '../config/runtime-config.service';
 import {
   AuthPendingConfirmationError,
   decodeJwtPayload,
@@ -27,6 +27,8 @@ interface LocalSession {
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
+  private readonly runtime = inject(RuntimeConfigService);
+
   private readonly _userId = signal<string | null>(null);
   private readonly _email = signal<string | null>(null);
   private readonly _mode = signal<AuthMode | null>(null);
@@ -36,9 +38,7 @@ export class AuthService {
   readonly mode = computed(() => this._mode());
   readonly isLocal = computed(() => this._mode() === 'local');
   readonly isAuthenticated = computed(() => !!this._userId());
-  readonly isCognitoConfigured = computed(
-    () => !!environment.cognito.userPoolId && !!environment.cognito.userPoolClientId,
-  );
+  readonly isCognitoConfigured = this.runtime.isCognitoConfigured;
 
   async restoreSession(): Promise<boolean> {
     const local = this.readLocalSession();
@@ -70,7 +70,6 @@ export class AuthService {
     await this.refreshUserAttributes();
   }
 
-  /** Igual que la extensión: entrar sin Cognito para desarrollo UI. */
   continueAsLocal(email = 'local@responselens.dev'): void {
     const session: LocalSession = {
       mode: 'local',
@@ -148,7 +147,7 @@ export class AuthService {
   private assertCognitoConfigured(): void {
     if (!this.isCognitoConfigured()) {
       throw new Error(
-        'Auth UserPool not configured. Completá cognito en environment.ts (npm run sync:env) o usá modo local.',
+        'Auth UserPool not configured. Pegá Region / Pool / Client (los mismos de la extensión) o usá modo local.',
       );
     }
   }
