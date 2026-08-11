@@ -1,7 +1,8 @@
-import { Component, ViewEncapsulation, inject } from '@angular/core';
+import { Component, OnInit, ViewEncapsulation, inject } from '@angular/core';
 import { Router, RouterLink, RouterOutlet } from '@angular/router';
 import { AuthService } from '../../core/auth/auth.service';
 import { AlertsStore } from '../../stores/alerts.store';
+import { UserConfigStore } from '../../stores/user-config.store';
 import { AppSubnavComponent } from '../../ui';
 
 @Component({
@@ -32,10 +33,16 @@ import { AppSubnavComponent } from '../../ui';
     </div>
   `,
 })
-export class ShellPageComponent {
+export class ShellPageComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly alerts = inject(AlertsStore);
+  private readonly config = inject(UserConfigStore);
+
+  ngOnInit(): void {
+    this.config.load();
+    this.alerts.load();
+  }
 
   async logout(): Promise<void> {
     this.alerts.reset();

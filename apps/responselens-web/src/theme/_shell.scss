@@ -141,6 +141,204 @@
   background: rgba(20, 28, 46, 0.72);
 }
 
+.rl-page__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--rl-space-4);
+  margin-bottom: var(--rl-space-4);
+}
+
+.rl-page__toolbar .rl-page__title,
+.rl-page__toolbar .rl-page__lead {
+  margin-bottom: var(--rl-space-2);
+}
+
+.rl-page__toolbar-actions {
+  display: flex;
+  gap: var(--rl-space-2);
+}
+
+.rl-feed {
+  display: grid;
+  gap: var(--rl-space-3);
+}
+
+.rl-alert {
+  padding: var(--rl-space-4);
+  border-radius: var(--rl-radius-lg);
+  border: 1px solid var(--rl-border-subtle);
+  background: rgba(20, 28, 46, 0.72);
+  border-left: 3px solid var(--rl-accent);
+}
+
+.rl-alert[data-severity='CRITICAL'],
+.rl-alert[data-severity='HIGH'] {
+  border-left-color: var(--rl-accent-danger);
+}
+
+.rl-alert[data-severity='MEDIUM'] {
+  border-left-color: var(--rl-accent-comp);
+}
+
+.rl-alert__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--rl-space-3);
+  margin-bottom: var(--rl-space-3);
+}
+
+.rl-alert__brand {
+  margin: 0;
+  font-weight: 650;
+}
+
+.rl-alert__meta {
+  margin: 0.25rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rl-space-2);
+  color: var(--rl-text-muted);
+  font-size: var(--rl-fs-sm);
+}
+
+.rl-alert__badge {
+  color: var(--rl-text-inverse);
+  background: var(--rl-bg-elevated);
+  border: 1px solid var(--rl-border-subtle);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.rl-alert__body {
+  margin: 0;
+  color: var(--rl-text-primary);
+  line-height: 1.45;
+}
+
+.rl-alert__pitch {
+  margin: var(--rl-space-3) 0 0;
+  padding: var(--rl-space-3);
+  border-radius: var(--rl-radius-sm);
+  background: rgba(45, 212, 191, 0.08);
+  color: var(--rl-text-secondary);
+  font-size: var(--rl-fs-sm);
+}
+
+.rl-alert__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rl-space-2);
+  align-items: center;
+}
+
+.rl-alert__link,
+.rl-alert__btn {
+  font: inherit;
+  font-size: var(--rl-fs-sm);
+  border-radius: var(--rl-radius-sm);
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.rl-alert__link {
+  color: var(--rl-accent-hover);
+  border: 1px solid var(--rl-border-subtle);
+}
+
+.rl-alert__btn {
+  border: 1px solid var(--rl-border-subtle);
+  background: transparent;
+  color: var(--rl-text-secondary);
+}
+
+.rl-alert__btn--primary {
+  background: var(--rl-accent);
+  color: var(--rl-text-inverse);
+  border-color: transparent;
+}
+
+.rl-settings {
+  display: grid;
+  gap: var(--rl-space-4);
+}
+
+.rl-settings__h {
+  margin: 0 0 var(--rl-space-3);
+  font-size: var(--rl-fs-lg);
+}
+
+.rl-settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rl-space-3);
+  margin-bottom: var(--rl-space-3);
+}
+
+.rl-settings__row .rl-settings__h {
+  margin: 0;
+}
+
+.rl-settings__label {
+  display: grid;
+  gap: var(--rl-space-1);
+  margin-bottom: var(--rl-space-3);
+  font-size: var(--rl-fs-sm);
+  color: var(--rl-text-secondary);
+}
+
+.rl-settings__input {
+  border: 1px solid var(--rl-border-subtle);
+  background: var(--rl-bg-elevated);
+  color: var(--rl-text-primary);
+  border-radius: var(--rl-radius-sm);
+  padding: 0.7rem 0.85rem;
+  font: inherit;
+}
+
+.rl-settings__textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+}
+
+.rl-settings__rival {
+  padding: var(--rl-space-3) 0;
+  border-top: 1px solid var(--rl-border-subtle);
+}
+
+.rl-settings__ghost {
+  border: 1px solid var(--rl-border-subtle);
+  background: transparent;
+  color: var(--rl-text-secondary);
+  border-radius: var(--rl-radius-sm);
+  padding: 0.4rem 0.75rem;
+  font: inherit;
+  font-size: var(--rl-fs-sm);
+  cursor: pointer;
+}
+
+.rl-settings__ghost--danger {
+  color: var(--rl-accent-danger);
+}
+
+.rl-settings__empty {
+  margin: 0;
+  color: var(--rl-text-muted);
+  font-size: var(--rl-fs-sm);
+}
+
+.rl-page__panel a {
+  color: var(--rl-accent-hover);
+}
+
+
 .rl-auth-gate {
   --background: transparent;
 }
