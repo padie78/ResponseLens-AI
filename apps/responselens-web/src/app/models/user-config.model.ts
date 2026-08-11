@@ -7,8 +7,10 @@ export interface CompetitorProfile {
 
 export interface CompanyProfile {
   companyName: string;
+  aliases: string[];
   whatTheySell: string;
   keyLinks: string[];
+  channelUrls: string[];
   brandVoiceNotes: string;
 }
 
@@ -22,8 +24,10 @@ export interface UserConfig {
 export function emptyCompany(): CompanyProfile {
   return {
     companyName: '',
+    aliases: [],
     whatTheySell: '',
     keyLinks: [],
+    channelUrls: [],
     brandVoiceNotes: '',
   };
 }

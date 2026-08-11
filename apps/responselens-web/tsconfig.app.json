@@ -3,9 +3,12 @@
   "compilerOptions": {
     "outDir": "../../dist/out-tsc",
     "lib": ["ES2022", "dom"],
-    "types": []
+    "types": [],
+    "allowJs": true,
+    "checkJs": false,
+    "maxNodeModuleJsDepth": 0
   },
   "files": ["src/main.ts"],
-  "include": ["src/**/*.d.ts", "src/**/*.ts"],
+  "include": ["src/**/*.d.ts", "src/**/*.ts", "src/app/engine/**/*.js"],
   "exclude": ["src/**/*.spec.ts"]
 }

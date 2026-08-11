@@ -47,6 +47,11 @@ export const APP_ROUTES: Routes = [
           import('./pages/ranking/ranking.page').then((m) => m.RankingPageComponent),
       },
       {
+        path: 'history',
+        loadComponent: () =>
+          import('./pages/history/history.page').then((m) => m.HistoryPageComponent),
+      },
+      {
         path: 'settings',
         loadComponent: () =>
           import('./pages/settings/settings.page').then((m) => m.SettingsPageComponent),

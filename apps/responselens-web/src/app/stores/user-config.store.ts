@@ -70,8 +70,10 @@ export class UserConfigStore {
         userId,
         company: {
           companyName: company.companyName.trim(),
+          aliases: (company.aliases ?? []).map((a) => a.trim()).filter(Boolean),
           whatTheySell: company.whatTheySell.trim(),
           keyLinks: company.keyLinks.map((l) => l.trim()).filter(Boolean),
+          channelUrls: (company.channelUrls ?? []).map((l) => l.trim()).filter(Boolean),
           brandVoiceNotes: company.brandVoiceNotes.trim(),
         },
         competitors: competitors

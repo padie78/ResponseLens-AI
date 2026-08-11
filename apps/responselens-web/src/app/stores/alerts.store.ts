@@ -57,8 +57,27 @@ export class AlertsStore {
   }
 
   upsert(alert: CompetitorAlert): void {
-    const rest = this._items().filter((a) => a.alertId !== alert.alertId);
-    this.persist([alert, ...rest]);
+    const idx = this._items().findIndex((a) => a.alertId === alert.alertId);
+    if (idx >= 0) {
+      const next = [...this._items()];
+      next[idx] = { ...next[idx], ...alert };
+      this.persist(next);
+    } else {
+      this.persist([alert, ...this._items()]);
+    }
+  }
+
+  upsertMany(alerts: CompetitorAlert[]): void {
+    if (!alerts.length) return;
+    const map = new Map(this._items().map((a) => [a.alertId, a]));
+    for (const incoming of alerts) {
+      const existing = map.get(incoming.alertId);
+      map.set(incoming.alertId, existing ? { ...existing, ...incoming } : incoming);
+    }
+    const merged = [...map.values()].sort(
+      (a, b) => Date.parse(b.detectedAt) - Date.parse(a.detectedAt),
+    );
+    this.persist(merged);
   }
 
   updateStatus(alertId: string, status: CompetitorAlert['status']): void {
@@ -66,7 +85,18 @@ export class AlertsStore {
     this.persist(next);
   }
 
-  /** Mencionees de ejemplo para ver el feed (como demos del plugin). */
+  updateAlert(alertId: string, patch: Partial<CompetitorAlert>): void {
+    const next = this._items().map((a) =>
+      a.alertId === alertId ? { ...a, ...patch } : a,
+    );
+    this.persist(next);
+  }
+
+  getById(alertId: string): CompetitorAlert | undefined {
+    return this._items().find((a) => a.alertId === alertId);
+  }
+
+  /** Menciones de ejemplo para ver el feed (como demos del plugin). */
   seedExamples(): void {
     const userId = this.auth.userId();
     if (!userId) return;
@@ -92,6 +122,9 @@ export class AlertsStore {
         brandScope: 'own',
         sentiment: 'negative',
         inboundSource: 'demo',
+        _sentiment: 'NEGATIVE',
+        _mentionKind: 'comment',
+        _analysisSummary: 'Cliente frustrado por falta de soporte tras incidente en producción.',
       },
       {
         alertId: createAlertId(),
@@ -109,6 +142,8 @@ export class AlertsStore {
         brandScope: 'own',
         sentiment: 'mixed',
         inboundSource: 'demo',
+        _sentiment: 'MIXED',
+        _mentionKind: 'comment',
       },
       {
         alertId: createAlertId(),
@@ -126,6 +161,7 @@ export class AlertsStore {
         brandScope: 'rival',
         sentiment: 'negative',
         inboundSource: 'demo',
+        _actionable: true,
       },
       {
         alertId: createAlertId(),
@@ -146,8 +182,7 @@ export class AlertsStore {
       },
     ];
 
-    const existing = this._items();
-    this.persist([...samples, ...existing]);
+    this.upsertMany(samples);
   }
 
   clearScope(scope: BrandScope): void {

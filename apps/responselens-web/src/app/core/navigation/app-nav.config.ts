@@ -1,4 +1,4 @@
-export type AppNavIcon = 'own' | 'competitors' | 'stats' | 'ranking' | 'settings';
+export type AppNavIcon = 'own' | 'competitors' | 'stats' | 'ranking' | 'history' | 'settings';
 
 export interface AppSubnavItem {
   id: string;
@@ -46,6 +46,14 @@ export const APP_SUBNAV_ITEMS: AppSubnavItem[] = [
     icon: 'ranking',
   },
   {
+    id: 'history',
+    label: 'Historial',
+    title: 'Historial',
+    description: 'Respuestas y captaciones',
+    route: '/app/history',
+    icon: 'history',
+  },
+  {
     id: 'settings',
     label: 'Config',
     title: 'Configuración',
@@ -60,5 +68,6 @@ export const APP_ROUTE_TITLES: Record<string, string> = {
   competitors: 'Competencia',
   stats: 'Stats',
   ranking: 'Ranking',
+  history: 'Historial',
   settings: 'Configuración',
 };
