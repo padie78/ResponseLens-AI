@@ -14,6 +14,10 @@ export function mapAuthErrorMessage(err: unknown): string {
   const name = 'name' in err && typeof err.name === 'string' ? err.name : '';
   const message = 'message' in err && typeof err.message === 'string' ? err.message : '';
 
+  if (/UserPool not configured/i.test(message) || name === 'AuthUserPoolException') {
+    return 'Cognito no está configurado. Ejecutá npm run sync:env o usá modo local.';
+  }
+
   switch (name) {
     case 'NotAuthorizedException':
       return 'Email o contraseña incorrectos.';

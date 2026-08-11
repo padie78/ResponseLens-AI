@@ -238,3 +238,25 @@
 .rl-auth__switch a {
   color: var(--rl-accent-hover);
 }
+
+.rl-auth__local {
+  margin-top: var(--rl-space-3);
+  width: 100%;
+  border: 1px solid var(--rl-border-subtle);
+  background: transparent;
+  color: var(--rl-text-secondary);
+  border-radius: var(--rl-radius-sm);
+  padding: 0.7rem 1rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.rl-auth__local:hover {
+  color: var(--rl-text-primary);
+  border-color: var(--rl-border-strong);
+}
+
+.rl-auth__card code {
+  font-family: var(--rl-font-mono);
+  font-size: 0.85em;
+}

@@ -25,6 +25,13 @@ type AuthMode = 'signin' | 'signup' | 'confirm';
             <p class="rl-auth__tagline">Reputación y conquista comercial</p>
           </header>
 
+          @if (!auth.isCognitoConfigured()) {
+            <p class="rl-auth__error" role="status">
+              Cognito vacío en <code>environment.ts</code>. Para login cloud:
+              <code>npm run sync:env</code> (tras terraform apply). Mientras tanto usá modo local.
+            </p>
+          }
+
           @if (mode() !== 'confirm') {
             <nav class="rl-subnav" style="padding: 0 0 1rem" aria-label="Modo">
               <a
@@ -69,10 +76,18 @@ type AuthMode = 'signin' | 'signup' | 'confirm';
               <p class="rl-auth__error">{{ error() }}</p>
             }
 
-            <button class="rl-auth__submit" type="submit" [disabled]="busy() || form.invalid">
+            <button
+              class="rl-auth__submit"
+              type="submit"
+              [disabled]="busy() || form.invalid || !auth.isCognitoConfigured()"
+            >
               {{ submitLabel() }}
             </button>
           </form>
+
+          <button type="button" class="rl-auth__local" (click)="enterLocal()" [disabled]="busy()">
+            Continuar en modo local
+          </button>
 
           <p class="rl-auth__switch">
             La extensión Chrome sigue disponible para captura en página.
@@ -83,7 +98,7 @@ type AuthMode = 'signin' | 'signup' | 'confirm';
   `,
 })
 export class AuthEntryPageComponent implements OnInit {
-  private readonly auth = inject(AuthService);
+  readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly fb = inject(FormBuilder);
@@ -106,6 +121,11 @@ export class AuthEntryPageComponent implements OnInit {
       this.mode.set('signup');
       this.submitLabel.set('Crear cuenta');
     }
+  }
+
+  async enterLocal(): Promise<void> {
+    this.auth.continueAsLocal();
+    await this.router.navigateByUrl('/app/own');
   }
 
   async submit(): Promise<void> {
