@@ -167,6 +167,9 @@ cat > "${TF_POLICY_FILE}" <<EOF
         "events:*",
         "sqs:*",
         "s3:*",
+        "cloudfront:*",
+        "cognito-idp:*",
+        "apigateway:*",
         "xray:*"
       ],
       "Resource": "*"

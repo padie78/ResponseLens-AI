@@ -13,8 +13,18 @@ Monorepo hexagonal: `apps/` · `libs/` · `lambda_code/` · `infra/`.
 
 ```bash
 npm run start:web          # SPA en http://localhost:4200
-npm run build:web          # dist/apps/responselens-web
+npm run build:web          # dist/apps/responselens-web/browser
 npm run sync:env           # Terraform → .env.local + environment.ts
 ```
 
 La extensión se mantiene para captura/inyección en página; el SPA replica el panel (Propios, Competencia, Stats, Ranking, Config).
+
+## CI/CD (GitHub Actions)
+
+| Workflow | Trigger |
+|---|---|
+| Deploy Infrastructure | `infra/**` → Terraform (incluye S3 + CloudFront del SPA) |
+| Deploy Lambdas | `libs/**`, `lambda_code/**` |
+| Deploy Frontend | `apps/responselens-web/**` → build Angular → S3 + invalidación CF |
+
+Antes del primer deploy del SPA: aplicar infra (outputs `frontend_bucket` / `frontend_cloudfront_*`) y credenciales `AWS_DEPLOY_ROLE_ARN` + `TF_STATE_BUCKET`.

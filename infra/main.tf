@@ -64,3 +64,8 @@ module "http_api" {
   mention_webhook_lambda_arn  = module.lambdas.mention_webhook_arn
   mention_webhook_lambda_name = module.lambdas.mention_webhook_function_name
 }
+
+module "frontend_hosting" {
+  source      = "./modules/frontend_hosting"
+  name_prefix = local.name_prefix
+}

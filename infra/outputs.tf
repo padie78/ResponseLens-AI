@@ -53,3 +53,19 @@ output "cognito_endpoint" {
 output "aws_region" {
   value = data.aws_region.current.name
 }
+
+output "frontend_bucket" {
+  value = module.frontend_hosting.bucket_name
+}
+
+output "frontend_cloudfront_id" {
+  value = module.frontend_hosting.distribution_id
+}
+
+output "frontend_cloudfront_domain" {
+  value = module.frontend_hosting.distribution_domain
+}
+
+output "frontend_url" {
+  value = "https://${module.frontend_hosting.distribution_domain}"
+}
