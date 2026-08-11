@@ -13,7 +13,7 @@
  */
 
 import { buildOpportunity, scoreFrustration } from './competitor-opportunity.js';
-import { mentionDedupeKey } from './mention-dedupe.js';
+import { mentionDedupeKeys, extractYouTubeVideoId } from './mention-dedupe.js';
 import { hasNewsApi, hasRedditOAuth, hasSocialCrawl, hasYouTubeApi } from './scan-credentials.js';
 import { analyzeBrandMention, sentimentToStorage } from './mention-intelligence.js';
 import { fetchSocialCrawlMentions } from './socialcrawl-client.js';
@@ -27,14 +27,53 @@ const POSITIVE_HINT =
 function stripHtml(html) {
   return String(html || '')
     .replace(/<[^>]+>/g, ' ')
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => {
+      try {
+        return String.fromCodePoint(parseInt(h, 16));
+      } catch {
+        return ' ';
+      }
+    })
+    .replace(/&#(\d+);/g, (_, n) => {
+      try {
+        return String.fromCodePoint(Number(n));
+      } catch {
+        return ' ';
+      }
+    })
     .replace(/&#x27;/gi, "'")
     .replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** Match de marca en texto (evita falsos positivos tipo “strike” vía Algolia). */
+function textMentionsBrand(text, brand) {
+  const hay = String(text || '').toLowerCase();
+  const needle = String(brand || '').toLowerCase().trim();
+  if (!needle || needle.length < 2) return false;
+  if (hay.includes(needle)) return true;
+  // Handles / dominios comunes
+  if (hay.includes(`${needle}.com`) || hay.includes(`@${needle}`)) return true;
+  return false;
+}
+
+/**
+ * comment = hilo/queja respondible · media = video/noticia (solo monitoreo).
+ * @returns {'comment' | 'media'}
+ */
+export function resolveOwnMentionKind({ flags = {}, channel = '', sourceUrl = '', text = '' } = {}) {
+  if (flags.youtube || flags.news) return 'media';
+  const ch = String(channel || '').toLowerCase();
+  if (ch === 'youtube' || ch === 'news') return 'media';
+  if (extractYouTubeVideoId(sourceUrl) || extractYouTubeVideoId(text)) return 'media';
+  if (flags.socialcrawl && (ch === 'web' || ch === 'news' || ch === 'youtube')) return 'media';
+  return 'comment';
 }
 
 function looksNegative(text) {
@@ -230,7 +269,7 @@ export async function fetchNewsMentions(subjectName, opts = {}) {
 
       for (const item of parseRssItems(res.text)) {
         const text = [item.title, item.description].filter(Boolean).join('\n').slice(0, 2000);
-        if (!text.toLowerCase().includes(name.toLowerCase())) continue;
+        if (!textMentionsBrand(text, name)) continue;
         if (!allSentiment) {
           // Primera query (con keywords): exigir señal; segunda: aceptar menciones con algo de fricción o título fuerte
           if (query.includes('(') && !looksNegative(text) && scoreFrustration(text) < 0.28) continue;
@@ -276,62 +315,70 @@ export async function fetchHnMentions(competitorName, opts = {}) {
   if (!name) return { mentions: [] };
   const allSentiment = opts.allSentiment === true;
 
+  // Comillas + typoTolerance=false: sin esto Algolia matchea “strike/strips”
+  // y nuestro filtro literal descarta casi todo (marca “Stripe” → 0 resultados).
   const queries = allSentiment
-    ? [name, `${name} review`, `${name} experience`]
+    ? [`"${name}"`, `"${name}" review`, `"${name}" experience`, `"${name}" payment`]
     : [
-        name,
-        `${name} scam`,
-        `${name} outage`,
-        `${name} broken`,
-        `${name} terrible`,
-        `${name} fail`,
+        `"${name}"`,
+        `"${name}" scam`,
+        `"${name}" outage`,
+        `"${name}" broken`,
+        `"${name}" terrible`,
+        `"${name}" fail`,
       ];
 
+  const tagSets = allSentiment ? ['comment', 'story'] : ['comment'];
   const byId = new Map();
   let lastError = '';
 
   for (const query of queries) {
     if (byId.size >= limit) break;
 
-    for (const endpoint of ['search_by_date', 'search']) {
+    for (const tags of tagSets) {
       if (byId.size >= limit) break;
-      const url =
-        `https://hn.algolia.com/api/v1/${endpoint}?query=${encodeURIComponent(query)}` +
-        `&tags=comment&hitsPerPage=${allSentiment ? 20 : 12}`;
+      for (const endpoint of ['search_by_date', 'search']) {
+        if (byId.size >= limit) break;
+        const url =
+          `https://hn.algolia.com/api/v1/${endpoint}?query=${encodeURIComponent(query)}` +
+          `&tags=${encodeURIComponent(tags)}&hitsPerPage=${allSentiment ? 25 : 12}` +
+          `&typoTolerance=false`;
 
-      const res = await extensionFetchJson(url);
-      if (!res.ok || !res.json) {
-        lastError = res.error || `HN HTTP ${res.status || '?'}`;
-        continue;
-      }
-
-      const hits = Array.isArray(res.json?.hits) ? res.json.hits : [];
-      for (const hit of hits) {
-        const text = stripHtml(hit.comment_text || hit.title || hit.story_title || '');
-        if (!text || text.length < 20) continue;
-        if (!text.toLowerCase().includes(name.toLowerCase())) continue;
-        if (!allSentiment) {
-          if (query === name && !looksNegative(text)) continue;
-          if (query !== name && !looksNegative(text) && scoreFrustration(text) < 0.3) continue;
+        const res = await extensionFetchJson(url);
+        if (!res.ok || !res.json) {
+          lastError = res.error || `HN HTTP ${res.status || '?'}`;
+          continue;
         }
 
-        const objectId = hit.objectID || hit.story_id;
-        if (!objectId || byId.has(String(objectId))) continue;
+        const hits = Array.isArray(res.json?.hits) ? res.json.hits : [];
+        for (const hit of hits) {
+          const text = stripHtml(
+            hit.comment_text || hit.title || hit.story_title || hit.story_text || '',
+          );
+          if (!text || text.length < 20) continue;
+          if (!textMentionsBrand(text, name)) continue;
+          if (!allSentiment) {
+            if (!looksNegative(text) && scoreFrustration(text) < 0.3) continue;
+          }
 
-        const sourceUrl =
-          hit.story_url ||
-          (objectId
-            ? `https://news.ycombinator.com/item?id=${objectId}`
-            : 'https://news.ycombinator.com');
+          const objectId = hit.objectID || hit.story_id;
+          if (!objectId || byId.has(String(objectId))) continue;
 
-        byId.set(String(objectId), {
-          id: `hn_${objectId}`,
-          text: text.slice(0, 2000),
-          sourceUrl,
-          channel: 'hackernews',
-          detectedAt: hit.created_at || new Date().toISOString(),
-          sentiment: classifySentiment(text),
-        });
+          const sourceUrl =
+            hit.story_url ||
+            (objectId
+              ? `https://news.ycombinator.com/item?id=${objectId}`
+              : 'https://news.ycombinator.com');
+
+          byId.set(String(objectId), {
+            id: `hn_${objectId}`,
+            text: text.slice(0, 2000),
+            sourceUrl,
+            channel: 'hackernews',
+            detectedAt: hit.created_at || new Date().toISOString(),
+            sentiment: classifySentiment(text),
+          });
+        }
       }
     }
   }
@@ -361,7 +408,13 @@ export async function fetchRedditMentions(competitorName, opts = {}) {
 
   const res = await extensionFetchJson(url);
   if (!res.ok || !res.json) {
-    return { mentions: [], error: res.error || `Reddit HTTP ${res.status || '?'}` };
+    const blocked = Number(res.status) === 403;
+    return {
+      mentions: [],
+      error: blocked
+        ? 'Reddit 403 (API pública bloqueada — activá Reddit OAuth en Config → Fuentes)'
+        : res.error || `Reddit HTTP ${res.status || '?'}`,
+    };
   }
 
   const children = res.json?.data?.children;
@@ -375,7 +428,7 @@ export async function fetchRedditMentions(competitorName, opts = {}) {
     const selftext = String(d.selftext || '').trim();
     const text = [title, selftext].filter(Boolean).join('\n').slice(0, 2000);
     if (!text) continue;
-    if (!text.toLowerCase().includes(name.toLowerCase())) continue;
+    if (!textMentionsBrand(text, name)) continue;
     if (!allSentiment && !looksNegative(text)) continue;
 
     mentions.push({
@@ -474,7 +527,7 @@ export async function fetchRedditOAuthMentions(competitorName, opts = {}) {
     const title = String(d.title || '').trim();
     const selftext = String(d.selftext || '').trim();
     const text = [title, selftext].filter(Boolean).join('\n').slice(0, 2000);
-    if (!text || !text.toLowerCase().includes(name.toLowerCase())) continue;
+    if (!text || !textMentionsBrand(text, name)) continue;
     if (!allSentiment && !looksNegative(text)) continue;
     mentions.push({
       id: `reddit_oauth_${d.id || Math.random().toString(36).slice(2, 9)}`,
@@ -529,7 +582,7 @@ export async function fetchNewsApiMentions(subjectName, opts = {}) {
       .filter(Boolean)
       .join('\n')
       .slice(0, 2000);
-    if (!text || !text.toLowerCase().includes(name.toLowerCase())) continue;
+    if (!text || !textMentionsBrand(text, name)) continue;
     if (!allSentiment && !looksNegative(text) && scoreFrustration(text) < 0.28) continue;
     mentions.push({
       id: `newsapi_${hashStr(a.url || a.title || text).toString(36)}`,
@@ -599,12 +652,9 @@ export async function fetchYouTubeMentions(subjectName, opts = {}) {
     return { mentions };
   }
 
-  // Fallback gratis: noticias/índice que apuntan a YouTube
+  // Fallback gratis: noticias/índice que apuntan a YouTube (1 locale — evita dupes AR/US)
   const query = `"${name}" site:youtube.com`;
-  const locales = [
-    { hl: 'es-419', gl: 'AR', ceid: 'AR:es' },
-    { hl: 'en-US', gl: 'US', ceid: 'US:en' },
-  ];
+  const locales = [{ hl: 'en-US', gl: 'US', ceid: 'US:en' }];
   const byId = new Map();
   let lastError = '';
   for (const loc of locales) {
@@ -622,14 +672,19 @@ export async function fetchYouTubeMentions(subjectName, opts = {}) {
       const link = item.link || '';
       const isYt =
         /youtube\.com|youtu\.be/i.test(link) || /youtube\.com|youtu\.be/i.test(text);
-      if (!isYt && !text.toLowerCase().includes(name.toLowerCase())) continue;
-      if (!text.toLowerCase().includes(name.toLowerCase())) continue;
-      const idKey = item.guid || link || item.title;
+      if (!isYt && !textMentionsBrand(text, name)) continue;
+      if (!textMentionsBrand(text, name)) continue;
+
+      const ytId = extractYouTubeVideoId(link) || extractYouTubeVideoId(text);
+      const idKey = ytId || item.guid || link || item.title;
       if (!idKey || byId.has(idKey)) continue;
+
       byId.set(idKey, {
-        id: `yt_rss_${Math.abs(hashStr(idKey)).toString(36)}`,
+        id: ytId ? `yt_${ytId}` : `yt_rss_${Math.abs(hashStr(idKey)).toString(36)}`,
         text,
-        sourceUrl: link || `https://www.youtube.com/results?search_query=${encodeURIComponent(name)}`,
+        sourceUrl: ytId
+          ? `https://www.youtube.com/watch?v=${ytId}`
+          : link || `https://www.youtube.com/results?search_query=${encodeURIComponent(name)}`,
         channel: 'youtube',
         detectedAt: item.detectedAt,
         _provider: 'youtube_news_rss',
@@ -700,16 +755,17 @@ export async function runCompetitorScan({
   const seen = new Set();
 
   const pushOpp = (partial, flags = {}) => {
-    const key = mentionDedupeKey({
+    const keys = mentionDedupeKeys({
       text: partial.complaint,
       sourceUrl: partial.sourceUrl,
       competitorName: partial.competitorName,
+      _brandScope: partial.brandScope === 'own' ? 'own' : 'rival',
     });
-    if (seen.has(key)) {
+    if (!keys.length || keys.some((k) => seen.has(k))) {
       stats.skippedDupes += 1;
       return false;
     }
-    seen.add(key);
+    for (const k of keys) seen.add(k);
     const opp = buildOpportunity({
       ...partial,
       company,
@@ -909,7 +965,7 @@ export async function runCompetitorScan({
     for (const competitor of list.slice(0, 5)) {
       const name = competitor.name || competitor;
       const sc = await fetchSocialCrawlMentions(credentials, name, {
-        lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 7,
+        lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 1,
         sources: credentials.socialcrawl?.sources || '',
       });
       if (sc.error) errors.push(`SocialCrawl/${name}: ${sc.error}`);
@@ -1013,16 +1069,17 @@ export async function runOwnBrandScan({
   const seen = new Set();
 
   const pushOwn = (partial, flags) => {
-    const key = mentionDedupeKey({
+    const keys = mentionDedupeKeys({
       text: partial.complaint,
       sourceUrl: partial.sourceUrl,
       competitorName: ownName,
+      _brandScope: 'own',
     });
-    if (seen.has(key)) {
+    if (!keys.length || keys.some((k) => seen.has(k))) {
       stats.skippedDupes += 1;
       return false;
     }
-    seen.add(key);
+    for (const k of keys) seen.add(k);
     const sentiment =
       partial.sentiment || classifySentiment(partial.complaint || '');
     const opp = buildOpportunity({
@@ -1037,23 +1094,35 @@ export async function runOwnBrandScan({
     });
     opp._brandScope = 'own';
     opp._sentiment = sentiment;
+    const mentionKindEarly = resolveOwnMentionKind({
+      flags,
+      channel: partial.channel || opp.channel,
+      sourceUrl: partial.sourceUrl || opp.sourceUrl,
+      text: partial.complaint,
+    });
     const intel = analyzeBrandMention({
       text: partial.complaint,
       channel: partial.channel || opp.channel,
       sourceUrl: partial.sourceUrl || opp.sourceUrl,
       brandScope: 'own',
       companyName: ownName,
+      mentionKind: mentionKindEarly,
       systemContext: {
         alertId: opp.alertId,
         provider: flags.socialcrawl ? 'socialcrawl' : flags.page ? 'page' : 'scan',
       },
     });
     opp._intel = intel.analisis_comentario_recibido;
+    opp._analysisSummary =
+      intel.analisis_comentario_recibido?.analisis_estrategico?.resumen_insight ||
+      intel._rl?.analysisSummary ||
+      '';
     if (intel.analisis_comentario_recibido?.respuesta_sugerida_publica) {
       opp.salesPitch = intel.analisis_comentario_recibido.respuesta_sugerida_publica;
     }
     const mappedSent = sentimentToStorage(intel.analisis_comentario_recibido?.sentimiento);
     if (mappedSent) opp._sentiment = mappedSent;
+    else if (!opp._sentiment) opp._sentiment = 'NEUTRAL';
     if (intel.analisis_comentario_recibido?.requiere_moderacion_humana) {
       opp.severity = 'CRITICAL';
       opp.notes = [opp.notes, 'Requiere moderación humana'].filter(Boolean).join(' · ');
@@ -1074,6 +1143,15 @@ export async function runOwnBrandScan({
       opp.channel = 'youtube';
     } else opp._source = 'reddit';
 
+    const mentionKind = resolveOwnMentionKind({
+      flags,
+      channel: opp.channel || partial.channel,
+      sourceUrl: partial.sourceUrl || opp.sourceUrl,
+      text: partial.complaint,
+    });
+    opp._mentionKind = mentionKind;
+    opp._actionable = mentionKind === 'comment';
+
     const srcNote =
       flags.page
         ? 'Detectado en página abierta'
@@ -1082,19 +1160,20 @@ export async function runOwnBrandScan({
           : flags.hn
             ? 'Mención de tu marca en Hacker News'
             : flags.news
-              ? 'Artículo / noticia sobre tu marca'
+              ? 'Artículo / noticia sobre tu marca (monitoreo)'
               : flags.youtube
-                ? 'Video / mención en YouTube'
+                ? 'Video en YouTube (monitoreo, no es un comentario)'
                 : 'Mención de tu marca en Reddit';
+    const kindNote =
+      mentionKind === 'media' ? 'Tipo: mención / media (sin respuesta en hilo)' : 'Tipo: comentario accionable';
+    const finalSent = String(opp._sentiment || 'NEUTRAL').toUpperCase();
     const sentNote =
-      sentiment === 'POSITIVE'
+      finalSent === 'POSITIVE'
         ? 'Sentimiento positivo'
-        : sentiment === 'NEGATIVE'
+        : finalSent === 'NEGATIVE'
           ? 'Sentimiento negativo'
-          : sentiment === 'MIXED'
-            ? 'Sentimiento mixto'
-            : 'Sentimiento neutro';
-    opp.notes = [opp.notes, srcNote, sentNote].filter(Boolean).join(' · ');
+          : 'Sentimiento neutro';
+    opp.notes = [opp.notes, srcNote, kindNote, sentNote].filter(Boolean).join(' · ');
 
     // Propios: guardar todo (pos/neg/neutro). Solo descartamos texto vacío.
     if (!String(partial.complaint || '').trim()) {
@@ -1127,7 +1206,7 @@ export async function runOwnBrandScan({
 
   for (const qName of queryNames) {
     if (enabled.hackernews) {
-      const part = await fetchHnMentions(qName, { limit: 10, allSentiment: true });
+      const part = await fetchHnMentions(qName, { limit: 20, allSentiment: true });
       if (part.error) errors.push(`${qName}/HN: ${part.error}`);
       for (const m of part.mentions || []) {
         if (
@@ -1151,11 +1230,11 @@ export async function runOwnBrandScan({
     if (enabled.reddit_api) {
       const part = useRedditOauth
         ? await fetchRedditOAuthMentions(qName, {
-            limit: 10,
+            limit: 15,
             reddit: credentials.reddit,
             allSentiment: true,
           })
-        : await fetchRedditMentions(qName, { limit: 8, allSentiment: true });
+        : await fetchRedditMentions(qName, { limit: 12, allSentiment: true });
       if (part.error) errors.push(`${qName}/Reddit: ${part.error}`);
       for (const m of part.mentions || []) {
         if (
@@ -1179,13 +1258,13 @@ export async function runOwnBrandScan({
     if (enabled.news_portals) {
       const part = useNewsApi
         ? await fetchNewsApiMentions(qName, {
-            limit: 12,
+            limit: 15,
             apiKey: credentials.newsapi.apiKey,
             brandScope: 'own',
             allSentiment: true,
           })
         : await fetchNewsMentions(qName, {
-            limit: 12,
+            limit: 15,
             brandScope: 'own',
             allSentiment: true,
           });
@@ -1211,7 +1290,7 @@ export async function runOwnBrandScan({
 
     if (enabled.youtube_api) {
       const part = await fetchYouTubeMentions(qName, {
-        limit: 8,
+        limit: 10,
         apiKey: useYoutubeApi ? credentials.youtube.apiKey : undefined,
       });
       if (part.error) errors.push(`${qName}/YouTube: ${part.error}`);
@@ -1236,8 +1315,8 @@ export async function runOwnBrandScan({
   }
 
   if (hasSocialCrawl(credentials)) {
-    const sc = await fetchSocialCrawlMentions(credentials, ownName, {
-      lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 7,
+    const sc = await fetchSocialCrawlMentions(credentials, `"${ownName}"`, {
+      lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 1,
       sources: credentials.socialcrawl?.sources || '',
     });
     if (sc.error) errors.push(`SocialCrawl: ${sc.error}`);

@@ -35,8 +35,12 @@ import {
   findMentionedCompetitor,
   lookupCompetitorProfile,
 } from './lib/competitor-opportunity.js';
-import { runCompetitorScan, runOwnBrandScan } from './lib/competitor-scan.js';
-import { mentionDedupeKey } from './lib/mention-dedupe.js';
+import { runCompetitorScan, runOwnBrandScan, resolveOwnMentionKind } from './lib/competitor-scan.js';
+import {
+  mentionDedupeKey,
+  mergeAlertLists,
+  collapseDuplicateAlerts,
+} from './lib/mention-dedupe.js';
 import {
   buildCapturePlaybook,
   buildDefensePlaybook,
@@ -55,7 +59,7 @@ import {
   saveIntegrations,
 } from './lib/integrations.js';
 import { loadScanCredentials, saveScanCredentials } from './lib/scan-credentials.js';
-import { analyzeBrandMention } from './lib/mention-intelligence.js';
+import { ensureItemIntel } from './lib/mention-intelligence.js';
 import {
   hydrateFromCloud,
   updateAlertStatusInCloud,
@@ -1602,8 +1606,9 @@ let rivalScoreIndex = {};
 async function refreshAlerts() {
   await ensureCompetitorsReady();
   await fillRivalSelect();
-  const data = await storageGet([STORAGE.alerts, STORAGE.config, STORAGE.pageRivals]);
-  const allStored = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+  const collapsed = await ensureAlertsCollapsed();
+  const data = await storageGet([STORAGE.config, STORAGE.pageRivals]);
+  const allStored = collapsed;
   const all = allStored.filter((a) => a?._brandScope !== 'own');
   fillRivalFilterOptions(all, data[STORAGE.config]?.competitors || []);
   const filters = getCompFilterState();
@@ -2698,26 +2703,53 @@ function collapseAllOwnAlerts(exceptId = null) {
   });
 }
 
+function isOwnMentionActionable(alert) {
+  if (alert?._actionable === false || alert?._mentionKind === 'media') return false;
+  if (alert?._actionable === true || alert?._mentionKind === 'comment') return true;
+  const kind = resolveOwnMentionKind({
+    flags: {
+      youtube: alert?._source === 'youtube' || alert?.channel === 'youtube',
+      news: alert?._source === 'news' || alert?.channel === 'news',
+      socialcrawl: alert?._source === 'socialcrawl',
+    },
+    channel: alert?.channel || alert?._source,
+    sourceUrl: alert?.sourceUrl,
+    text: alert?.originalComplaint,
+  });
+  return kind === 'comment';
+}
+
 function renderOwnAlertCard(alert, company = null) {
+  const brandName = String(company?.companyName || alert.competitorName || '').trim();
+  ensureItemIntel(alert, { companyName: brandName });
+
   const node = document.createElement('article');
   const isOpen = expandedOwnAlertId === alert.alertId;
-  node.className = `rl-alert rl-alert--accordion${isOpen ? ' is-expanded' : ''}`;
+  const actionable = isOwnMentionActionable(alert);
+  node.className = `rl-alert rl-alert--accordion${isOpen ? ' is-expanded' : ''}${
+    actionable ? '' : ' rl-alert--mention'
+  }`;
   node.dataset.alertId = alert.alertId || '';
   node.dataset.platform = alertPlatformKey(alert);
+  node.dataset.mentionKind = actionable ? 'comment' : 'media';
   const sev = String(alert.severity || 'MEDIUM').toUpperCase();
   const platKey = alertPlatformKey(alert);
   const src = ownSourceLabel(alert);
   const status = alert.status || 'NEW';
-  const sent = String(alert._sentiment || '').toUpperCase();
-  const sentLab = sentimentLabel(sent);
+  const sent = String(alert._sentiment || 'NEUTRAL').toUpperCase();
+  const sentLab =
+    sentimentLabel(sent) ||
+    (sent === 'POSITIVE'
+      ? t('sent.positive')
+      : sent === 'NEGATIVE'
+        ? t('sent.negative')
+        : t('sent.neutral'));
   const sentCls =
     sent === 'POSITIVE'
       ? 'rl-badge--sent-pos'
       : sent === 'NEGATIVE'
         ? 'rl-badge--sent-neg'
-        : sent
-          ? 'rl-badge--sent-neu'
-          : '';
+        : 'rl-badge--sent-neu';
   const title = alert.competitorName || t('own.badge');
   const logo = String(company?.logoUrl || '').trim();
   const themeLab = resolveThemeLabel(alert);
@@ -2726,49 +2758,24 @@ function renderOwnAlertCard(alert, company = null) {
     typeof alert.frustrationScore === 'number' && Number.isFinite(alert.frustrationScore)
       ? Math.round(Math.min(1, Math.max(0, alert.frustrationScore)) * 100)
       : null;
-  const brandName = String(company?.companyName || alert.competitorName || '').trim();
+  const analysisText =
+    String(
+      alert._analysisSummary ||
+        alert._intel?.analisis_estrategico?.resumen_insight ||
+        '',
+    ).trim() || t('own.analysisFallback');
+  const kindBadge = actionable
+    ? `<span class="rl-badge rl-badge--comment">${escapeHtml(t('own.kindComment'))}</span>`
+    : `<span class="rl-badge rl-badge--mention">${escapeHtml(t('own.kindMention'))}</span>`;
 
-  node.innerHTML = `
-    <button type="button" class="rl-alert__summary" data-own-toggle aria-expanded="${isOpen ? 'true' : 'false'}">
-      ${
-        logo
-          ? `<img class="rl-comp-logo rl-comp-logo--sm" src="${escapeHtml(logo)}" alt="" width="28" height="28" decoding="async" />`
-          : `<span class="rl-hist-kind rl-hist-kind--own" aria-hidden="true">P</span>`
-      }
-      <span class="rl-alert__summary-text">
-        <span class="rl-alert__title-row">
-          <strong>${escapeHtml(title)}</strong>
-          <span class="rl-alert__title-badges">
-            ${src ? `<span class="rl-badge rl-badge--platform" data-platform="${escapeHtml(platKey)}" title="${escapeHtml(src)}">${escapeHtml(src)}</span>` : ''}
-            ${sentLab ? `<span class="rl-badge ${sentCls}">${escapeHtml(sentLab)}</span>` : ''}
-            <span class="rl-badge rl-badge--${escapeHtml(sev.toLowerCase())}">${escapeHtml(sevShort(sev))}</span>
-          </span>
-        </span>
-        <span class="rl-alert__snippet">${escapeHtml(truncateText(alert.originalComplaint || '', 100))}</span>
-        <span class="rl-alert__meta">
-          ${[when, themeLab].filter(Boolean).map((x) => escapeHtml(x)).join(' · ')}
-        </span>
-      </span>
-      <span class="rl-alert__chevron" data-chevron aria-hidden="true">${isOpen ? '▾' : '▸'}</span>
-    </button>
-    <div class="rl-alert__body" data-own-body ${isOpen ? '' : 'hidden'}>
-      <p class="rl-alert__meta-row">
-        <span class="rl-badge rl-badge--status">${escapeHtml(status)}</span>
-        ${src ? `<span class="rl-badge rl-badge--platform" data-platform="${escapeHtml(platKey)}">${escapeHtml(src)}</span>` : ''}
-        ${themeLab ? `<span class="rl-badge rl-badge--theme">${escapeHtml(themeLab)}</span>` : ''}
-        ${
-          friction != null
-            ? `<span class="rl-muted">${escapeHtml(t('own.friction', { n: friction }))}</span>`
-            : ''
-        }
-        ${when ? `<span class="rl-muted">${escapeHtml(when)}</span>` : ''}
-        ${
-          alert.sourceUrl && !String(alert.sourceUrl).startsWith('manual://')
-            ? `<a href="${escapeHtml(alert.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(t('own.openSource'))}</a>`
-            : ''
-        }
-      </p>
-      <p class="rl-alert__complaint">${escapeHtml(alert.originalComplaint || '')}</p>
+  const analysisBlock = `
+      <div class="rl-item-analysis" data-own-analysis>
+        <p class="rl-muted rl-alert__section-label">${escapeHtml(t('own.analysisLabel'))}</p>
+        <p class="rl-item-analysis__body">${escapeHtml(analysisText)}</p>
+      </div>`;
+
+  const replyBlock = actionable
+    ? `
       <p class="rl-muted rl-alert__section-label">${escapeHtml(t('own.sectionDrafts'))}</p>
       <div class="rl-pitch-tabs" data-own-reply-tabs></div>
       <div class="rl-pitch-preview" data-own-reply-preview></div>
@@ -2788,39 +2795,98 @@ function renderOwnAlertCard(alert, company = null) {
       <details class="rl-disclosure rl-cfg-panel rl-alert__more">
         <summary>${escapeHtml(t('own.playbook'))}</summary>
         <div class="rl-playbook" data-own-playbook></div>
-      </details>
+      </details>`
+    : `
+      <p class="rl-hint rl-hint--flush rl-alert__mention-hint">${escapeHtml(t('own.mentionHint'))}</p>
+      <div class="rl-action-bar rl-action-bar--primary" data-own-actions>
+        <div class="rl-action-bar__group">
+          <div class="rl-action-bar__row rl-action-bar__row--seg">
+            ${
+              alert.sourceUrl && !String(alert.sourceUrl).startsWith('manual://')
+                ? `<a class="rl-btn rl-btn--primary" href="${escapeHtml(alert.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(t('own.openSource'))}</a>`
+                : ''
+            }
+            <button type="button" class="rl-btn" data-own-done>${escapeHtml(t('own.markSeen'))}</button>
+            <button type="button" class="rl-btn rl-btn--warn" data-own-dismiss>${escapeHtml(t('own.dismiss'))}</button>
+          </div>
+        </div>
+      </div>`;
+
+  node.innerHTML = `
+    <button type="button" class="rl-alert__summary" data-own-toggle aria-expanded="${isOpen ? 'true' : 'false'}">
+      ${
+        logo
+          ? `<img class="rl-comp-logo rl-comp-logo--sm" src="${escapeHtml(logo)}" alt="" width="28" height="28" decoding="async" />`
+          : `<span class="rl-hist-kind rl-hist-kind--own" aria-hidden="true">P</span>`
+      }
+      <span class="rl-alert__summary-text">
+        <span class="rl-alert__title-row">
+          <strong>${escapeHtml(title)}</strong>
+          <span class="rl-alert__title-badges">
+            ${kindBadge}
+            <span class="rl-badge ${sentCls}">${escapeHtml(sentLab)}</span>
+            ${src ? `<span class="rl-badge rl-badge--platform" data-platform="${escapeHtml(platKey)}" title="${escapeHtml(src)}">${escapeHtml(src)}</span>` : ''}
+            ${actionable ? `<span class="rl-badge rl-badge--${escapeHtml(sev.toLowerCase())}">${escapeHtml(sevShort(sev))}</span>` : ''}
+          </span>
+        </span>
+        <span class="rl-alert__snippet">${escapeHtml(truncateText(alert.originalComplaint || '', 100))}</span>
+        <span class="rl-alert__meta">
+          ${[when, themeLab].filter(Boolean).map((x) => escapeHtml(x)).join(' · ')}
+        </span>
+      </span>
+      <span class="rl-alert__chevron" data-chevron aria-hidden="true">${isOpen ? '▾' : '▸'}</span>
+    </button>
+    <div class="rl-alert__body" data-own-body ${isOpen ? '' : 'hidden'}>
+      <p class="rl-alert__meta-row">
+        <span class="rl-badge rl-badge--status">${escapeHtml(status)}</span>
+        ${kindBadge}
+        <span class="rl-badge ${sentCls}">${escapeHtml(sentLab)}</span>
+        ${src ? `<span class="rl-badge rl-badge--platform" data-platform="${escapeHtml(platKey)}">${escapeHtml(src)}</span>` : ''}
+        ${themeLab ? `<span class="rl-badge rl-badge--theme">${escapeHtml(themeLab)}</span>` : ''}
+        ${
+          friction != null && actionable
+            ? `<span class="rl-muted">${escapeHtml(t('own.friction', { n: friction }))}</span>`
+            : ''
+        }
+        ${when ? `<span class="rl-muted">${escapeHtml(when)}</span>` : ''}
+        ${
+          actionable && alert.sourceUrl && !String(alert.sourceUrl).startsWith('manual://')
+            ? `<a href="${escapeHtml(alert.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(t('own.openSource'))}</a>`
+            : ''
+        }
+      </p>
+      <p class="rl-alert__complaint">${escapeHtml(alert.originalComplaint || '')}</p>
+      ${analysisBlock}
+      ${replyBlock}
     </div>
   `;
 
-  const playbookEl = node.querySelector('[data-own-playbook]');
-  if (playbookEl) {
-    const pb = buildDefensePlaybook({
-      complaint: alert.originalComplaint || '',
-      companyName: brandName,
-      lang: contentLang(getLocale()),
-    });
-    playbookEl.innerHTML = formatPlaybookHtml(pb);
+  if (actionable) {
+    const playbookEl = node.querySelector('[data-own-playbook]');
+    if (playbookEl) {
+      const pb = buildDefensePlaybook({
+        complaint: alert.originalComplaint || '',
+        companyName: brandName,
+        lang: contentLang(getLocale()),
+      });
+      playbookEl.innerHTML = formatPlaybookHtml(pb);
+    }
   }
 
-  const drafts = buildLocalReplyOptions({
-    text: alert.originalComplaint || '',
-    companyName: brandName,
-  });
-  const intel =
-    alert._intel ||
-    analyzeBrandMention({
-      text: alert.originalComplaint || '',
-      channel: alert.channel || alert._source,
-      sourceUrl: alert.sourceUrl,
-      brandScope: 'own',
-      companyName: brandName,
-      systemContext: { alertId: alert.alertId },
-    }).analisis_comentario_recibido;
-  if (intel?.respuesta_sugerida_publica && drafts.options?.[0]) {
-    const suggested = intel.respuesta_sugerida_publica;
-    drafts.options = drafts.options.map((o, i) =>
-      i === 0 ? { ...o, body: suggested, rationale: o.rationale || 'Tono adaptado a la plataforma' } : o,
-    );
+  const drafts = actionable
+    ? buildLocalReplyOptions({
+        text: alert.originalComplaint || '',
+        companyName: brandName,
+      })
+    : { options: [], model: 'n/a' };
+  if (actionable) {
+    const intel = alert._intel;
+    if (intel?.respuesta_sugerida_publica && drafts.options?.[0]) {
+      const suggested = intel.respuesta_sugerida_publica;
+      drafts.options = drafts.options.map((o, i) =>
+        i === 0 ? { ...o, body: suggested, rationale: o.rationale || 'Tono adaptado a la plataforma' } : o,
+      );
+    }
   }
   let selected = drafts.options?.find((o) => o.recommended) || drafts.options?.[0] || null;
   const tabsEl = node.querySelector('[data-own-reply-tabs]');
@@ -3073,7 +3139,9 @@ async function refreshOwnBrandBar() {
       ? t('own.openChannelsTitle', { n })
       : t('own.openChannelsEmpty');
   }
-  if (els.scanOwn) els.scanOwn.disabled = !ready;
+  if (els.scanOwn && !els.scanOwn.classList.contains('is-loading')) {
+    els.scanOwn.disabled = !ready;
+  }
   if (els.ownBrandReport) els.ownBrandReport.disabled = !ready;
 }
 
@@ -3110,11 +3178,10 @@ async function refreshOwnAlerts() {
   await refreshOwnBrandBar();
   const root = els.ownAlerts;
   if (!root) return;
-  const data = await storageGet([STORAGE.alerts, STORAGE.config]);
+  const collapsed = await ensureAlertsCollapsed();
+  const data = await storageGet([STORAGE.config]);
   const company = data[STORAGE.config]?.company || {};
-  const allOwn = (Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : []).filter(
-    (a) => a?._brandScope === 'own',
-  );
+  const allOwn = collapsed.filter((a) => a?._brandScope === 'own');
   const filters = getOwnFilterState();
   const own = allOwn
     .filter((a) => matchesOwnFilters(a, filters))
@@ -3133,8 +3200,9 @@ async function refreshOwnAlerts() {
       <div class="rl-empty rl-empty--comp">
         ${escapeHtml(t('own.feedEmpty'))}<br/>
         ${escapeHtml(t('own.feedEmptyHint'))}
-        <button type="button" class="rl-btn rl-btn--primary" id="btn-empty-scan-own" style="margin-top:12px">
-          ${escapeHtml(t('own.scan'))}
+        <button type="button" class="rl-btn rl-btn--primary rl-btn--scan" id="btn-empty-scan-own" style="margin-top:12px" aria-busy="false">
+          <span class="rl-btn__label">${escapeHtml(t('own.scan'))}</span>
+          <span class="rl-dots" aria-hidden="true"><i></i><i></i><i></i></span>
         </button>
       </div>`;
     document.getElementById('btn-empty-scan-own')?.addEventListener('click', () => {
@@ -3205,29 +3273,32 @@ async function createOwnManualMention({ text, sourceUrl, analyze = false } = {})
 async function mergeScanOpportunities(opportunities) {
   const data = await storageGet([STORAGE.alerts]);
   const existing = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
-  const existingIds = new Set(existing.map((a) => a.alertId));
-  const kept = existing.filter((a) => !a._synthetic && !a._demo && a._source !== 'synthetic');
-  const byId = new Map(kept.map((a) => [a.alertId, a]));
-  const fresh = [];
-  for (const opp of opportunities) {
-    if (opp._synthetic) continue;
-    if (!existingIds.has(opp.alertId)) fresh.push(opp);
-    byId.set(opp.alertId, { ...byId.get(opp.alertId), ...opp });
-  }
-  const merged = [...byId.values()]
-    .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime())
-    .slice(0, 120);
+  const { merged, fresh, skippedDupes } = mergeAlertLists(existing, opportunities, { limit: 120 });
   await storageSet({ [STORAGE.alerts]: merged });
-  return { merged, fresh };
+  return { merged, fresh, skippedDupes };
+}
+
+/** Colapsa dupes ya guardados (p. ej. dos cards del mismo video de YouTube). */
+async function ensureAlertsCollapsed() {
+  const data = await storageGet([STORAGE.alerts]);
+  const existing = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
+  if (existing.length < 2) return existing;
+  const collapsed = collapseDuplicateAlerts(existing);
+  if (collapsed.length !== existing.length) {
+    await storageSet({ [STORAGE.alerts]: collapsed });
+  }
+  return collapsed;
 }
 
 async function scanOwnBrand() {
   if (!els.scanOwn) return;
-  els.scanOwn.disabled = true;
+  if (els.scanOwn.classList.contains('is-loading')) return;
+  setScanButtonBusy('own', true, t('own.scanning'));
   if (els.ownScanStatus) {
     els.ownScanStatus.classList.remove('is-error');
     els.ownScanStatus.textContent = t('own.scanning');
   }
+  await waitForScanPaint();
   try {
     const { [STORAGE.config]: cfg } = await storageGet([STORAGE.config]);
     const company = cfg?.company || {};
@@ -3272,14 +3343,29 @@ async function scanOwnBrand() {
       parts.push(`${stats.youtube} ${ytMode}`);
     }
     if (stats.page) parts.push(`${stats.page} ${t('own.sourcePage').toLowerCase()}`);
+    if (stats.socialcrawl) parts.push(`${stats.socialcrawl} SocialCrawl`);
     const errHint =
       errors?.length > 0
         ? ` · ${errors.slice(0, 2).join(' · ')}${errors.length > 2 ? '…' : ''}`
         : '';
     if (els.ownScanStatus) {
+      const dupeHint =
+        opportunities.length && !fresh.length
+          ? ` · ${t('own.scanNoNew')}`
+          : fresh.length
+            ? ` · +${fresh.length} ${t('own.scanNew')}`
+            : '';
       els.ownScanStatus.textContent = parts.length
-        ? `${t('own.scanDone')}: ${parts.join(' · ')}${errHint}`
+        ? `${t('own.scanDone')}: ${parts.join(' · ')}${dupeHint}${errHint}`
         : `${t('own.scanNone')}${errHint}`;
+    }
+    if (opportunities.length && els.ownFilterDate && els.ownFilterDate.value !== 'all') {
+      // Evitar “0 visibles” por filtro de 7 días cuando hay menciones válidas
+      const filters = getOwnFilterState();
+      const visible = opportunities.filter((a) => matchesOwnFilters(a, filters));
+      if (!visible.length) {
+        els.ownFilterDate.value = 'all';
+      }
     }
     await refreshOwnAlerts();
     await refreshKpis();
@@ -3290,17 +3376,69 @@ async function scanOwnBrand() {
       els.ownScanStatus.textContent = err instanceof Error ? err.message : String(err);
     }
   } finally {
-    if (els.scanOwn) els.scanOwn.disabled = false;
+    setScanButtonBusy('own', false);
+    // Re-apply ready/disabled from brand bar without wiping mid-scan state
+    void refreshOwnBrandBar();
   }
+}
+
+/**
+ * @param {'own' | 'comp'} kind
+ * @param {boolean} busy
+ * @param {string} [message]
+ */
+function setScanButtonBusy(kind, busy, message = '') {
+  const btn = kind === 'own' ? els.scanOwn : els.scanComp;
+  if (btn) {
+    btn.classList.toggle('is-loading', busy);
+    btn.setAttribute('aria-busy', busy ? 'true' : 'false');
+    if (busy) {
+      btn.disabled = false;
+    }
+  }
+  const empty = document.getElementById(kind === 'own' ? 'btn-empty-scan-own' : 'btn-empty-scan');
+  if (empty) {
+    empty.classList.toggle('is-loading', busy);
+    empty.setAttribute('aria-busy', busy ? 'true' : 'false');
+    if (busy) empty.disabled = false;
+  }
+  setScanPageBlocker(busy, message);
+}
+
+/**
+ * Bloquea toda la UI del side panel con puntos centrados.
+ * @param {boolean} busy
+ * @param {string} [message]
+ */
+function setScanPageBlocker(busy, message = '') {
+  const el = document.getElementById('scan-blocker');
+  const label = document.getElementById('scan-blocker-label');
+  if (!el) return;
+  if (label) {
+    label.textContent = message || t('scan.blocking');
+  }
+  el.hidden = !busy;
+  document.body.classList.toggle('is-scan-blocking', busy);
+}
+
+/** Yield a frame so the loading dots paint before heavy scan work. */
+function waitForScanPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(resolve);
+    });
+  });
 }
 
 async function scanCompetitorMarket() {
   if (!els.scanComp) return;
-  els.scanComp.disabled = true;
+  if (els.scanComp.classList.contains('is-loading')) return;
+  setScanButtonBusy('comp', true, t('comp.scanning'));
   if (els.scanStatus) {
     els.scanStatus.classList.remove('is-error');
-    els.scanStatus.textContent = 'Escaneando fuentes profesionales (HN · Reddit · News · página)…';
+    els.scanStatus.textContent = t('comp.scanning');
   }
+  await waitForScanPaint();
 
   try {
     await ensureCompetitorsReady();
@@ -3323,18 +3461,7 @@ async function scanCompetitorMarket() {
 
     const data = await storageGet([STORAGE.alerts]);
     const existing = Array.isArray(data[STORAGE.alerts]) ? data[STORAGE.alerts] : [];
-    const existingIds = new Set(existing.map((a) => a.alertId));
-    const kept = existing.filter((a) => !a._synthetic && !a._demo && a._source !== 'synthetic');
-    const byId = new Map(kept.map((a) => [a.alertId, a]));
-    const fresh = [];
-    for (const opp of opportunities) {
-      if (opp._synthetic) continue;
-      if (!existingIds.has(opp.alertId)) fresh.push(opp);
-      byId.set(opp.alertId, { ...byId.get(opp.alertId), ...opp });
-    }
-    const merged = [...byId.values()]
-      .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime())
-      .slice(0, 100);
+    const { merged, fresh, skippedDupes } = mergeAlertLists(existing, opportunities, { limit: 100 });
     await storageSet({ [STORAGE.alerts]: merged });
 
     if (fresh.length) {
@@ -3358,7 +3485,10 @@ async function scanCompetitorMarket() {
       );
     }
     if (stats.page) parts.push(`${stats.page} página`);
-    if (stats.skippedDupes) parts.push(`${stats.skippedDupes} dupes`);
+    if (stats.socialcrawl) parts.push(`${stats.socialcrawl} SocialCrawl`);
+    if (stats.skippedDupes || skippedDupes) {
+      parts.push(`${(stats.skippedDupes || 0) + skippedDupes} dupes`);
+    }
     const namesLabel = (scannedNames || []).slice(0, 4).join(', ') || '—';
     const errHint =
       errors?.length > 0
@@ -3366,7 +3496,8 @@ async function scanCompetitorMarket() {
         : '';
     if (els.scanStatus) {
       if (parts.length) {
-        els.scanStatus.textContent = `Listo: ${parts.join(' · ')} · rivales: ${namesLabel}${errHint}`;
+        const freshHint = fresh.length ? ` · +${fresh.length} nuevas` : ' · sin nuevas';
+        els.scanStatus.textContent = `Listo: ${parts.join(' · ')} · rivales: ${namesLabel}${freshHint}${errHint}`;
       } else {
         els.scanStatus.textContent =
           `Sin menciones para: ${namesLabel}.${errHint || ''} ` +
@@ -3381,7 +3512,7 @@ async function scanCompetitorMarket() {
         err instanceof Error ? err.message : 'No se pudo escanear. Reintentá.';
     }
   } finally {
-    els.scanComp.disabled = false;
+    setScanButtonBusy('comp', false);
   }
 }
 
@@ -3482,8 +3613,9 @@ function renderAlerts(alerts, company = null) {
       <div class="rl-empty rl-empty--comp">
         ${escapeHtml(t('comp.empty'))}<br/>
         ${escapeHtml(t('comp.emptyHint'))}
-        <button type="button" class="rl-btn rl-btn--primary" id="btn-empty-scan" style="margin-top:12px">
-          ${escapeHtml(t('comp.scan'))}
+        <button type="button" class="rl-btn rl-btn--primary rl-btn--scan" id="btn-empty-scan" style="margin-top:12px" aria-busy="false">
+          <span class="rl-btn__label">${escapeHtml(t('comp.scan'))}</span>
+          <span class="rl-dots" aria-hidden="true"><i></i><i></i><i></i></span>
         </button>
       </div>`;
     document.getElementById('btn-empty-scan')?.addEventListener('click', () => {
@@ -4575,7 +4707,7 @@ els.form?.addEventListener('submit', async (ev) => {
         enabled: document.getElementById('cfg-socialcrawl')?.checked,
         apiKey: document.getElementById('cfg-socialcrawl-key')?.value?.trim() || '',
         sources: document.getElementById('cfg-socialcrawl-sources')?.value?.trim() || '',
-        lookbackDays: 7,
+        lookbackDays: 1,
       },
     });
 

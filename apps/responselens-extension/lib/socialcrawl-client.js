@@ -43,7 +43,7 @@ export async function searchEverywhere(opts) {
 
   const url = new URL(`${BASE}/v1/search/everywhere`);
   url.searchParams.set('query', query);
-  url.searchParams.set('lookback_days', String(Math.min(Math.max(opts.lookbackDays || 7, 1), 90)));
+  url.searchParams.set('lookback_days', String(Math.min(Math.max(opts.lookbackDays || 1, 1), 90)));
   if (opts.sources) url.searchParams.set('sources', opts.sources);
 
   const res = await fetchJson(url.toString(), {
@@ -93,7 +93,7 @@ export async function fetchSocialCrawlMentions(credentials, brandOrRivalName, op
   const result = await searchEverywhere({
     apiKey: credentials.socialcrawl.apiKey,
     query: name,
-    lookbackDays: opts.lookbackDays ?? 7,
+    lookbackDays: opts.lookbackDays ?? 1,
     sources: opts.sources || credentials.socialcrawl.sources || '',
   });
 

@@ -10,6 +10,8 @@
     "build": "nx run-many --target=build --projects=common,domain,application,infrastructure",
     "build:lambdas": "npm run build && npm run build --workspaces --if-present",
     "build:extension": "echo \"Extension is static — load apps/responselens-extension in Chrome\"",
+    "build:web": "nx build responselens-web",
+    "start:web": "nx serve responselens-web",
     "sync:env": "bash scripts/sync-local-env.sh"
   },
   "workspaces": [
@@ -17,16 +19,33 @@
     "lambda_code/api/*"
   ],
   "dependencies": {
+    "@angular/animations": "^19.2.0",
+    "@angular/common": "^19.2.0",
+    "@angular/compiler": "^19.2.0",
+    "@angular/core": "^19.2.0",
+    "@angular/forms": "^19.2.0",
+    "@angular/platform-browser": "^19.2.0",
+    "@angular/platform-browser-dynamic": "^19.2.0",
+    "@angular/router": "^19.2.0",
     "@aws-sdk/client-dynamodb": "^3.679.0",
     "@aws-sdk/lib-dynamodb": "^3.679.0",
-    "zod": "^3.24.1"
+    "@ionic/angular": "^8.5.0",
+    "aws-amplify": "^6.14.0",
+    "ionicons": "^7.4.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.8.0",
+    "zod": "^3.24.1",
+    "zone.js": "~0.15.0"
   },
   "devDependencies": {
+    "@angular-devkit/build-angular": "^19.2.0",
+    "@angular/cli": "^19.2.0",
+    "@angular/compiler-cli": "^19.2.0",
     "@nx/js": "19.5.0",
     "@types/aws-lambda": "^8.10.145",
     "@types/node": "^22.10.0",
     "esbuild": "^0.24.2",
     "nx": "19.5.0",
-    "typescript": "~5.4.5"
+    "typescript": "~5.7.2"
   }
 }

@@ -27,7 +27,7 @@ export function defaultScanCredentials() {
       apiKey: '',
       /** CSV opcional: reddit,youtube,tiktok,instagram,threads,linkedin,… */
       sources: '',
-      lookbackDays: 7,
+      lookbackDays: 1,
     },
   };
 }
@@ -36,11 +36,14 @@ export async function loadScanCredentials() {
   const data = await chrome.storage.local.get([SCAN_CREDS_KEY]);
   const raw = data[SCAN_CREDS_KEY] || {};
   const base = defaultScanCredentials();
+  const socialcrawl = { ...base.socialcrawl, ...(raw.socialcrawl || {}) };
+  // Producto: escucha del día, no historial. Sin UI de lookback → forzar 1.
+  socialcrawl.lookbackDays = 1;
   return {
     reddit: { ...base.reddit, ...(raw.reddit || {}) },
     newsapi: { ...base.newsapi, ...(raw.newsapi || {}) },
     youtube: { ...base.youtube, ...(raw.youtube || {}) },
-    socialcrawl: { ...base.socialcrawl, ...(raw.socialcrawl || {}) },
+    socialcrawl,
   };
 }
 

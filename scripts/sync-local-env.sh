@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Sincroniza outputs de Terraform a .env.local para la extensión / scripts.
+# Sincroniza outputs de Terraform a:
+#   1) .env.local (extensión / scripts)
+#   2) apps/responselens-web/src/environments/environment.ts (SPA Angular)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/infra"
@@ -33,6 +35,29 @@ COGNITO_USER_POOL_ID=$COG_POOL
 COGNITO_CLIENT_ID=$COG_CLIENT
 EOF
 
+ENV_WEB="$ROOT/apps/responselens-web/src/environments/environment.ts"
+cat > "$ENV_WEB" <<EOF
+import type { AppRuntimeEnvironment } from './environment.types';
+
+/** Generado por scripts/sync-local-env.sh — no editar a mano en local. */
+export const environment: AppRuntimeEnvironment = {
+  production: false,
+  appsync: {
+    endpoint: '${GQL}',
+    region: '${REGION}',
+    apiKey: '${KEY}',
+  },
+  cognito: {
+    userPoolId: '${COG_POOL}',
+    userPoolClientId: '${COG_CLIENT}',
+    domain: '',
+    oauthRedirectSignIn: 'http://localhost:4200/auth/callback',
+    oauthRedirectSignOut: 'http://localhost:4200/login',
+  },
+};
+EOF
+
 echo "Escrito $ROOT/.env.local"
+echo "Escrito $ENV_WEB"
 echo "Cognito Pool: $COG_POOL"
 echo "Cognito Client: $COG_CLIENT"

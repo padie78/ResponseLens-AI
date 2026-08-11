@@ -13,6 +13,7 @@ import {
 import { runCompetitorScan } from './lib/competitor-scan.js';
 import { loadScanCredentials } from './lib/scan-credentials.js';
 import { defaultCompetitorSeed } from './lib/competitor-opportunity.js';
+import { mergeAlertLists } from './lib/mention-dedupe.js';
 
 const STORAGE_KEYS = {
   config: 'rl_user_config',
@@ -768,7 +769,6 @@ async function runBackgroundCompetitorScan() {
   const competitors = cfg.competitors?.length ? cfg.competitors : defaultCompetitorSeed();
   const platformPrefs = normalizePlatformPrefs(data[STORAGE_KEYS.detection]?.platforms);
   const existing = Array.isArray(data[STORAGE_KEYS.alerts]) ? data[STORAGE_KEYS.alerts] : [];
-  const existingIds = new Set(existing.map((a) => a.alertId));
 
   try {
     const { opportunities } = await runCompetitorScan({
@@ -784,23 +784,12 @@ async function runBackgroundCompetitorScan() {
       credentials: await loadScanCredentials(),
     });
 
-    const fresh = (opportunities || []).filter(
-      (o) => o && !o._synthetic && !existingIds.has(o.alertId),
-    );
+    const { merged, fresh } = mergeAlertLists(existing, opportunities || [], { limit: 100 });
     if (!fresh.length) {
       await refreshCompetitorBadge();
       return;
     }
 
-    const kept = existing.filter((a) => !a._synthetic && !a._demo && a._source !== 'synthetic');
-    const byId = new Map(kept.map((a) => [a.alertId, a]));
-    for (const opp of opportunities || []) {
-      if (opp._synthetic) continue;
-      byId.set(opp.alertId, { ...byId.get(opp.alertId), ...opp });
-    }
-    const merged = [...byId.values()]
-      .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime())
-      .slice(0, 100);
     await setLocal({ [STORAGE_KEYS.alerts]: merged });
 
     await notifyNewCompetitorAlerts(fresh);

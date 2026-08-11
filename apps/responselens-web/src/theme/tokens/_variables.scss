@@ -1,0 +1,56 @@
+:root {
+  --rl-bg-void: #070b14;
+  --rl-bg-base: #0c1220;
+  --rl-bg-panel: #141c2e;
+  --rl-bg-elevated: #1c263c;
+  --rl-bg-overlay: rgba(7, 11, 20, 0.88);
+
+  --rl-chrome-bg-rgb: 10, 16, 28;
+
+  --rl-accent: #2dd4bf;
+  --rl-accent-rgb: 45, 212, 191;
+  --rl-accent-hover: #5eead4;
+  --rl-accent-own: #38bdf8;
+  --rl-accent-comp: #f59e0b;
+  --rl-accent-danger: #f43f5e;
+  --rl-accent-ok: #34d399;
+
+  --rl-text-primary: #e8eef8;
+  --rl-text-secondary: #9aa8c0;
+  --rl-text-muted: #6b7a94;
+  --rl-text-inverse: #0c1220;
+
+  --rl-border-subtle: rgba(255, 255, 255, 0.08);
+  --rl-border-strong: rgba(255, 255, 255, 0.14);
+  --rl-border-accent: rgba(45, 212, 191, 0.45);
+
+  --rl-font-body: 'Figtree', 'Segoe UI', sans-serif;
+  --rl-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --rl-fs-sm: 0.8125rem;
+  --rl-fs-md: 0.9375rem;
+  --rl-fs-lg: 1.125rem;
+  --rl-fs-xl: 1.5rem;
+  --rl-fs-hero: 2rem;
+
+  --rl-space-1: 0.25rem;
+  --rl-space-2: 0.5rem;
+  --rl-space-3: 0.75rem;
+  --rl-space-4: 1rem;
+  --rl-space-5: 1.5rem;
+  --rl-space-6: 2rem;
+
+  --rl-radius-sm: 6px;
+  --rl-radius-md: 10px;
+  --rl-radius-lg: 16px;
+
+  --rl-shadow-chrome: 0 8px 28px rgba(0, 0, 0, 0.35);
+
+  --ion-font-family: var(--rl-font-body);
+  --ion-background-color: var(--rl-bg-base);
+  --ion-text-color: var(--rl-text-primary);
+  --ion-color-primary: #2dd4bf;
+  --ion-color-primary-contrast: #0c1220;
+  --ion-color-primary-shade: #28bca9;
+  --ion-color-primary-tint: #42d8c5;
+}

@@ -1,0 +1,38 @@
+@use './theme/global';
+
+@import '@ionic/angular/css/core.css';
+@import '@ionic/angular/css/normalize.css';
+@import '@ionic/angular/css/structure.css';
+@import '@ionic/angular/css/typography.css';
+@import '@ionic/angular/css/display.css';
+@import '@ionic/angular/css/padding.css';
+@import '@ionic/angular/css/float-elements.css';
+@import '@ionic/angular/css/text-alignment.css';
+@import '@ionic/angular/css/text-transformation.css';
+@import '@ionic/angular/css/flex-utils.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--rl-font-body);
+  font-size: var(--rl-fs-md);
+  line-height: 1.5;
+  color: var(--rl-text-primary);
+  background: var(--rl-bg-base);
+  -webkit-font-smoothing: antialiased;
+}
+
+ion-app,
+ion-content {
+  --background: transparent;
+}

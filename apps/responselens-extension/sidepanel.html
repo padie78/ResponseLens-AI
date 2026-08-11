@@ -135,12 +135,13 @@
             <button
               type="button"
               id="btn-scan-own"
-              class="rl-btn rl-btn--primary"
+              class="rl-btn rl-btn--primary rl-btn--scan"
               title="Busca menciones negativas de tu empresa"
               data-i18n-title="own.scanTitle"
-              data-i18n="own.scan"
+              aria-busy="false"
             >
-              Escanear marca
+              <span class="rl-btn__label" data-i18n="own.scan">Escanear marca</span>
+              <span class="rl-dots" aria-hidden="true"><i></i><i></i><i></i></span>
             </button>
             <button
               type="button"
@@ -201,9 +202,9 @@
             <label class="rl-filter">
               <span data-i18n="own.filter.date">Fecha</span>
               <select id="own-filter-date" class="rl-select" aria-label="Filtro de fecha">
-                <option value="all" data-i18n="date.all">Todas</option>
+                <option value="all" selected data-i18n="date.all">Todas</option>
                 <option value="1" data-i18n="date.today">Hoy</option>
-                <option value="7" selected data-i18n="date.7">7 días</option>
+                <option value="7" data-i18n="date.7">7 días</option>
                 <option value="14" data-i18n="date.14">14 días</option>
                 <option value="30" data-i18n="date.30">30 días</option>
               </select>
@@ -311,7 +312,17 @@
             <p class="rl-panel-lead" data-i18n="comp.lead">Oportunidades de captación desde quejas reales.</p>
           </div>
           <div class="rl-head-actions">
-            <button type="button" id="btn-scan-comp" class="rl-btn rl-btn--primary" title="Busca menciones negativas de rivales" data-i18n-title="comp.scanTitle" data-i18n="comp.scan">Escanear</button>
+            <button
+              type="button"
+              id="btn-scan-comp"
+              class="rl-btn rl-btn--primary rl-btn--scan"
+              title="Busca menciones negativas de rivales"
+              data-i18n-title="comp.scanTitle"
+              aria-busy="false"
+            >
+              <span class="rl-btn__label" data-i18n="comp.scan">Escanear</span>
+              <span class="rl-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            </button>
             <button type="button" id="btn-refresh-alerts" class="rl-btn rl-btn--ghost rl-btn--icon" title="Actualizar lista" data-i18n-title="comp.refresh">↻</button>
           </div>
         </div>
@@ -952,7 +963,8 @@
                 />
               </label>
               <p class="rl-hint rl-hint--flush" data-i18n-html="cfg.socialcrawlHint">
-                Escucha multi-plataforma vía <code>socialcrawl.dev</code>. La key solo vive en
+                Escucha multi-plataforma vía <code>socialcrawl.dev</code> (lookback por defecto:
+                <strong>hoy / 1 día</strong>, no historial largo). La key solo vive en
                 <code>chrome.storage.local</code> (nunca en prompts LLM). Rotá cualquier key filtrada.
               </p>
             </div>
@@ -1024,6 +1036,21 @@
         </form>
       </section>
     </main>
+    </div>
+
+    <div
+      id="scan-blocker"
+      class="rl-scan-blocker"
+      hidden
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="scan-blocker-label"
+      aria-busy="true"
+    >
+      <div class="rl-scan-blocker__panel">
+        <span class="rl-dots rl-dots--xl" aria-hidden="true"><i></i><i></i><i></i></span>
+        <p id="scan-blocker-label" class="rl-scan-blocker__label" data-i18n="scan.blocking">Escaneando…</p>
+      </div>
     </div>
 
     <div id="share-modal" class="rl-modal" hidden role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
