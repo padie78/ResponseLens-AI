@@ -4,7 +4,7 @@ Misma separación que statsGames:
 
 | Carpeta | Rol |
 |---|---|
-| `apps/responselens-extension` | Cliente Chrome MV3 |
+| `apps/responselens-web` | Cliente SPA (Angular 19 + Ionic 8) |
 | `libs/*` | Hexagonal (common → domain → application → infrastructure) |
 | `lambda_code/*` | Handlers thin + composition-root |
 | `infra/` | Terraform (DynamoDB, AppSync, Lambdas, queues, storage) |

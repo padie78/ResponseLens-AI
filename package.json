@@ -9,7 +9,6 @@
   "scripts": {
     "build": "nx run-many --target=build --projects=common,domain,application,infrastructure",
     "build:lambdas": "npm run build && npm run build --workspaces --if-present",
-    "build:extension": "echo \"Extension is static — load apps/responselens-extension in Chrome\"",
     "build:web": "nx build responselens-web",
     "start:web": "nx serve responselens-web",
     "sync:env": "bash scripts/sync-local-env.sh"

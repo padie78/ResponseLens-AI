@@ -2,7 +2,6 @@ import type { AppRuntimeEnvironment } from './environment.types';
 
 /**
  * Placeholders — reemplazá con `npm run sync:env` tras terraform apply.
- * La extensión sigue usando `.env.local` / chrome.storage.
  */
 export const environment: AppRuntimeEnvironment = {
   production: false,

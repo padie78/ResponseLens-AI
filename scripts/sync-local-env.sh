@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sincroniza outputs de Terraform a:
-#   1) .env.local (extensión / scripts)
+#   1) .env.local (scripts / tooling)
 #   2) apps/responselens-web/src/environments/environment.ts (SPA Angular)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

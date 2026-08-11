@@ -1,8 +1,8 @@
 # Integraciones CRM + compartir data
 
-## Estado MVP (extensión v0.6)
+## Estado MVP (web)
 
-Funciona **en el cliente** (sin deploy de AppSync nuevo):
+Funciona en el cliente SPA (sin deploy de AppSync nuevo):
 
 | Capacidad | Dónde |
 |---|---|
@@ -10,7 +10,6 @@ Funciona **en el cliente** (sin deploy de AppSync nuevo):
 | HubSpot (Private App) | Config → token; crea Contact + Note |
 | Auto-push al captar | Checkbox en Config |
 | Share oportunidad / ficha | Botones **Share** / **Compartir ficha** |
-| Visor | `share-viewer.html` (link local + token portátil) |
 
 ### Webhook
 `POST` JSON:
@@ -86,9 +85,8 @@ Al pulsar **Share** / **Compartir ficha**:
 | CRM | Webhook/HubSpot ya configurados en Integraciones |
 | Portapapeles / Visor | sin destinatario |
 
-1. **Link local** `chrome-extension://…/share-viewer.html?id=sh_…` (mismo perfil Chrome).
-2. **Token** (base64url del paquete) — pegable; el destinatario lo abre en el visor.
-3. TTL configurable (default 7 días). Sin tokens/API keys en el payload.
+1. **Link / token** compartible (paquete base64url) — el destinatario lo abre en el visor del SPA.
+2. TTL configurable (default 7 días). Sin tokens/API keys en el payload.
 
 ## Hexagonal (cloud-ready)
 
@@ -133,21 +131,19 @@ X-ResponseLens-Secret: {inbound_webhook_secret}
 - `brandScope: "rival"` (default) → **Competencia**
 - Respuesta `202` con `alertId`
 
-Flujo: API Gateway HTTP → Lambda → DynamoDB → `publishCompetitorAlert` → extensión.
+Flujo: API Gateway HTTP → Lambda → DynamoDB → `publishCompetitorAlert` → SPA (subscription).
 
 Compatible con Zapier/Make: Webhooks by Zapier → POST a esa URL.
 
 ### SocialCrawl (escucha multi-plataforma)
 
-- Config → Fuentes profesionales → SocialCrawl API key (solo `chrome.storage.local`).
-- Cliente HTTP: `lib/socialcrawl-client.js` → `GET /v1/search/everywhere`.
-- Análisis (sin secrets): `lib/mention-intelligence.js` — tono por plataforma, sentimiento, moderación.
+- Config → Fuentes profesionales → SocialCrawl API key (local al cliente).
 - La API key **nunca** entra en prompts LLM. Si se filtró: rotarla en SocialCrawl.
 
 Próximo paso cloud (opcional): mutations AppSync `pushOpportunityToCrm` / `createShareLink` + S3 público firmado para shares HTTPS.
 
 ## Cómo probar
-1. Reload extensión **v0.6.0**
+1. SPA en local (`npm run start:web`) o CloudFront
 2. Config → activá webhook de prueba (webhook.site) o HubSpot token → Guardar
 3. Competencia → expandí alerta → **CRM** / **Share**
 4. Ficha rival → **Compartir ficha**

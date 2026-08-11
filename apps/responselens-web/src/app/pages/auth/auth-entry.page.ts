@@ -29,8 +29,9 @@ type AuthMode = 'signin' | 'signup' | 'confirm';
           @if (!auth.isCognitoConfigured()) {
             <div class="rl-auth__hint" role="status">
               <p>
-                La extensión guarda Cognito en <strong>Config</strong> (chrome.storage). La web no
-                hereda eso: pegá los <strong>mismos</strong> Region / Pool / Client acá.
+                Cognito no está en <code>environment.ts</code>. Ejecutá
+                <code>npm run sync:env</code> tras terraform apply, o pegá Region / Pool / Client
+                acá (dev).
               </p>
               <form class="rl-auth__form" [formGroup]="cloudForm" (ngSubmit)="saveCloud()">
                 <label class="rl-auth__label">
@@ -108,10 +109,6 @@ type AuthMode = 'signin' | 'signup' | 'confirm';
           <button type="button" class="rl-auth__local" (click)="enterLocal()" [disabled]="busy()">
             Continuar en modo local
           </button>
-
-          <p class="rl-auth__switch">
-            Extensión → Config → Cognito: copiá Region, Pool y Client hacia este formulario.
-          </p>
         </div>
       </div>
     </ion-content>

@@ -18,7 +18,7 @@ Sin keys de capa B, el producto sigue vivo con A + C.
 - Auth: header `x-api-key` **solo en el cliente HTTP** (`lib/socialcrawl-client.js` vía service worker).
 - **Nunca** inyectar la API key en prompts LLM ni en el JSON que ve el modelo.
 - Análisis de tono/sentimiento: `lib/mention-intelligence.js` (código puro).
-- Config → Fuentes profesionales → SocialCrawl (key en `chrome.storage.local`).
+- Config → Fuentes profesionales → SocialCrawl (key en storage local del SPA).
 - Si una key se filtró en chat/logs: **rotarla** en el dashboard de SocialCrawl.
 
 ## Reddit OAuth (recomendado)
@@ -36,7 +36,7 @@ Flujo: `client_credentials` → `oauth.reddit.com/search`. Si falla, fallback a 
 2. Extensión: Config → NewsAPI habilitado + key.
 3. Lambda: variable `newsapi_api_key`.
 
-Query tip: nombre del rival + términos de frustración (scam, outage, estafa…). Plan free suele limitar dominio; en extensión el SW hace el fetch.
+Query tip: nombre del rival + términos de frustración (scam, outage, estafa…). Plan free suele limitar dominio; el fetch lo hace el cliente o la Lambda.
 
 ## Qué no hacemos como producto
 

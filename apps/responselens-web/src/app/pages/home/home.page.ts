@@ -16,8 +16,7 @@ import { AuthService } from '../../core/auth/auth.service';
             <span class="rl-app-shell__mark">RL</span>
             <h1 class="rl-auth__title">ResponseLens AI</h1>
             <p class="rl-auth__tagline">
-              Control de daños, conquista comercial y configuración — ahora también en web.
-              La extensión Chrome se mantiene para captura en página.
+              Control de daños, conquista comercial y configuración en un solo panel web.
             </p>
           </header>
           <div class="rl-auth__form">

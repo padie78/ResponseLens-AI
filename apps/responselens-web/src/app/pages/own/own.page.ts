@@ -11,8 +11,8 @@ import { IonContent } from '@ionic/angular/standalone';
       <div class="rl-page">
         <h1 class="rl-page__title">Propios</h1>
         <p class="rl-page__lead">
-          Menciones de tu marca, triage de crisis y análisis IA. Scaffold — el feed se portará desde la
-          extensión y AppSync.
+          Menciones de tu marca, triage de crisis y análisis IA. Scaffold — el feed se conectará a
+          AppSync.
         </p>
         <div class="rl-page__panel">Próximo: listado de alertas + filtros de plataforma + escaneo.</div>
       </div>

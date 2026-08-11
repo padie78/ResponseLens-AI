@@ -1,4 +1,6 @@
-# Funcionalidad operativa (extensión)
+# Funcionalidad operativa (SPA)
+
+> La extensión Chrome fue retirada; el cliente es `apps/responselens-web`.
 
 ## Idioma (i18n)
 Selector **ES/EN/FR/IT/DE** en el header (junto al zoom). Persistido en `rl_locale`. Catálogos en `locales/*.js`. Informes largos siguen ES|EN según el texto.
@@ -43,7 +45,7 @@ Estados: NEW → CONTACTED / WON / DISMISSED.
 - Config → **Fuentes profesionales (API)**: Reddit OAuth + NewsAPI. Detalle: `docs/product-sources.md`.
 - Noticias: rivales **y** tu marca (badge “Tu marca”).
 - **Sin simulados / sin phantom** en ficha: vacío = vacío.
-- **Datos de prueba** (demos) ocultos por defecto. Activar desde afuera: `chrome.storage.local.set({ rl_dev_tools: true })` o abrir el panel con `?devtools=1`.
+- **Datos de prueba** (demos) ocultos por defecto.
 - Cron Lambda `competitor_scan`: HN + Reddit (OAuth/env) + NewsAPI cuando hay env vars.
 - Detección en página también en Reddit; chip **captar · Rival**.
 
@@ -68,7 +70,7 @@ Estados: NEW → CONTACTED / WON / DISMISSED.
 - Más portales: **+ Agregar plataforma** (dominio custom).
 
 ## Detección configurable
-Sensibilidad, keywords extra, dominios ignorados y badge en el icono del plugin con el conteo de quejas en la página.
+Sensibilidad, keywords extra y dominios ignorados en Config.
 
 ## Fallback offline
 Si AppSync/LLM falla (o no está configurado), genera 3 tonos + triage heurístico local para no bloquear al agente.

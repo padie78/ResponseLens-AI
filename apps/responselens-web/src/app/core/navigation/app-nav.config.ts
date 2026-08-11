@@ -11,7 +11,7 @@ export interface AppSubnavItem {
   badge?: string;
 }
 
-/** Módulos del producto ResponseLens (extensión + web). */
+/** Módulos del producto ResponseLens. */
 export const APP_SUBNAV_ITEMS: AppSubnavItem[] = [
   {
     id: 'own',

@@ -5,7 +5,7 @@ import type { AppRuntimeEnvironment } from '../../../environments/environment.ty
 
 const STORAGE_KEY = 'rl_web_cloud_config';
 
-/** Misma forma que chrome.storage `rl_cognito` + AppSync en la extensión. */
+/** Override local de Cognito/AppSync (dev) cuando environment.ts está vacío. */
 export interface CloudConfigOverride {
   region: string;
   userPoolId: string;

@@ -147,7 +147,7 @@ export class AuthService {
   private assertCognitoConfigured(): void {
     if (!this.isCognitoConfigured()) {
       throw new Error(
-        'Auth UserPool not configured. Pegá Region / Pool / Client (los mismos de la extensión) o usá modo local.',
+        'Auth UserPool not configured. Pegá Region / Pool / Client o usá modo local.',
       );
     }
   }
