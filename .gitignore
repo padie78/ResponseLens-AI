@@ -2,9 +2,11 @@
 node_modules/
 **/node_modules/
 
-# Nx caches
+# Nx / Angular caches
 .nx/
 **/.nx/
+.angular/
+**/.angular/
 tmp/
 **/tmp/
 out-tsc/
