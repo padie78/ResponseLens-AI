@@ -15,7 +15,7 @@ export function mapAuthErrorMessage(err: unknown): string {
   const message = 'message' in err && typeof err.message === 'string' ? err.message : '';
 
   if (/UserPool not configured/i.test(message) || name === 'AuthUserPoolException') {
-    return 'Cognito no está configurado. Ejecutá npm run sync:env o usá modo local.';
+    return 'Auth no configurado. Ejecutá npm run sync:env tras terraform apply.';
   }
 
   switch (name) {

@@ -30,8 +30,8 @@ resource "aws_cognito_user_pool" "this" {
   }
 }
 
-resource "aws_cognito_user_pool_client" "extension" {
-  name         = "${var.name_prefix}-extension"
+resource "aws_cognito_user_pool_client" "web" {
+  name         = "${var.name_prefix}-web"
   user_pool_id = aws_cognito_user_pool.this.id
 
   generate_secret               = false

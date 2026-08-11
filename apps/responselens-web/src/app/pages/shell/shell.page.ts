@@ -18,9 +18,6 @@ import { AppSubnavComponent } from '../../ui';
             <span class="rl-app-shell__name">ResponseLens</span>
           </a>
           <div class="rl-app-shell__actions">
-            @if (auth.isLocal()) {
-              <span class="rl-app-shell__user">modo local</span>
-            }
             @if (auth.email(); as email) {
               <span class="rl-app-shell__user">{{ email }}</span>
             }
