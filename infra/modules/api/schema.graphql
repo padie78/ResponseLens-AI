@@ -317,6 +317,8 @@ input StartSocialCrawlSearchInput {
   sources: String
   """Generado por el SPA para suscribirse antes de encolar."""
   jobId: ID
+  """Si true, el worker responde con envelope simulado (misma cola SQS, sin créditos)."""
+  mock: Boolean
 }
 
 type StartSocialCrawlSearchResult {

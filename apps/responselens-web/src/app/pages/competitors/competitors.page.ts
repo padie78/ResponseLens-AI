@@ -52,6 +52,16 @@ import {
               (onClick)="runScan()"
             />
             <p-button
+              label="Scanner mock"
+              icon="pi pi-box"
+              severity="help"
+              [outlined]="true"
+              size="small"
+              [disabled]="scan.scanning() || config.competitors().length === 0"
+              (onClick)="runScanMock()"
+              title="SocialCrawl simulado — no gasta créditos"
+            />
+            <p-button
               label="Refrescar"
               icon="pi pi-refresh"
               severity="secondary"
@@ -196,6 +206,10 @@ export class CompetitorsPageComponent implements OnInit {
 
   async runScan(): Promise<void> {
     await this.scan.scanCompetitors();
+  }
+
+  async runScanMock(): Promise<void> {
+    await this.scan.scanCompetitorsMock();
   }
 
   onDismiss(alertId: string): void {

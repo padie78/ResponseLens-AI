@@ -79,6 +79,16 @@ import {
               (onClick)="runScan()"
             />
             <p-button
+              label="Scanner mock"
+              icon="pi pi-box"
+              severity="help"
+              [outlined]="true"
+              size="small"
+              [disabled]="scan.scanning() || !config.hasCompany()"
+              (onClick)="runScanMock()"
+              title="SocialCrawl simulado — no gasta créditos"
+            />
+            <p-button
               label="Refrescar"
               icon="pi pi-refresh"
               severity="secondary"
@@ -449,6 +459,10 @@ export class OwnPageComponent implements OnInit {
 
   async runScan(): Promise<void> {
     await this.scan.scanOwn();
+  }
+
+  async runScanMock(): Promise<void> {
+    await this.scan.scanOwnMock();
   }
 
   openFromQueue(alertId: string): void {

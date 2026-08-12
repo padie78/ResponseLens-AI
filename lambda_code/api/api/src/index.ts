@@ -93,6 +93,7 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
         lookbackDays?: number;
         sources?: string;
         jobId?: string;
+        mock?: boolean;
       };
       const query = String(input.query || '')
         .replace(/["']/g, ' ')
@@ -118,10 +119,11 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
             lookbackDays:
               input.lookbackDays ?? (Number(process.env.SOCIALCRAWL_LOOKBACK_DAYS) || 3),
             sources: input.sources || process.env.SOCIALCRAWL_SOURCES || '',
+            mock: Boolean(input.mock),
           }),
         }),
       );
-      return { jobId, status: 'QUEUED' };
+      return { jobId, status: input.mock ? 'QUEUED_MOCK' : 'QUEUED' };
     }
 
     case 'searchSocialMentions': {

@@ -4,12 +4,12 @@ import {
   mapOpportunityToAlert,
   type ScanOpportunity,
 } from '../models/alert.model';
-import { loadScanSourcesPrefs } from '../models/scan-sources.model';
 import { AlertsStore } from '../stores/alerts.store';
 import { UserConfigStore } from '../stores/user-config.store';
 import { runOwnBrandScan, runCompetitorScan } from '../engine/competitor-scan.js';
 import { loadScanCredentials } from '../engine/scan-credentials.js';
 import { hasSocialCrawlServer } from '../engine/socialcrawl-client.js';
+import { setSocialCrawlMock } from '../engine/socialcrawl-mock.js';
 
 interface ScanEngineResult {
   opportunities?: ScanOpportunity[];
@@ -30,14 +30,25 @@ export class ScanService {
   readonly lastStatus = this._lastStatus.asReadonly();
 
   async scanOwn(): Promise<void> {
-    await this.runScan('own');
+    await this.runScan('own', { mock: false });
   }
 
   async scanCompetitors(): Promise<void> {
-    await this.runScan('comp');
+    await this.runScan('comp', { mock: false });
   }
 
-  private async runScan(kind: 'own' | 'comp'): Promise<void> {
+  async scanOwnMock(): Promise<void> {
+    await this.runScan('own', { mock: true });
+  }
+
+  async scanCompetitorsMock(): Promise<void> {
+    await this.runScan('comp', { mock: true });
+  }
+
+  private async runScan(
+    kind: 'own' | 'comp',
+    opts: { mock: boolean },
+  ): Promise<void> {
     const userId = this.auth.userId();
     this.configStore.load();
     const cfg = this.configStore.config();
@@ -55,32 +66,44 @@ export class ScanService {
       return;
     }
 
+    if (!hasSocialCrawlServer()) {
+      this._lastStatus.set(
+        opts.mock
+          ? 'Scanner mock necesita AppSync (mismo pipeline SQS). Corré npm run sync:env.'
+          : 'SocialCrawl off: falta AppSync (npm run sync:env).',
+      );
+      return;
+    }
+
     this._scanning.set(true);
+    setSocialCrawlMock(opts.mock);
     this._lastStatus.set(
-      kind === 'own'
-        ? `Escaneando “${cfg.company.companyName}” (SocialCrawl async + HN/news)…`
-        : 'Escaneando rivales…',
+      opts.mock
+        ? kind === 'own'
+          ? `Mock SocialCrawl via SQS “${cfg.company.companyName}”…`
+          : 'Mock SocialCrawl via SQS (rivales)…'
+        : kind === 'own'
+          ? `SocialCrawl “${cfg.company.companyName}”…`
+          : 'SocialCrawl rivales…',
     );
 
     try {
       const credentials = await loadScanCredentials();
-      const sources = { ...loadScanSourcesPrefs() };
       const company = {
         ...cfg.company,
         socialHandles: cfg.company.channelUrls ?? [],
       };
-
-      if (!hasSocialCrawlServer()) {
-        this._lastStatus.set(
-          'SocialCrawl server off: corré terraform + sync:env (la API key va en Terraform, no en el SPA). Seguimos con HN…',
-        );
-      }
-
       const baseArgs = {
         company,
         userId,
         pageMentions: [],
-        sources,
+        sources: {
+          hackernews: false,
+          reddit_api: false,
+          active_page: false,
+          news_portals: false,
+          youtube_api: false,
+        },
         credentials,
       };
 
@@ -103,13 +126,9 @@ export class ScanService {
 
       const found = alerts.length;
       const sc = Number(result.stats?.['socialcrawl'] ?? 0);
-      const hn = Number(result.stats?.['hn'] ?? 0);
-      const news = Number(result.stats?.['news'] ?? 0);
       const withMeta = alerts.filter((a) => Boolean(a._scMeta)).length;
-      const scCreds = hasSocialCrawlServer();
       const errs = (result.errors ?? []).filter(Boolean);
       const scErrs = errs.filter((e) => /socialcrawl/i.test(e));
-      const otherErrs = errs.filter((e) => !/socialcrawl/i.test(e));
       const scKeyMissing = scErrs.some((e) =>
         /SOCIALCRAWL_API_KEY missing|key solo en servidor|socialcrawl_proxy_failed/i.test(e),
       );
@@ -119,33 +138,33 @@ export class ScanService {
       const scTimeout = scErrs.some((e) =>
         /timed out|socialcrawl_timeout|socialcrawl_job_timeout|Task timed out/i.test(e),
       );
-      const scLine = !scCreds
-        ? 'SC OFF (falta AppSync — npm run sync:env)'
+
+      const scLine = opts.mock
+        ? `SC MOCK ${sc}${withMeta ? ` · meta ${withMeta}` : ''}`
         : scKeyMissing
-          ? 'SC ERROR (key falta en Lambda — Deploy Infrastructure)'
+          ? 'SC ERROR (key falta en Lambda)'
           : scCredits
-            ? 'SC SIN CRÉDITOS (recargá en socialcrawl.dev)'
-          : scTimeout
-            ? 'SC TIMEOUT (worker >100s — SocialCrawl lento o cola)'
-            : sc > 0
-            ? `SC ${sc}${withMeta ? ` · meta ${withMeta}` : ''}`
-            : scErrs.length
-              ? 'SC 0 (proxy respondió con error)'
-              : 'SC 0 (sin menciones nuevas en lookback)';
+            ? 'SC SIN CRÉDITOS'
+            : scTimeout
+              ? 'SC TIMEOUT'
+              : sc > 0
+                ? `SC ${sc}${withMeta ? ` · meta ${withMeta}` : ''}`
+                : scErrs.length
+                  ? 'SC 0 (error)'
+                  : 'SC 0 (sin menciones)';
+
       const parts = [
         found > 0 ? `${found} mención(es)` : '0 menciones',
         scLine,
-        hn ? `HN ${hn}` : null,
-        news ? `News ${news}` : null,
-      ].filter(Boolean);
-
-      const prioritized = [...scErrs, ...otherErrs].slice(0, 4).join(' · ');
-      this._lastStatus.set(prioritized ? `${parts.join(' · ')} — ${prioritized}` : parts.join(' · '));
+      ];
+      const detail = scErrs.slice(0, 3).join(' · ');
+      this._lastStatus.set(detail ? `${parts.join(' · ')} — ${detail}` : parts.join(' · '));
     } catch (err) {
       this._lastStatus.set(
         err instanceof Error ? err.message : 'Error al escanear.',
       );
     } finally {
+      setSocialCrawlMock(false);
       this._scanning.set(false);
     }
   }

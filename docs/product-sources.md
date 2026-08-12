@@ -6,11 +6,10 @@ ResponseLens prioriza **APIs legales / RSS públicos** + **asistencia en página
 
 | Capa | Fuentes | Auth | Uso |
 |---|---|---|---|
-| A — Siempre on | Hacker News (Algolia), Google News RSS | Ninguna | Extensión + Lambda |
-| B — Profesional | Reddit OAuth (app-only), NewsAPI, YouTube Data API, **SocialCrawl** | SocialCrawl key en **Terraform/Lambda**; Reddit/News/YT pueden ser locales | Preferidas si están habilitadas |
-| C — Página | FB, IG, TikTok, Threads, LinkedIn, Glassdoor, G2… | Sesión del usuario | Content script al abrir la URL |
+| B — Escaneo | **Solo SocialCrawl** `/everywhere` (incluye **hackernews** + news vía tavily/perplexity, Reddit, YT, X, …) o **Scanner mock** con el mismo envelope | Key en Terraform/Lambda | Única fuente del botón Escanear |
+| C — Página | FB, IG, TikTok… | Sesión del usuario | Fuera del escaneo automático |
 
-Sin keys de capa B, el producto sigue vivo con A + C.
+No hay fallback Algolia HN / Google News RSS / Reddit público en el scan del SPA: si SocialCrawl está off, el escaneo no corre (salvo mock).
 
 ## SocialCrawl (seguro)
 

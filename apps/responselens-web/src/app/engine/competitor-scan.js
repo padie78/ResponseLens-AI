@@ -768,14 +768,15 @@ export async function runCompetitorScan({
   const opportunities = [];
   const errors = [];
   const scannedNames = [];
+  // Solo SocialCrawl (everywhere). Sin HN/News/Reddit/página paralelos.
   const enabled = {
-    hackernews: sources?.hackernews !== false,
-    reddit_api: sources?.reddit_api !== false,
-    active_page: sources?.active_page !== false,
-    news_portals: sources?.news_portals !== false,
+    hackernews: false,
+    reddit_api: false,
+    active_page: false,
+    news_portals: false,
   };
-  const useRedditOauth = hasRedditOAuth(credentials);
-  const useNewsApi = hasNewsApi(credentials);
+  const useRedditOauth = false;
+  const useNewsApi = false;
   const stats = {
     hn: 0,
     reddit: 0,
@@ -783,11 +784,12 @@ export async function runCompetitorScan({
     page: 0,
     ownNews: 0,
     synthetic: 0,
+    socialcrawl: 0,
     competitors: list.length,
     skippedDupes: 0,
     providers: {
-      reddit: useRedditOauth ? 'oauth' : 'public',
-      news: useNewsApi ? 'newsapi' : 'google_rss',
+      reddit: 'off',
+      news: 'off',
       socialcrawl: hasSocialCrawl(credentials) ? 'socialcrawl' : 'off',
     },
     perCompetitor: {},
@@ -1043,7 +1045,8 @@ export async function runCompetitorScan({
       if (!name) continue;
       const sc = await fetchSocialCrawlMentions(credentials, name, {
         lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 7,
-        sources: credentials.socialcrawl?.sources || '',
+        // vacío → client usa SOCIALCRAWL_EVERYWHERE_SOURCES (HN + news + todos)
+        sources: '',
       });
       if (sc.error) errors.push(`SocialCrawl/${name}: ${sc.error}`);
       else if (!sc.mentions?.length) {
@@ -1112,14 +1115,15 @@ export async function runOwnBrandScan({
   const opportunities = [];
   const errors = [];
   const scannedNames = [];
+  // Solo SocialCrawl (everywhere). Sin HN/News/Reddit/YT/página paralelos.
   const enabled = {
-    hackernews: sources?.hackernews !== false,
-    reddit_api: sources?.reddit_api !== false,
-    active_page: sources?.active_page !== false,
-    news_portals: sources?.news_portals !== false,
-    youtube_api: sources?.youtube_api !== false,
+    hackernews: false,
+    reddit_api: false,
+    active_page: false,
+    news_portals: false,
+    youtube_api: false,
   };
-  const useYoutubeApi = hasYouTubeApi(credentials);
+  const useYoutubeApi = false;
   const stats = {
     hn: 0,
     reddit: 0,
@@ -1129,9 +1133,9 @@ export async function runOwnBrandScan({
     socialcrawl: 0,
     skippedDupes: 0,
     providers: {
-      reddit: hasRedditOAuth(credentials) ? 'oauth' : 'public',
-      news: hasNewsApi(credentials) ? 'newsapi' : 'google_rss',
-      youtube: useYoutubeApi ? 'youtube_api' : 'youtube_news_rss',
+      reddit: 'off',
+      news: 'off',
+      youtube: 'off',
       socialcrawl: hasSocialCrawl(credentials) ? 'socialcrawl' : 'off',
     },
   };
@@ -1157,8 +1161,8 @@ export async function runOwnBrandScan({
   });
   scannedNames.push(...queryNames.map((n) => `own:${n}`));
 
-  const useRedditOauth = hasRedditOAuth(credentials);
-  const useNewsApi = hasNewsApi(credentials);
+  const useRedditOauth = false;
+  const useNewsApi = false;
   const seen = new Map();
 
   const findSeen = (keys) => {
@@ -1339,7 +1343,7 @@ export async function runOwnBrandScan({
   if (hasSocialCrawl(credentials)) {
     const sc = await fetchSocialCrawlMentions(credentials, ownName, {
       lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 7,
-      sources: credentials.socialcrawl?.sources || '',
+      sources: '',
     });
     if (sc.error) errors.push(`SocialCrawl: ${sc.error}`);
     else if (!sc.mentions?.length) {

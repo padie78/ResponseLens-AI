@@ -49,11 +49,13 @@ export type SocialCrawlSearchResult = {
 };
 
 function normalizePlatform(raw: string): string {
-  return String(raw || 'web')
+  const p = String(raw || 'web')
     .toLowerCase()
     .replace(/-ai-search$/, '')
     .replace(/-hashtag$/, '')
     .replace(/^twitter$/, 'x');
+  if (p === 'tavily' || p === 'perplexity') return 'news';
+  return p;
 }
 
 function collectTopComments(item: Record<string, unknown>): SocialCrawlTopComment[] {
@@ -215,6 +217,28 @@ export async function searchSocialCrawlEverywhere(opts: {
   url.searchParams.set('query', query);
   url.searchParams.set('lookback_days', String(lookback));
   if (opts.sources?.trim()) url.searchParams.set('sources', opts.sources.trim());
+  else {
+    // Fan-out completo: HN + news (tavily/perplexity) + redes
+    url.searchParams.set(
+      'sources',
+      [
+        'reddit',
+        'twitter-ai-search',
+        'youtube',
+        'tiktok',
+        'instagram',
+        'hackernews',
+        'polymarket',
+        'github',
+        'threads',
+        'pinterest',
+        'perplexity',
+        'tavily',
+        'linkedin',
+        'rumble',
+      ].join(','),
+    );
+  }
 
   let envelope: Record<string, unknown>;
   try {

@@ -3,12 +3,14 @@ import { PutCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoKeys } from '@responselens/common';
 import { getDynamoDocClient, coreTableName } from '@responselens/infrastructure';
 import { searchSocialCrawlEverywhere } from './socialcrawl';
+import { searchSocialCrawlMock } from './socialcrawl-mock';
 
 type SocialCrawlJob = {
   jobId: string;
   query: string;
   lookbackDays?: number;
   sources?: string;
+  mock?: boolean;
 };
 
 type JobResultPayload = {
@@ -86,11 +88,16 @@ async function processJob(job: SocialCrawlJob): Promise<void> {
     throw new Error('invalid_socialcrawl_job');
   }
 
-  const result = await searchSocialCrawlEverywhere({
-    query,
-    lookbackDays: job.lookbackDays,
-    sources: job.sources,
-  });
+  const useMock = Boolean(job.mock);
+  console.info('socialcrawl_worker.job_start', { jobId, mock: useMock, query: query.slice(0, 80) });
+
+  const result = useMock
+    ? await searchSocialCrawlMock(query)
+    : await searchSocialCrawlEverywhere({
+        query,
+        lookbackDays: job.lookbackDays,
+        sources: job.sources,
+      });
 
   const payload: JobResultPayload = {
     jobId,
@@ -105,7 +112,6 @@ async function processJob(job: SocialCrawlJob): Promise<void> {
     planIntent: result.planIntent,
   };
 
-  // Persist first so SPA poll works even if subscription drops.
   await persistJobResult(payload);
   try {
     await publishResult(payload);
@@ -115,6 +121,13 @@ async function processJob(job: SocialCrawlJob): Promise<void> {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+
+  console.info('socialcrawl_worker.job_done', {
+    jobId,
+    mock: useMock,
+    ok: payload.ok,
+    rawCount: payload.rawCount,
+  });
 }
 
 export const handler: SQSHandler = async (event) => {

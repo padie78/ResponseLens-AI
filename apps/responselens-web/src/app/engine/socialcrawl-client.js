@@ -1,5 +1,5 @@
 /**
- * Cliente SocialCrawl vía AppSync async (SQS worker + subscription).
+ * Cliente SocialCrawl vía AppSync async (SQS worker + subscription + poll Dynamo).
  * La API key vive SOLO en Lambda (Terraform `socialcrawl_api_key`).
  * El SPA nunca almacena ni envía `sc_…`.
  */
@@ -8,11 +8,15 @@ import { generateClient } from 'aws-amplify/api';
 import { environment } from '../../environments/environment';
 import { loadScanCredentials } from './scan-credentials.js';
 import { normalizePlatformChannel } from './platforms.js';
+import { isSocialCrawlMock } from './socialcrawl-mock.js';
+import { socialCrawlEverywhereSourcesCsv } from './socialcrawl-sources.js';
 
 const JOB_WAIT_MS = 100_000;
+const POLL_MS = 2_000;
 
 /**
  * Preferencias locales (lookback/sources) — sin API key.
+ * Mock y real requieren AppSync (misma cola SQS / worker).
  */
 export function hasSocialCrawlServer() {
   return Boolean(environment.appsync?.endpoint && environment.appsync?.apiKey);
@@ -27,13 +31,13 @@ export function hasSocialCrawl(credentials) {
 /**
  * @param {object | null} _credentials Ignorado (compat). Key solo en servidor.
  * @param {string} brandOrRivalName
- * @param {{ lookbackDays?: number, sources?: string }} [opts]
+ * @param {{ lookbackDays?: number, sources?: string, mock?: boolean }} [opts]
  */
 export async function fetchSocialCrawlMentions(_credentials, brandOrRivalName, opts = {}) {
   if (!hasSocialCrawlServer()) {
     return {
       mentions: [],
-      error: 'SocialCrawl server off — falta AppSync (npm run sync:env) o SOCIALCRAWL_API_KEY en Terraform',
+      error: 'SocialCrawl server off — falta AppSync (npm run sync:env)',
       skipped: true,
     };
   }
@@ -49,12 +53,17 @@ export async function fetchSocialCrawlMentions(_credentials, brandOrRivalName, o
     opts.lookbackDays ??
     Number(prefs.socialcrawl?.lookbackDays) ??
     7;
-  const sources = opts.sources || prefs.socialcrawl?.sources || '';
+  const sources =
+    opts.sources != null && String(opts.sources).trim()
+      ? String(opts.sources).trim()
+      : socialCrawlEverywhereSourcesCsv();
+  const mock = opts.mock === true || isSocialCrawlMock();
 
   const result = await searchViaAppSyncJob({
     query: name,
     lookbackDays: lookback,
     sources,
+    mock,
   });
 
   if (!result.ok) {
@@ -83,6 +92,7 @@ export async function fetchSocialCrawlMentions(_credentials, brandOrRivalName, o
     partialFailure: false,
     planIntent: result.planIntent,
     clusterCount: 0,
+    mock,
   };
 }
 
@@ -112,8 +122,25 @@ const RESULT_SUBSCRIPTION = `
   }
 `;
 
+const GET_JOB_QUERY = `
+  query GetSocialCrawlJob($jobId: ID!) {
+    getSocialCrawlJob(jobId: $jobId) {
+      jobId
+      query
+      ok
+      error
+      mentionsJson
+      rawCount
+      creditsUsed
+      creditsRemaining
+      coverage
+      planIntent
+    }
+  }
+`;
+
 /**
- * @param {{ query: string, lookbackDays?: number, sources?: string }} input
+ * @param {{ query: string, lookbackDays?: number, sources?: string, mock?: boolean }} input
  */
 async function searchViaAppSyncJob(input) {
   const endpoint = environment.appsync.endpoint;
@@ -126,6 +153,7 @@ async function searchViaAppSyncJob(input) {
   const pending = subscribeJobResult(jobId, JOB_WAIT_MS);
   await new Promise((r) => setTimeout(r, 400));
 
+  let resolvedJobId = jobId;
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -141,6 +169,7 @@ async function searchViaAppSyncJob(input) {
             lookbackDays: input.lookbackDays ?? 3,
             sources: input.sources || null,
             jobId,
+            mock: Boolean(input.mock),
           },
         },
       }),
@@ -159,6 +188,7 @@ async function searchViaAppSyncJob(input) {
       pending.unsubscribe();
       return { ok: false, error: 'empty_appsync_response' };
     }
+    resolvedJobId = String(started.jobId);
   } catch (err) {
     pending.unsubscribe();
     return {
@@ -168,29 +198,15 @@ async function searchViaAppSyncJob(input) {
   }
 
   try {
-    const data = await pending.result;
-    if (!data.ok) return { ok: false, error: data.error || 'socialcrawl_failed' };
-
-    let mentions = data.mentionsJson;
-    if (typeof mentions === 'string') {
-      try {
-        mentions = JSON.parse(mentions);
-      } catch {
-        mentions = [];
-      }
-    }
-    if (!Array.isArray(mentions)) mentions = [];
-
-    return {
-      ok: true,
-      mentions,
-      rawCount: data.rawCount ?? mentions.length,
-      creditsUsed: data.creditsUsed,
-      creditsRemaining: data.creditsRemaining,
-      coverage: data.coverage,
-      planIntent: data.planIntent,
-    };
+    // Subscription can win early; poll is the reliable fallback (Dynamo).
+    const data = await Promise.race([
+      pending.result.catch(() => new Promise(() => {})),
+      pollJobResult(resolvedJobId, JOB_WAIT_MS),
+    ]);
+    pending.unsubscribe();
+    return normalizeJobPayload(data);
   } catch (err) {
+    pending.unsubscribe();
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
@@ -199,67 +215,115 @@ async function searchViaAppSyncJob(input) {
 }
 
 /**
+ * @param {unknown} data
+ */
+function normalizeJobPayload(data) {
+  if (!data || typeof data !== 'object') {
+    return { ok: false, error: 'empty_job_result' };
+  }
+  const row = /** @type {Record<string, unknown>} */ (data);
+  if (!row.ok) return { ok: false, error: String(row.error || 'socialcrawl_failed') };
+
+  let mentions = row.mentionsJson;
+  if (typeof mentions === 'string') {
+    try {
+      mentions = JSON.parse(mentions);
+    } catch {
+      mentions = [];
+    }
+  }
+  if (!Array.isArray(mentions)) mentions = [];
+
+  return {
+    ok: true,
+    mentions,
+    rawCount: row.rawCount ?? mentions.length,
+    creditsUsed: row.creditsUsed,
+    creditsRemaining: row.creditsRemaining,
+    coverage: row.coverage,
+    planIntent: row.planIntent,
+  };
+}
+
+/**
+ * Poll Dynamo via AppSync Query (fallback if WebSocket subscription misses the event).
  * @param {string} jobId
  * @param {number} timeoutMs
  */
-function subscribeJobResult(jobId, timeoutMs) {
+async function pollJobResult(jobId, timeoutMs) {
+  const endpoint = environment.appsync.endpoint;
+  const apiKey = environment.appsync.apiKey;
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          query: GET_JOB_QUERY,
+          variables: { jobId },
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      const data = json?.data?.getSocialCrawlJob;
+      if (data) return data;
+    } catch {
+      /* keep polling */
+    }
+  }
+  throw new Error(`socialcrawl_job_timeout (${timeoutMs}ms)`);
+}
+
+/**
+ * @param {string} jobId
+ * @param {number} timeoutMs
+ */
+function subscribeJobResult(jobId, _timeoutMs) {
   const client = generateClient();
   /** @type {{ unsubscribe: () => void } | null} */
   let sub = null;
   let settled = false;
-  /** @type {ReturnType<typeof setTimeout> | null} */
-  let timer = null;
 
-  const result = new Promise((resolve, reject) => {
-    timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        sub?.unsubscribe();
-      } catch {
-        /* ignore */
+  const result = new Promise((resolve) => {
+    try {
+      const observable = client.graphql({
+        query: RESULT_SUBSCRIPTION,
+        variables: { jobId },
+        authMode: 'apiKey',
+      });
+
+      if (!observable || typeof observable.subscribe !== 'function') {
+        return;
       }
-      reject(new Error(`socialcrawl_job_timeout (${timeoutMs}ms)`));
-    }, timeoutMs);
 
-    const observable = client.graphql({
-      query: RESULT_SUBSCRIPTION,
-      variables: { jobId },
-      authMode: 'apiKey',
-    });
-
-    if (!observable || typeof observable.subscribe !== 'function') {
-      if (timer) clearTimeout(timer);
-      settled = true;
-      reject(new Error('appsync_subscription_unavailable'));
-      return;
+      sub = observable.subscribe({
+        next: (msg) => {
+          const data = msg?.data?.onSocialCrawlResult;
+          if (!data || settled) return;
+          settled = true;
+          try {
+            sub?.unsubscribe();
+          } catch {
+            /* ignore */
+          }
+          resolve(data);
+        },
+        error: () => {
+          try {
+            sub?.unsubscribe();
+          } catch {
+            /* ignore */
+          }
+        },
+      });
+    } catch {
+      /* poll fallback handles delivery */
     }
-
-    sub = observable.subscribe({
-      next: (msg) => {
-        const data = msg?.data?.onSocialCrawlResult;
-        if (!data || settled) return;
-        settled = true;
-        if (timer) clearTimeout(timer);
-        try {
-          sub?.unsubscribe();
-        } catch {
-          /* ignore */
-        }
-        resolve(data);
-      },
-      error: (err) => {
-        if (settled) return;
-        settled = true;
-        if (timer) clearTimeout(timer);
-        try {
-          sub?.unsubscribe();
-        } catch {
-          /* ignore */
-        }
-        reject(err instanceof Error ? err : new Error(String(err)));
-      },
-    });
   });
 
   return {
@@ -267,7 +331,6 @@ function subscribeJobResult(jobId, timeoutMs) {
     unsubscribe() {
       if (settled) return;
       settled = true;
-      if (timer) clearTimeout(timer);
       try {
         sub?.unsubscribe();
       } catch {

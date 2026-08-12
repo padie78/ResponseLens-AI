@@ -141,8 +141,8 @@ import { hasSocialCrawlServer } from '../../engine/socialcrawl-client.js';
 
             <h3 class="rl-settings__subh">SocialCrawl (preferencias)</h3>
             <label class="rl-settings__label">
-              Fuentes (CSV, vacío = default servidor)
-              <input class="rl-settings__input" formControlName="socialcrawlSources" placeholder="reddit,youtube,hackernews,tiktok" />
+              Fuentes (CSV opcional — el escaneo usa todas: HN, news, reddit, YT, X, …)
+              <input class="rl-settings__input" formControlName="socialcrawlSources" placeholder="vacío = todas las de SocialCrawl" />
             </label>
             <label class="rl-settings__label">
               Lookback (días)
