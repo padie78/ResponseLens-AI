@@ -87,6 +87,8 @@ export interface CompetitorAlert {
   brandScope: BrandScope;
   sentiment: string;
   inboundSource: string;
+  /** Cloud enrichment blob (Dynamo / AppSync metaJson) */
+  metaJson?: Record<string, unknown> | null;
   /** Plugin-parity optional fields */
   _brandScope?: BrandScope;
   _sentiment?: SentimentLabel;
@@ -109,13 +111,76 @@ export function createAlertId(): string {
   return `al_${crypto.randomUUID().slice(0, 10)}`;
 }
 
+/** Fields persisted in Dynamo metaJson (not first-class GraphQL columns). */
+export function packAlertMeta(alert: Partial<CompetitorAlert>): Record<string, unknown> | null {
+  const meta: Record<string, unknown> = {};
+  if (alert._scMeta) meta['_scMeta'] = alert._scMeta;
+  if (alert._aiScore != null) meta['_aiScore'] = alert._aiScore;
+  if (alert._aiScoreBand) meta['_aiScoreBand'] = alert._aiScoreBand;
+  if (alert._aiScoreLabel) meta['_aiScoreLabel'] = alert._aiScoreLabel;
+  if (alert._aiScoreDrivers) meta['_aiScoreDrivers'] = alert._aiScoreDrivers;
+  if (alert._aiScoreKind) meta['_aiScoreKind'] = alert._aiScoreKind;
+  if (alert._mentionKind) meta['_mentionKind'] = alert._mentionKind;
+  if (alert._analysisSummary) meta['_analysisSummary'] = alert._analysisSummary;
+  if (alert._intel != null) meta['_intel'] = alert._intel;
+  if (alert._source) meta['_source'] = alert._source;
+  if (alert._actionable != null) meta['_actionable'] = alert._actionable;
+  if (alert.replyOptions) meta['replyOptions'] = alert.replyOptions;
+  if (alert.metaJson && typeof alert.metaJson === 'object') {
+    Object.assign(meta, alert.metaJson);
+  }
+  return Object.keys(meta).length ? meta : null;
+}
+
+export function unpackAlertMeta(
+  alert: CompetitorAlert,
+  metaJson?: unknown,
+): CompetitorAlert {
+  let meta: Record<string, unknown> | null = null;
+  const raw = metaJson ?? alert.metaJson;
+  if (typeof raw === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        meta = parsed as Record<string, unknown>;
+      }
+    } catch {
+      meta = null;
+    }
+  } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    meta = raw as Record<string, unknown>;
+  }
+
+  if (!meta) return { ...alert, metaJson: alert.metaJson ?? null };
+
+  return {
+    ...alert,
+    metaJson: meta,
+    _scMeta: (meta['_scMeta'] as SocialCrawlMeta | undefined) ?? alert._scMeta,
+    _aiScore: (meta['_aiScore'] as number | undefined) ?? alert._aiScore,
+    _aiScoreBand: (meta['_aiScoreBand'] as string | undefined) ?? alert._aiScoreBand,
+    _aiScoreLabel: (meta['_aiScoreLabel'] as string | undefined) ?? alert._aiScoreLabel,
+    _aiScoreDrivers:
+      (meta['_aiScoreDrivers'] as string[] | undefined) ?? alert._aiScoreDrivers,
+    _aiScoreKind: (meta['_aiScoreKind'] as string | undefined) ?? alert._aiScoreKind,
+    _mentionKind: (meta['_mentionKind'] as MentionKind | undefined) ?? alert._mentionKind,
+    _analysisSummary:
+      (meta['_analysisSummary'] as string | undefined) ?? alert._analysisSummary,
+    _intel: meta['_intel'] ?? alert._intel,
+    _source: (meta['_source'] as string | undefined) ?? alert._source,
+    _actionable: (meta['_actionable'] as boolean | undefined) ?? alert._actionable,
+    replyOptions: (meta['replyOptions'] as ReplyOption[] | undefined) ?? alert.replyOptions,
+    _brandScope: alert.brandScope,
+  };
+}
+
 export function mapOpportunityToAlert(opp: ScanOpportunity, userId: string): CompetitorAlert {
   const brandScope: BrandScope = opp._brandScope === 'own' ? 'own' : 'rival';
   const sentiment =
     opp._sentiment ||
     (brandScope === 'own' ? 'NEUTRAL' : 'negative');
 
-  return {
+  const base: CompetitorAlert = {
     alertId: opp.alertId || createAlertId(),
     userId: opp.userId || userId,
     competitorName: opp.competitorName,
@@ -147,4 +212,6 @@ export function mapOpportunityToAlert(opp: ScanOpportunity, userId: string): Com
     _aiScoreKind: opp._aiScoreKind,
     replyOptions: opp.replyOptions,
   };
+  base.metaJson = packAlertMeta(base);
+  return base;
 }

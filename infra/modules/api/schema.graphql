@@ -159,6 +159,8 @@ type CompetitorAlert {
   sentiment: String
   """Origen inbound: mention | brandwatch | meltwater | sprout | zapier | …"""
   inboundSource: String
+  """Enrichment SPA (_scMeta, scores IA, etc.) — no forma parte del pipeline CRM."""
+  metaJson: AWSJSON
 }
 
 input PublishCompetitorAlertInput {
@@ -177,6 +179,7 @@ input PublishCompetitorAlertInput {
   brandScope: String
   sentiment: String
   inboundSource: String
+  metaJson: AWSJSON
 }
 
 input UpsertCompetitorAlertInput {
@@ -195,6 +198,7 @@ input UpsertCompetitorAlertInput {
   brandScope: String
   sentiment: String
   inboundSource: String
+  metaJson: AWSJSON
 }
 
 input UpdateCompetitorAlertInput {
@@ -268,6 +272,9 @@ type Mutation {
 
   """Actualiza estado / notas del pipeline de captación en DynamoDB."""
   updateCompetitorAlert(input: UpdateCompetitorAlertInput!): CompetitorAlert! @aws_api_key @aws_cognito_user_pools
+
+  """Borra alertas de un scope: own (Propios) o rival (Competencia)."""
+  clearCompetitorAlerts(userId: ID!, brandScope: String!): Int! @aws_api_key @aws_cognito_user_pools
 
   """
   Legacy sync (tope AppSync 30s). Preferí startSocialCrawlSearch.

@@ -132,6 +132,44 @@ export const handler: ScheduledHandler = async () => {
   let published = 0;
 
   for (const cfg of configs) {
+    const companyName = String(cfg.company?.companyName || '').trim();
+    if (companyName && companyName.toLowerCase() !== 'tumarca') {
+      const ownAsCompetitor: CompetitorProfile = {
+        name: companyName,
+        aliases: [],
+        websiteUrl: null,
+        socialHandles: [],
+      };
+      const ownMentions = await fetchMentionsForCompetitor(ownAsCompetitor);
+      for (const mention of ownMentions) {
+        // Propios: umbral más bajo (reputación; no solo quejas fuertes).
+        const score = scoreFrustration(mention.text);
+        if (score < 0.28 && !FRUSTRATION_RE.test(mention.text)) continue;
+
+        const detectedAt = mention.detectedAt || new Date().toISOString();
+        const alert: CompetitorAlert = {
+          alertId: mention.id || randomUUID(),
+          userId: cfg.userId,
+          competitorName: companyName,
+          originalComplaint: mention.text,
+          sourceUrl: mention.sourceUrl,
+          channel: mention.channel || 'web',
+          severity: severityFromScore(Math.max(score, 0.4)),
+          frustrationScore: score,
+          salesPitch: '',
+          detectedAt,
+          brandScope: 'own',
+          inboundSource: 'cron',
+          metaJson: mention._scMeta
+            ? { _scMeta: mention._scMeta as Record<string, unknown>, _source: 'socialcrawl' }
+            : { _source: 'socialcrawl' },
+        };
+
+        await persistAndPublish.execute(alert);
+        published += 1;
+      }
+    }
+
     for (const competitor of cfg.competitors ?? []) {
       const mentions = await fetchMentionsForCompetitor(competitor);
       for (const mention of mentions) {
@@ -150,6 +188,11 @@ export const handler: ScheduledHandler = async () => {
           frustrationScore: score,
           salesPitch: craftPitch(cfg.company?.companyName, competitor.name, mention.text),
           detectedAt,
+          brandScope: 'rival',
+          inboundSource: 'cron',
+          metaJson: mention._scMeta
+            ? { _scMeta: mention._scMeta as Record<string, unknown>, _source: 'socialcrawl' }
+            : { _source: 'socialcrawl' },
         };
 
         await persistAndPublish.execute(alert);

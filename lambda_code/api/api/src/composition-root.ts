@@ -1,6 +1,7 @@
 import {
   AnalyzeReplyUseCase,
   AnalyzeRivalReportUseCase,
+  ClearCompetitorAlertsUseCase,
   GetUserConfigUseCase,
   ListCompetitorAlertsUseCase,
   SaveUserConfigUseCase,
@@ -26,3 +27,4 @@ export const saveUserConfig = new SaveUserConfigUseCase(userConfigs);
 export const listCompetitorAlerts = new ListCompetitorAlertsUseCase(alerts);
 export const upsertCompetitorAlert = new UpsertCompetitorAlertUseCase(alerts, publisher);
 export const updateCompetitorAlert = new UpdateCompetitorAlertUseCase(alerts);
+export const clearCompetitorAlerts = new ClearCompetitorAlertsUseCase(alerts);

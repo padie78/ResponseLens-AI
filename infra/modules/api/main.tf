@@ -175,6 +175,7 @@ locals {
     "Mutation.saveUserConfig"         = { type = "Mutation", field = "saveUserConfig" }
     "Mutation.upsertCompetitorAlert"  = { type = "Mutation", field = "upsertCompetitorAlert" }
     "Mutation.updateCompetitorAlert"  = { type = "Mutation", field = "updateCompetitorAlert" }
+    "Mutation.clearCompetitorAlerts"  = { type = "Mutation", field = "clearCompetitorAlerts" }
     "Mutation.searchSocialMentions"   = { type = "Mutation", field = "searchSocialMentions" }
     "Mutation.startSocialCrawlSearch" = { type = "Mutation", field = "startSocialCrawlSearch" }
   }

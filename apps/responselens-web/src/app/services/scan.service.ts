@@ -117,13 +117,28 @@ export class ScanService {
         } as never)) as ScanEngineResult;
       }
 
-      const alerts = (result.opportunities ?? []).map((opp) =>
-        mapOpportunityToAlert(opp, userId),
-      );
-      if (alerts.length) {
-        this.alertsStore.upsertMany(alerts);
+      const alerts = (result.opportunities ?? []).map((opp) => {
+        const mapped = mapOpportunityToAlert(opp, userId);
+        // Garantiza scope correcto hacia Dynamo (Propios vs Competencia).
+        if (kind === 'own') {
+          mapped.brandScope = 'own';
+          mapped._brandScope = 'own';
+        } else {
+          mapped.brandScope = 'rival';
+          mapped._brandScope = 'rival';
+        }
+        return mapped;
+      });
+      // Mock: reemplaza el scope en Dynamo; real: upsert (propios y rivales).
+      const scope = kind === 'own' ? 'own' : 'rival';
+      if (opts.mock) {
+        await this.alertsStore.clearScope(scope);
+        if (alerts.length) await this.alertsStore.upsertMany(alerts);
+      } else if (alerts.length) {
+        await this.alertsStore.upsertMany(alerts);
       }
 
+      const cloudErr = this.alertsStore.cloudError();
       const found = alerts.length;
       const sc = Number(result.stats?.['socialcrawl'] ?? 0);
       const withMeta = alerts.filter((a) => Boolean(a._scMeta)).length;
@@ -156,6 +171,7 @@ export class ScanService {
       const parts = [
         found > 0 ? `${found} mención(es)` : '0 menciones',
         scLine,
+        cloudErr ? `Dynamo ERROR: ${cloudErr}` : 'Dynamo OK',
       ];
       const detail = scErrs.slice(0, 3).join(' · ');
       this._lastStatus.set(detail ? `${parts.join(' · ')} — ${detail}` : parts.join(' · '));

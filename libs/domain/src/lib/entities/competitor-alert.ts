@@ -21,4 +21,6 @@ export interface CompetitorAlert {
   sentiment?: string | null;
   /** mention | brandwatch | meltwater | sprout | zapier | … */
   inboundSource?: string | null;
+  /** SPA enrichment (_scMeta, AI scores, …) persisted as Dynamo/AppSync AWSJSON */
+  metaJson?: Record<string, unknown> | null;
 }

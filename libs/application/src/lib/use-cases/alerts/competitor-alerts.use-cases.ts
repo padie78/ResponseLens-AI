@@ -50,6 +50,7 @@ export class UpsertCompetitorAlertUseCase {
       salesPitch: alert.salesPitch || '',
       sourceUrl: alert.sourceUrl || 'unknown://',
       severity: alert.severity || 'MEDIUM',
+      metaJson: alert.metaJson ?? null,
     });
     try {
       await this.publisher.publish(saved);
@@ -86,5 +87,20 @@ export class UpdateCompetitorAlertUseCase {
       if (err instanceof NotFoundError) throw err;
       throw err;
     }
+  }
+}
+
+export class ClearCompetitorAlertsUseCase {
+  constructor(private readonly repository: ICompetitorAlertRepository) {}
+
+  async execute(input: { userId: string; brandScope: string }): Promise<number> {
+    if (!input.userId?.trim()) {
+      throw new ValidationError('userId is required');
+    }
+    const scope = String(input.brandScope || '').trim().toLowerCase();
+    if (scope !== 'own' && scope !== 'rival') {
+      throw new ValidationError('brandScope must be own or rival');
+    }
+    return this.repository.clearByBrandScope(input.userId.trim(), scope);
   }
 }

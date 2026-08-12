@@ -1,7 +1,12 @@
 import { DynamoKeys } from '@responselens/common';
 import type { ICompetitorAlertRepository } from '@responselens/application';
 import { NotFoundError, type AlertWorkflowStatus, type CompetitorAlert } from '@responselens/domain';
-import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DeleteCommand,
+  PutCommand,
+  QueryCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { coreTableName, getDynamoDocClient } from '../aws/dynamodb-client.factory';
 
 type AlertItem = CompetitorAlert & {
@@ -12,24 +17,54 @@ type AlertItem = CompetitorAlert & {
   entityType: string;
 };
 
+function normalizeMetaJson(raw: unknown): Record<string, unknown> | null {
+  if (raw == null) return null;
+  if (typeof raw === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return null;
+}
+
 export class DynamoDbCompetitorAlertRepository implements ICompetitorAlertRepository {
   private readonly ddb = getDynamoDocClient();
 
-  async listByUserId(userId: string, limit = 25): Promise<CompetitorAlert[]> {
-    const safeLimit = Math.min(Math.max(limit, 1), 100);
-    const res = await this.ddb.send(
-      new QueryCommand({
-        TableName: coreTableName(),
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
-        ExpressionAttributeValues: {
-          ':pk': DynamoKeys.userPk(userId),
-          ':prefix': DynamoKeys.alertSkPrefix(),
-        },
-        ScanIndexForward: false,
-        Limit: safeLimit,
-      }),
-    );
-    return (res.Items ?? []).map((item) => this.toEntity(item as AlertItem));
+  async listByUserId(userId: string, limit = 100): Promise<CompetitorAlert[]> {
+    const safeLimit = Math.min(Math.max(limit, 1), 200);
+    const items: AlertItem[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+
+    while (items.length < safeLimit) {
+      const res = await this.ddb.send(
+        new QueryCommand({
+          TableName: coreTableName(),
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+          ExpressionAttributeValues: {
+            ':pk': DynamoKeys.userPk(userId),
+            ':prefix': DynamoKeys.alertSkPrefix(),
+          },
+          ScanIndexForward: false,
+          Limit: Math.min(100, safeLimit - items.length),
+          ExclusiveStartKey: exclusiveStartKey,
+        }),
+      );
+      for (const row of res.Items ?? []) {
+        items.push(row as AlertItem);
+      }
+      exclusiveStartKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+      if (!exclusiveStartKey) break;
+    }
+
+    return items.slice(0, safeLimit).map((item) => this.toEntity(item));
   }
 
   async findByAlertId(alertId: string, userId: string): Promise<CompetitorAlert | null> {
@@ -40,6 +75,10 @@ export class DynamoDbCompetitorAlertRepository implements ICompetitorAlertReposi
   async save(alert: CompetitorAlert): Promise<CompetitorAlert> {
     const existing = await this.findItem(alert.alertId, alert.userId);
     const skDetectedAt = existing?.detectedAt || alert.detectedAt || new Date().toISOString();
+    const metaJson =
+      alert.metaJson !== undefined
+        ? normalizeMetaJson(alert.metaJson)
+        : normalizeMetaJson(existing?.metaJson) ?? null;
     const merged: CompetitorAlert = {
       alertId: alert.alertId,
       userId: alert.userId,
@@ -56,6 +95,7 @@ export class DynamoDbCompetitorAlertRepository implements ICompetitorAlertReposi
       brandScope: alert.brandScope ?? existing?.brandScope ?? null,
       sentiment: alert.sentiment ?? existing?.sentiment ?? null,
       inboundSource: alert.inboundSource ?? existing?.inboundSource ?? null,
+      metaJson,
     };
     const item: AlertItem = {
       PK: DynamoKeys.userPk(merged.userId),
@@ -113,6 +153,45 @@ export class DynamoDbCompetitorAlertRepository implements ICompetitorAlertReposi
     return this.toEntity(res.Attributes as AlertItem);
   }
 
+  async clearByBrandScope(userId: string, brandScope: 'own' | 'rival'): Promise<number> {
+    const keys: { PK: string; SK: string }[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+
+    do {
+      const res = await this.ddb.send(
+        new QueryCommand({
+          TableName: coreTableName(),
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+          ExpressionAttributeValues: {
+            ':pk': DynamoKeys.userPk(userId),
+            ':prefix': DynamoKeys.alertSkPrefix(),
+          },
+          ProjectionExpression: 'PK, SK, brandScope',
+          ExclusiveStartKey: exclusiveStartKey,
+        }),
+      );
+      for (const row of res.Items ?? []) {
+        const scope = String((row as { brandScope?: string }).brandScope || 'rival');
+        const normalized = scope === 'own' ? 'own' : 'rival';
+        if (normalized === brandScope) {
+          keys.push({ PK: String(row.PK), SK: String(row.SK) });
+        }
+      }
+      exclusiveStartKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (exclusiveStartKey);
+
+    for (const key of keys) {
+      await this.ddb.send(
+        new DeleteCommand({
+          TableName: coreTableName(),
+          Key: key,
+        }),
+      );
+    }
+
+    return keys.length;
+  }
+
   private async findItem(alertId: string, userId: string): Promise<AlertItem | null> {
     const res = await this.ddb.send(
       new QueryCommand({
@@ -147,6 +226,7 @@ export class DynamoDbCompetitorAlertRepository implements ICompetitorAlertReposi
       brandScope: item.brandScope ?? null,
       sentiment: item.sentiment ?? null,
       inboundSource: item.inboundSource ?? null,
+      metaJson: normalizeMetaJson(item.metaJson),
     };
   }
 }

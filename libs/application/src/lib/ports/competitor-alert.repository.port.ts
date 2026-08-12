@@ -10,4 +10,6 @@ export interface ICompetitorAlertRepository {
     status?: AlertWorkflowStatus;
     notes?: string | null;
   }): Promise<CompetitorAlert>;
+  /** Deletes alerts for user matching brandScope (`own` | `rival`). Returns deleted count. */
+  clearByBrandScope(userId: string, brandScope: 'own' | 'rival'): Promise<number>;
 }

@@ -146,7 +146,7 @@ function buildItems(brand: string, now: number): RawItem[] {
       source: 'hackernews',
       title: `${brand} outage: status page green but checkout still failing`,
       text: `We've been down for 40 minutes. ${brand} status says all systems operational — that's not true for EU.`,
-      url: `https://news.ycombinator.com/item?id=mock${Math.floor(now / 1000)}`,
+      url: `https://news.ycombinator.com/item?id=mock_${brand}_1`,
       published_at: iso(45),
       final_score: 71.2,
       rerank_score: 88,
@@ -202,7 +202,8 @@ function buildItems(brand: string, now: number): RawItem[] {
       source: 'youtube',
       title: `${brand} review 2026 — great DX, terrible incident comms`,
       text: `Love the API. Hate how long ${brand} takes to acknowledge regional outages.`,
-      url: `https://www.youtube.com/watch?v=mock${brand.slice(0, 6)}`,
+      // Stable 11-char id (client YT dedupe)
+      url: 'https://www.youtube.com/watch?v=rlMockStrp1',
       published_at: iso(360),
       final_score: 58.1,
       rerank_score: 74,

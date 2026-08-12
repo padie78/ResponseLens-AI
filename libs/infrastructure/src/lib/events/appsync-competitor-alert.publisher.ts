@@ -20,6 +20,7 @@ const PUBLISH_MUTATION = `
       brandScope
       sentiment
       inboundSource
+      metaJson
     }
   }
 `;
@@ -53,6 +54,8 @@ export class AppSyncCompetitorAlertPublisher implements ICompetitorAlertPublishe
       brandScope: alert.brandScope ?? null,
       sentiment: alert.sentiment ?? null,
       inboundSource: alert.inboundSource ?? null,
+      // AppSync AWSJSON over HTTP variables expects a JSON string.
+      metaJson: alert.metaJson != null ? JSON.stringify(alert.metaJson) : null,
     };
 
     const res = await fetch(url, {

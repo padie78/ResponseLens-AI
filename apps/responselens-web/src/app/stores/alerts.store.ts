@@ -2,12 +2,20 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AuthService } from '../core/auth/auth.service';
 import { mergeAlertLists } from '../engine/mention-dedupe.js';
 import {
+  clearCompetitorAlertsCloud,
+  hasAlertsCloud,
+  listCompetitorAlertsCloud,
+  updateCompetitorAlertCloud,
+  upsertCompetitorAlertsCloud,
+} from '../engine/alerts-cloud.js';
+import {
   createAlertId,
   type BrandScope,
   type CompetitorAlert,
 } from '../models/alert.model';
 import { UserConfigStore } from './user-config.store';
 
+/** Cache local opcional (offline / bootstrap); fuente de verdad = Dynamo vía AppSync. */
 const storageKey = (userId: string) => `rl_web_alerts_${userId}`;
 
 @Injectable({ providedIn: 'root' })
@@ -17,9 +25,11 @@ export class AlertsStore {
 
   private readonly _items = signal<CompetitorAlert[]>([]);
   private readonly _loading = signal(false);
+  private readonly _cloudError = signal<string | null>(null);
 
   readonly loading = this._loading.asReadonly();
   readonly items = this._items.asReadonly();
+  readonly cloudError = this._cloudError.asReadonly();
 
   readonly ownAlerts = computed(() =>
     this._items().filter((a) => a.brandScope === 'own' && a.status !== 'DISMISSED'),
@@ -29,18 +39,28 @@ export class AlertsStore {
   );
 
   load(): void {
+    void this.loadAsync();
+  }
+
+  async loadAsync(): Promise<void> {
     const userId = this.auth.userId();
     if (!userId) {
       this._items.set([]);
       return;
     }
     this._loading.set(true);
+    this._cloudError.set(null);
     try {
-      const raw = localStorage.getItem(storageKey(userId));
-      const list = raw ? (JSON.parse(raw) as CompetitorAlert[]) : [];
-      this._items.set(Array.isArray(list) ? list : []);
-    } catch {
-      this._items.set([]);
+      if (hasAlertsCloud()) {
+        const remote = await listCompetitorAlertsCloud(userId, { limit: 100 });
+        this.persistLocal(userId, remote);
+        this._items.set(remote);
+        return;
+      }
+      this._items.set(this.readLocal(userId));
+    } catch (err) {
+      this._cloudError.set(err instanceof Error ? err.message : String(err));
+      this._items.set(this.readLocal(userId));
     } finally {
       this._loading.set(false);
     }
@@ -50,35 +70,85 @@ export class AlertsStore {
     this._items.set([]);
   }
 
-  private persist(list: CompetitorAlert[]): void {
+  private readLocal(userId: string): CompetitorAlert[] {
+    try {
+      const raw = localStorage.getItem(storageKey(userId));
+      const list = raw ? (JSON.parse(raw) as CompetitorAlert[]) : [];
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private persistLocal(userId: string, list: CompetitorAlert[]): void {
+    try {
+      localStorage.setItem(storageKey(userId), JSON.stringify(list));
+    } catch {
+      /* quota / private mode */
+    }
+  }
+
+  private setItems(list: CompetitorAlert[]): void {
     const userId = this.auth.userId();
-    if (!userId) return;
-    localStorage.setItem(storageKey(userId), JSON.stringify(list));
     this._items.set(list);
+    if (userId) this.persistLocal(userId, list);
   }
 
   upsert(alert: CompetitorAlert): void {
-    this.upsertMany([alert]);
+    void this.upsertMany([alert]);
   }
 
-  upsertMany(alerts: CompetitorAlert[]): void {
+  async upsertMany(alerts: CompetitorAlert[]): Promise<void> {
     if (!alerts.length) return;
-    const { merged } = mergeAlertLists(this._items(), alerts, {
-      limit: Math.max(200, this._items().length + alerts.length),
+    const userId = this.auth.userId();
+    if (!userId) return;
+
+    const withUser = alerts.map((a) => ({ ...a, userId: a.userId || userId }));
+
+    if (hasAlertsCloud()) {
+      try {
+        await upsertCompetitorAlertsCloud(withUser);
+        const remote = await listCompetitorAlertsCloud(userId, { limit: 100 });
+        this.setItems(remote);
+        this._cloudError.set(null);
+        return;
+      } catch (err) {
+        this._cloudError.set(err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    const { merged } = mergeAlertLists(this._items(), withUser, {
+      limit: Math.max(200, this._items().length + withUser.length),
     });
-    this.persist(merged as CompetitorAlert[]);
+    this.setItems(merged as CompetitorAlert[]);
   }
 
-  updateStatus(alertId: string, status: CompetitorAlert['status']): void {
+  async updateStatus(alertId: string, status: CompetitorAlert['status']): Promise<void> {
+    const userId = this.auth.userId();
     const next = this._items().map((a) => (a.alertId === alertId ? { ...a, status } : a));
-    this.persist(next);
+    this.setItems(next);
+
+    if (userId && hasAlertsCloud()) {
+      try {
+        await updateCompetitorAlertCloud({ userId, alertId, status });
+        this._cloudError.set(null);
+      } catch (err) {
+        this._cloudError.set(err instanceof Error ? err.message : String(err));
+      }
+    }
   }
 
   updateAlert(alertId: string, patch: Partial<CompetitorAlert>): void {
     const next = this._items().map((a) =>
       a.alertId === alertId ? { ...a, ...patch } : a,
     );
-    this.persist(next);
+    this.setItems(next);
+    const updated = next.find((a) => a.alertId === alertId);
+    if (updated && hasAlertsCloud()) {
+      void upsertCompetitorAlertsCloud([updated]).catch((err: unknown) => {
+        this._cloudError.set(err instanceof Error ? err.message : String(err));
+      });
+    }
   }
 
   getById(alertId: string): CompetitorAlert | undefined {
@@ -171,10 +241,22 @@ export class AlertsStore {
       },
     ];
 
-    this.upsertMany(samples);
+    void this.upsertMany(samples);
   }
 
-  clearScope(scope: BrandScope): void {
-    this.persist(this._items().filter((a) => a.brandScope !== scope));
+  async clearScope(scope: BrandScope): Promise<void> {
+    const userId = this.auth.userId();
+    if (userId && hasAlertsCloud()) {
+      try {
+        await clearCompetitorAlertsCloud(userId, scope);
+        const remote = await listCompetitorAlertsCloud(userId, { limit: 100 });
+        this.setItems(remote);
+        this._cloudError.set(null);
+        return;
+      } catch (err) {
+        this._cloudError.set(err instanceof Error ? err.message : String(err));
+      }
+    }
+    this.setItems(this._items().filter((a) => a.brandScope !== scope));
   }
 }

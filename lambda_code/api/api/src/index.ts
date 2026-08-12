@@ -7,6 +7,7 @@ import { coreTableName, getDynamoDocClient } from '@responselens/infrastructure'
 import {
   analyzeReply,
   analyzeRivalReport,
+  clearCompetitorAlerts,
   getUserConfig,
   listCompetitorAlerts,
   saveUserConfig,
@@ -57,6 +58,12 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
       return updateCompetitorAlert.execute(
         args.input as Parameters<typeof updateCompetitorAlert.execute>[0],
       );
+
+    case 'clearCompetitorAlerts':
+      return clearCompetitorAlerts.execute({
+        userId: String(args.userId),
+        brandScope: String(args.brandScope),
+      });
 
     case 'getSocialCrawlJob': {
       const jobId = String(args.jobId || '').trim();
