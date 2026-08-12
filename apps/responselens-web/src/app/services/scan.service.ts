@@ -107,11 +107,24 @@ export class ScanService {
       const news = Number(result.stats?.['news'] ?? 0);
       const withMeta = alerts.filter((a) => Boolean(a._scMeta)).length;
       const scCreds = hasSocialCrawlServer();
-      const scLine = scCreds
-        ? sc > 0
-          ? `SC ${sc}${withMeta ? ` · meta ${withMeta}` : ''}`
-          : 'SC 0 (proxy OK pero sin menciones nuevas)'
-        : 'SC OFF (falta AppSync/Terraform — key solo en servidor)';
+      const errs = (result.errors ?? []).filter(Boolean);
+      const scErrs = errs.filter((e) => /socialcrawl/i.test(e));
+      const otherErrs = errs.filter((e) => !/socialcrawl/i.test(e));
+      const scKeyMissing = scErrs.some((e) =>
+        /SOCIALCRAWL_API_KEY missing|key solo en servidor|socialcrawl_proxy_failed/i.test(e),
+      );
+      const scTimeout = scErrs.some((e) => /timed out|socialcrawl_timeout|Task timed out/i.test(e));
+      const scLine = !scCreds
+        ? 'SC OFF (falta AppSync — npm run sync:env)'
+        : scKeyMissing
+          ? 'SC ERROR (key falta en Lambda — patch-socialcrawl-env.sh o Deploy Infrastructure)'
+          : scTimeout
+            ? 'SC TIMEOUT (AppSync 30s — lookback 3d en Config)'
+            : sc > 0
+            ? `SC ${sc}${withMeta ? ` · meta ${withMeta}` : ''}`
+            : scErrs.length
+              ? 'SC 0 (proxy respondió con error)'
+              : 'SC 0 (sin menciones nuevas en lookback)';
       const parts = [
         found > 0 ? `${found} mención(es)` : '0 menciones',
         scLine,
@@ -119,9 +132,6 @@ export class ScanService {
         news ? `News ${news}` : null,
       ].filter(Boolean);
 
-      const errs = (result.errors ?? []).filter(Boolean);
-      const scErrs = errs.filter((e) => /socialcrawl/i.test(e));
-      const otherErrs = errs.filter((e) => !/socialcrawl/i.test(e));
       const prioritized = [...scErrs, ...otherErrs].slice(0, 4).join(' · ');
       this._lastStatus.set(prioritized ? `${parts.join(' · ')} — ${prioritized}` : parts.join(' · '));
     } catch (err) {

@@ -60,7 +60,7 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
       const result = await searchSocialCrawlEverywhere({
         query: String(input.query || ''),
         lookbackDays:
-          input.lookbackDays ?? (Number(process.env.SOCIALCRAWL_LOOKBACK_DAYS) || 7),
+          input.lookbackDays ?? (Number(process.env.SOCIALCRAWL_LOOKBACK_DAYS) || 3),
         sources: input.sources || process.env.SOCIALCRAWL_SOURCES || '',
       });
       return {

@@ -24,8 +24,8 @@ resource "aws_lambda_function" "appsync_api" {
   handler          = "index.handler"
   filename         = data.archive_file.bootstrap.output_path
   source_code_hash = data.archive_file.bootstrap.output_base64sha256
-  timeout          = 29
-  memory_size      = 512
+  timeout          = 30
+  memory_size      = 1024
   architectures    = ["arm64"]
 
   environment {
@@ -41,6 +41,7 @@ resource "aws_lambda_function" "appsync_api" {
       SOCIALCRAWL_API_KEY       = var.socialcrawl_api_key
       SOCIALCRAWL_LOOKBACK_DAYS = tostring(var.socialcrawl_lookback_days)
       SOCIALCRAWL_SOURCES       = var.socialcrawl_sources
+      SOCIALCRAWL_FETCH_TIMEOUT_MS = "25000"
     }
   }
 }

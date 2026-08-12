@@ -206,7 +206,11 @@ export async function searchSocialCrawlEverywhere(opts: {
     };
   }
 
-  const lookback = Math.min(Math.max(Number(opts.lookbackDays) || 7, 1), 90);
+  const lookback = Math.min(Math.max(Number(opts.lookbackDays) || 3, 1), 30);
+  const fetchTimeoutMs = Math.min(
+    Math.max(Number(process.env.SOCIALCRAWL_FETCH_TIMEOUT_MS) || 25_000, 5_000),
+    28_000,
+  );
   const url = new URL('https://www.socialcrawl.dev/v1/search/everywhere');
   url.searchParams.set('query', query);
   url.searchParams.set('lookback_days', String(lookback));
@@ -216,6 +220,7 @@ export async function searchSocialCrawlEverywhere(opts: {
   try {
     const res = await fetch(url.toString(), {
       headers: { 'x-api-key': apiKey, Accept: 'application/json' },
+      signal: AbortSignal.timeout(fetchTimeoutMs),
     });
     envelope = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) {
@@ -238,9 +243,13 @@ export async function searchSocialCrawlEverywhere(opts: {
       };
     }
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const timedOut = /abort|timeout|timed out/i.test(msg);
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: timedOut
+        ? `socialcrawl_timeout (${fetchTimeoutMs}ms) — probá lookback más corto (3d) o menos fuentes en Config`
+        : msg,
       mentions: [],
       rawCount: 0,
       creditsUsed: null,
