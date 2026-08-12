@@ -132,3 +132,15 @@ jobs:
       - name: Terraform apply
         if: steps.auth.outputs.mode != 'skip' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
         run: bash scripts/terraform-apply.sh
+
+      - name: Patch SOCIALCRAWL_API_KEY on Lambdas
+        if: steps.auth.outputs.mode != 'skip' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+        env:
+          SOCIALCRAWL_API_KEY: ${{ secrets.SOCIALCRAWL_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SOCIALCRAWL_API_KEY}" ]; then
+            echo "::warning::SOCIALCRAWL_API_KEY vacío — SocialCrawl no funcionará."
+            exit 0
+          fi
+          bash scripts/patch-socialcrawl-env.sh
