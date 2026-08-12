@@ -36,6 +36,13 @@ infra/**/.artifacts/
 .env.local
 .env.*.local
 
+# Terraform plan artifacts
+infra/tfplan
+**/tfplan
+
+# Dev environment generado por sync:env (contiene AppSync API key)
+apps/responselens-web/src/environments/environment.ts
+
 # IDE / OS
 .idea/
 .vscode/

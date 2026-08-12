@@ -3,14 +3,16 @@
 #   1) .env.local (scripts / tooling)
 #   2) apps/responselens-web/src/environments/environment.ts (SPA Angular)
 #
-# Orden de resolución (primero que funcione):
-#   A) terraform output (auto-init si TF_STATE_BUCKET está definido)
+# Orden de resolución:
+#   A) terraform output -json (auto-init con bucket del bootstrap si hace falta)
 #   B) variables de entorno APPSYNC_* / COGNITO_*
 #   C) archivo .env.local existente
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_WEB="$ROOT/apps/responselens-web/src/environments/environment.ts"
 DOTENV="$ROOT/.env.local"
+INFRA="$ROOT/infra"
+BOOTSTRAP="$ROOT/infra/bootstrap"
 
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-central-1}}"
 GQL=""
@@ -26,6 +28,60 @@ read_dotenv_var() {
   grep -E "^${name}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- || true
 }
 
+resolve_tf_state_bucket() {
+  if [[ -n "${TF_STATE_BUCKET:-}" ]]; then
+    echo "$TF_STATE_BUCKET"
+    return 0
+  fi
+  if [[ -f "$BOOTSTRAP/terraform.tfstate" ]] && command -v jq >/dev/null; then
+    local from_bootstrap
+    from_bootstrap="$(jq -r '.outputs.state_bucket.value // empty' "$BOOTSTRAP/terraform.tfstate" 2>/dev/null || true)"
+    if [[ -n "$from_bootstrap" ]]; then
+      echo "$from_bootstrap"
+      return 0
+    fi
+  fi
+  if command -v aws >/dev/null && command -v jq >/dev/null; then
+    local account_id bucket
+    account_id="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
+    if [[ -n "$account_id" ]]; then
+      bucket="responselens-tfstate-${account_id}"
+      if aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
+        echo "$bucket"
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
+ensure_terraform_init() {
+  command -v terraform >/dev/null || return 1
+  cd "$INFRA"
+
+  if terraform output -json >/dev/null 2>&1; then
+    local keys
+    keys="$(terraform output -json 2>/dev/null | jq -r 'keys | length' 2>/dev/null || echo 0)"
+    if [[ "$keys" != "0" ]]; then
+      return 0
+    fi
+  fi
+
+  local bucket
+  bucket="$(resolve_tf_state_bucket || true)"
+  if [[ -z "$bucket" ]]; then
+    return 1
+  fi
+
+  echo "Inicializando Terraform backend (bucket=${bucket})…" >&2
+  terraform init -input=false -no-color \
+    -backend-config="bucket=${bucket}" \
+    -backend-config="key=${TF_STATE_KEY:-dev/terraform.tfstate}" \
+    -backend-config="region=${REGION}" \
+    -backend-config="dynamodb_table=${TF_STATE_LOCKS_TABLE:-responselens-tf-locks}" \
+    -backend-config="encrypt=true" >/dev/null
+}
+
 load_from_env_or_dotenv() {
   GQL="${APPSYNC_GRAPHQL_URL:-$(read_dotenv_var "$DOTENV" APPSYNC_GRAPHQL_URL)}"
   RT="${APPSYNC_REALTIME_URL:-$(read_dotenv_var "$DOTENV" APPSYNC_REALTIME_URL)}"
@@ -38,59 +94,56 @@ load_from_env_or_dotenv() {
 }
 
 try_terraform_outputs() {
-  command -v terraform >/dev/null || return 1
+  command -v jq >/dev/null || return 1
+  ensure_terraform_init || return 1
 
-  cd "$ROOT/infra"
-
-  if ! terraform output graphql_endpoint >/dev/null 2>&1; then
-    if [[ -z "${TF_STATE_BUCKET:-}" ]]; then
-      return 1
-    fi
-    echo "Inicializando Terraform backend (bucket=${TF_STATE_BUCKET})…" >&2
-    terraform init -input=false -no-color \
-      -backend-config="bucket=${TF_STATE_BUCKET}" \
-      -backend-config="key=${TF_STATE_KEY:-dev/terraform.tfstate}" \
-      -backend-config="region=${REGION}" \
-      -backend-config="dynamodb_table=${TF_STATE_LOCKS_TABLE:-responselens-tf-locks}" \
-      -backend-config="encrypt=true" >/dev/null
+  cd "$INFRA"
+  local outputs
+  outputs="$(terraform output -json 2>/dev/null || true)"
+  if [[ -z "$outputs" || "$outputs" == "{}" ]]; then
+    return 1
   fi
 
-  GQL="$(terraform output -raw graphql_endpoint 2>/dev/null || true)"
-  RT="$(terraform output -raw realtime_endpoint 2>/dev/null || true)"
-  KEY="$(terraform output -raw appsync_api_key 2>/dev/null || true)"
-  COG_POOL="$(terraform output -raw cognito_user_pool_id 2>/dev/null || true)"
-  COG_CLIENT="$(terraform output -raw cognito_client_id 2>/dev/null || true)"
-  COG_DOMAIN="$(terraform output -raw cognito_domain 2>/dev/null || true)"
-  local tf_region
-  tf_region="$(terraform output -raw aws_region 2>/dev/null || true)"
-  [[ -n "$tf_region" ]] && REGION="$tf_region"
+  GQL="$(echo "$outputs" | jq -r '.appsync_endpoint.value // .graphql_endpoint.value // empty')"
+  RT="$(echo "$outputs" | jq -r '.appsync_realtime_endpoint.value // .realtime_endpoint.value // empty')"
+  KEY="$(echo "$outputs" | jq -r '.appsync_api_key.value // empty')"
+  COG_POOL="$(echo "$outputs" | jq -r '.cognito_user_pool_id.value // empty')"
+  COG_CLIENT="$(echo "$outputs" | jq -r '.cognito_client_id.value // empty')"
+  COG_DOMAIN="$(echo "$outputs" | jq -r '.cognito_domain.value // empty')"
+  REGION="$(echo "$outputs" | jq -r '.aws_region.value // empty')" 
+  [[ -z "$REGION" || "$REGION" == "null" ]] && REGION="${AWS_REGION:-eu-central-1}"
+
+  # Fallback: client id desde AWS si el output aún no está en state
+  if [[ -z "$COG_CLIENT" && -n "$COG_POOL" ]] && command -v aws >/dev/null; then
+    COG_CLIENT="$(aws cognito-idp list-user-pool-clients \
+      --user-pool-id "$COG_POOL" \
+      --max-results 1 \
+      --region "$REGION" \
+      --query 'UserPoolClients[0].ClientId' \
+      --output text 2>/dev/null || true)"
+    [[ "$COG_CLIENT" == "None" || "$COG_CLIENT" == "null" ]] && COG_CLIENT=""
+  fi
 
   [[ -n "$GQL" && -n "$KEY" ]]
 }
 
 write_outputs() {
   if [[ -z "$GQL" || -z "$KEY" ]]; then
-    cat >&2 <<'EOF'
+    cat >&2 <<EOF
 No se pudo resolver AppSync para el SPA local.
 
-SocialCrawl NO se invoca si environment.ts tiene endpoint/apiKey vacíos.
+Causa habitual: infra aún no aplicada (terraform output vacío).
 
-Opción 1 — Terraform (recomendado):
-  export TF_STATE_BUCKET=<bucket de GitHub Variables>
-  export TF_STATE_KEY=dev/terraform.tfstate   # opcional
-  npm run sync:env
+Pasos:
+  1. cd infra && terraform apply     (o GitHub → Deploy Infrastructure)
+  2. npm run sync:env                (detecta bucket del bootstrap automáticamente)
+  3. npm run start:web               (reiniciar dev server)
 
-Opción 2 — .env.local manual (copiá desde AWS Console → AppSync → Settings / API Keys):
-  APPSYNC_GRAPHQL_URL=https://….appsync-api.….amazonaws.com/graphql
-  APPSYNC_API_KEY=da2-…
-  COGNITO_USER_POOL_ID=…
-  COGNITO_CLIENT_ID=…
-  npm run sync:env
+Si ya aplicaste infra, verificá:
+  cd infra/bootstrap && terraform output -raw state_bucket
+  aws appsync list-graphql-apis --region ${REGION}
 
-Después: reiniciá `npm run start:web`.
-
-También necesitás Deploy Lambdas en GitHub (workflow deploy-lambdas) para que
-searchSocialMentions exista en la Lambda — infra solo pone la SOCIALCRAWL_API_KEY.
+Deploy Lambdas (GitHub) sube el handler searchSocialMentions — infra solo pone secrets.
 EOF
     exit 1
   fi
@@ -130,6 +183,9 @@ EOF
   echo "Escrito $ENV_WEB"
   echo "AppSync: $GQL"
   echo "Cognito Pool: $COG_POOL"
+  if [[ -z "$COG_CLIENT" ]]; then
+    echo "WARN: Cognito client id vacío — corré 'terraform apply' en infra/ si falta login." >&2
+  fi
   echo "Reiniciá el dev server (npm run start:web) para que SocialCrawl use el proxy."
 }
 

@@ -47,11 +47,8 @@ patch_appsync_env() {
     return 0
   fi
 
-  (
-    cd "$ROOT/infra"
-    gql="$(terraform output -raw appsync_endpoint 2>/dev/null || terraform output -raw graphql_endpoint 2>/dev/null || true)"
-    api_key="$(terraform output -raw appsync_api_key 2>/dev/null || true)"
-  )
+  gql="$(cd "$ROOT/infra" && terraform output -raw appsync_endpoint 2>/dev/null || terraform output -raw graphql_endpoint 2>/dev/null || true)"
+  api_key="$(cd "$ROOT/infra" && terraform output -raw appsync_api_key 2>/dev/null || true)"
 
   if [[ -z "$gql" || -z "$api_key" ]]; then
     echo "WARN: sin outputs AppSync — omitiendo patch en ${fn}" >&2
