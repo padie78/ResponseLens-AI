@@ -25,6 +25,8 @@ type JobResultPayload = {
   creditsRemaining: number | null;
   coverage: number | null;
   planIntent: string | null;
+  /** true when job used socialcrawl-mock (no SC API credits) */
+  mock: boolean;
 };
 
 const PUBLISH_MUTATION = `
@@ -59,6 +61,8 @@ async function publishResult(input: JobResultPayload): Promise<void> {
     throw new Error('APPSYNC_GRAPHQL_URL/API_KEY missing on socialcrawl_worker');
   }
 
+  const { mock: _mock, ...publishInput } = input;
+
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -67,7 +71,7 @@ async function publishResult(input: JobResultPayload): Promise<void> {
     },
     body: JSON.stringify({
       query: PUBLISH_MUTATION,
-      variables: { input },
+      variables: { input: publishInput },
     }),
   });
 
@@ -112,6 +116,7 @@ async function processJob(job: SocialCrawlJob): Promise<void> {
     creditsRemaining: result.creditsRemaining,
     coverage: result.coverage,
     planIntent: result.planIntent,
+    mock: useMock,
   };
 
   await persistJobResult(payload);
