@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
+import { ButtonModule } from 'primeng/button';
 import { ScanService } from '../../services/scan.service';
 import { AlertsStore } from '../../stores/alerts.store';
 import { HistoryStore } from '../../stores/history.store';
@@ -27,6 +28,7 @@ import {
   imports: [
     IonContent,
     RouterLink,
+    ButtonModule,
     AlertCardComponent,
     FeedFiltersComponent,
     ScanBlockerComponent,
@@ -42,16 +44,28 @@ import {
             <p class="rl-page__lead">Quejas de rivales y oportunidades de captación.</p>
           </div>
           <div class="rl-page__toolbar-actions">
-            <button
-              type="button"
-              class="rl-auth-gate__submit rl-page__btn-inline"
+            <p-button
+              label="Escanear rivales"
+              icon="pi pi-search"
+              size="small"
               [disabled]="scan.scanning() || config.competitors().length === 0"
-              (click)="runScan()"
-            >
-              Escanear rivales
-            </button>
-            <button type="button" class="rl-settings__ghost" (click)="refresh()">Refrescar</button>
-            <button type="button" class="rl-settings__ghost" (click)="seed()">Ejemplos</button>
+              (onClick)="runScan()"
+            />
+            <p-button
+              label="Refrescar"
+              icon="pi pi-refresh"
+              severity="secondary"
+              [outlined]="true"
+              size="small"
+              (onClick)="refresh()"
+            />
+            <p-button
+              label="Ejemplos"
+              severity="secondary"
+              [text]="true"
+              size="small"
+              (onClick)="seed()"
+            />
           </div>
         </div>
 
@@ -93,6 +107,7 @@ import {
               <rl-alert-card
                 [alert]="item"
                 [showCapture]="true"
+                [companyName]="config.companyName()"
                 [selected]="selectedId() === item.alertId"
                 (select)="selectedId.set($event)"
                 (dismiss)="onDismiss($event)"

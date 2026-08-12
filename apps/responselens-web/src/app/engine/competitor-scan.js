@@ -14,15 +14,63 @@
 
 import { buildOpportunity, scoreFrustration } from './competitor-opportunity.js';
 import { mentionDedupeKeys, extractYouTubeVideoId } from './mention-dedupe.js';
-import { hasNewsApi, hasRedditOAuth, hasSocialCrawl, hasYouTubeApi } from './scan-credentials.js';
-import { analyzeBrandMention, sentimentToStorage } from './mention-intelligence.js';
-import { fetchSocialCrawlMentions } from './socialcrawl-client.js';
+import { hasNewsApi, hasRedditOAuth, hasYouTubeApi } from './scan-credentials.js';
+import { analyzeBrandMention, sentimentToStorage, computeMentionScore } from './mention-intelligence.js';
+import { fetchSocialCrawlMentions, hasSocialCrawlServer as hasSocialCrawl } from './socialcrawl-client.js';
 
 const NEGATIVE_HINT =
   /\b(scam|outage|broken|terrible|horrible|awful|refund|downtime|fail(ure|ed|ing)?|bug|crash|estafa|falla|ca[ií]da|basura|caro|slow|unreliable|worst|hate|sucks|lawsuit|demanda|crisis|polémica|polemica|investigat|multa|breach|filtración|filtracion|complaint|queja|estaf|fraude|boycott)\b/i;
 
 const POSITIVE_HINT =
   /\b(love|great|amazing|awesome|excellent|fantastic|recommend|best|impressed|gracias|excelente|incre[ií]ble|recomiendo|genial|perfecto|útil|util|helpful|game[- ]?changer|won|éxito|exito|launch|partnership|award|premio|crecimiento)\b/i;
+
+/**
+ * Adjunta meta SocialCrawl y recalcula score IA con engagement/ranking.
+ * @param {object} opp
+ * @param {object} scMeta
+ */
+function applyScMetaToOpp(opp, scMeta) {
+  if (!opp || !scMeta) return;
+  opp._scMeta = scMeta;
+  const brandScope = opp._brandScope === 'own' ? 'own' : 'rival';
+  const mentionKind =
+    opp._mentionKind === 'media' || opp._actionable === false ? 'media' : 'comment';
+  const pack = computeMentionScore({
+    text: opp.originalComplaint,
+    brandScope,
+    mentionKind,
+    sentimiento: opp._intel?.sentimiento,
+    frustrationScore: opp.frustrationScore,
+    scMeta,
+  });
+  opp._aiScore = pack.score;
+  opp._aiScoreBand = pack.band;
+  opp._aiScoreLabel = pack.label;
+  opp._aiScoreDrivers = pack.drivers;
+  opp._aiScoreKind = brandScope === 'rival' ? 'opportunity' : 'risk';
+  if (opp._intel && typeof opp._intel === 'object') {
+    opp._intel.score_ia = pack.score;
+    opp._intel.score_banda = pack.band;
+    opp._intel.score_etiqueta = pack.label;
+    opp._intel.score_drivers = pack.drivers;
+  }
+}
+
+/** @param {object | null | undefined} next @param {object | null | undefined} prev */
+function scMetaRicher(next, prev) {
+  if (!next) return false;
+  if (!prev) return true;
+  const nEng = (next.engagement?.points || 0) + (next.engagement?.numComments || 0);
+  const pEng = (prev.engagement?.points || 0) + (prev.engagement?.numComments || 0);
+  const nC = Array.isArray(next.topComments) ? next.topComments.length : 0;
+  const pC = Array.isArray(prev.topComments) ? prev.topComments.length : 0;
+  return (
+    nEng > pEng ||
+    nC > pC ||
+    (next.finalScore || 0) > (prev.finalScore || 0) ||
+    (next.rerankScore || 0) > (prev.rerankScore || 0)
+  );
+}
 
 function stripHtml(html) {
   return String(html || '')
@@ -110,27 +158,11 @@ export function scanQueryNames(competitor) {
 }
 
 /**
- * Fetch JSON vía service worker (evita CORS del Side Panel).
- * En Node/tests cae a fetch directo.
+ * Fetch JSON (SPA: siempre fetch directo; sin chrome.runtime).
  * @param {string} url
  * @returns {Promise<{ ok: boolean, status?: number, json?: unknown, contentType?: string, error?: string }>}
  */
 async function extensionFetchJson(url, headers = {}) {
-  if (typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage) {
-    try {
-      const res = await chrome.runtime.sendMessage({
-        type: 'RL_FETCH_JSON',
-        url,
-        headers,
-      });
-      return res && typeof res === 'object'
-        ? res
-        : { ok: false, error: 'empty_sw_response' };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
-
   try {
     const res = await fetch(url, {
       headers: { Accept: 'application/json', ...headers },
@@ -151,7 +183,7 @@ async function extensionFetchJson(url, headers = {}) {
       error: res.ok ? undefined : `HTTP ${res.status}`,
     };
   } catch (err) {
-    // CORS fallback (SPA no tiene service worker del plugin)
+    // CORS fallback
     try {
       const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
       const res = await fetch(proxied);
@@ -164,18 +196,8 @@ async function extensionFetchJson(url, headers = {}) {
   }
 }
 
-/** Fetch texto/XML vía service worker (Google News RSS, etc.). */
+/** Fetch texto/XML (RSS, etc.). */
 async function extensionFetchText(url) {
-  if (typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage) {
-    try {
-      const res = await chrome.runtime.sendMessage({ type: 'RL_FETCH_TEXT', url });
-      return res && typeof res === 'object'
-        ? res
-        : { ok: false, error: 'empty_sw_response' };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
   try {
     const res = await fetch(url, {
       headers: { Accept: 'application/rss+xml, application/xml, text/xml, */*' },
@@ -770,7 +792,18 @@ export async function runCompetitorScan({
     },
     perCompetitor: {},
   };
-  const seen = new Set();
+  const seen = new Map();
+
+  const findSeen = (keys) => {
+    for (const k of keys) {
+      if (seen.has(k)) return seen.get(k);
+    }
+    return null;
+  };
+
+  const registerSeen = (keys, opp) => {
+    for (const k of keys) seen.set(k, opp);
+  };
 
   const pushOpp = (partial, flags = {}) => {
     const keys = mentionDedupeKeys({
@@ -779,11 +812,20 @@ export async function runCompetitorScan({
       competitorName: partial.competitorName,
       _brandScope: partial.brandScope === 'own' ? 'own' : 'rival',
     });
-    if (!keys.length || keys.some((k) => seen.has(k))) {
+    const existing = findSeen(keys);
+    if (existing) {
+      if (partial._scMeta && scMetaRicher(partial._scMeta, existing._scMeta)) {
+        applyScMetaToOpp(existing, partial._scMeta);
+        if (flags.socialcrawl) existing._source = existing._source || 'socialcrawl';
+        return 'enriched';
+      }
       stats.skippedDupes += 1;
       return false;
     }
-    for (const k of keys) seen.add(k);
+    if (!keys.length) {
+      stats.skippedDupes += 1;
+      return false;
+    }
     const opp = buildOpportunity({
       ...partial,
       company,
@@ -793,6 +835,7 @@ export async function runCompetitorScan({
       alertId: partial.alertId || null,
       detectedAt: partial.detectedAt || null,
     });
+    if (partial._scMeta) opp._scMeta = partial._scMeta;
     if (flags.page) {
       opp._source = 'page';
     } else if (flags.socialcrawl) {
@@ -817,6 +860,8 @@ export async function runCompetitorScan({
         brandScope: 'rival',
         competitorName: partial.competitorName,
         companyName: company?.companyName,
+        frustrationScore: opp.frustrationScore,
+        scMeta: partial._scMeta || null,
         systemContext: { alertId: opp.alertId, provider: opp._source },
       });
       opp._intel = intel.analisis_comentario_recibido;
@@ -828,13 +873,26 @@ export async function runCompetitorScan({
           .filter(Boolean)
           .join(' · ');
       }
+      if (typeof intel._rl?.aiScore === 'number') {
+        opp._aiScore = intel._rl.aiScore;
+        opp._aiScoreBand = intel._rl.aiScoreBand;
+        opp._aiScoreLabel = intel._rl.aiScoreLabel;
+        opp._aiScoreDrivers = intel._rl.aiScoreDrivers;
+        opp._aiScoreKind = 'opportunity';
+      }
     }
-    // Floor: descartar ruido casi nulo salvo página (usuario captó a mano)
-    if (!flags.page && (opp.frustrationScore || 0) < 0.28 && !looksNegative(partial.complaint)) {
+    // Floor: descartar ruido casi nulo salvo página / SocialCrawl (señal externa)
+    if (
+      !flags.page &&
+      !flags.socialcrawl &&
+      (opp.frustrationScore || 0) < 0.28 &&
+      !looksNegative(partial.complaint)
+    ) {
       stats.skippedDupes += 1;
       return false;
     }
     opportunities.push(opp);
+    registerSeen(keys, opp);
     return true;
   };
 
@@ -981,12 +1039,16 @@ export async function runCompetitorScan({
   if (hasSocialCrawl(credentials) && list.length) {
     stats.socialcrawl = 0;
     for (const competitor of list.slice(0, 5)) {
-      const name = competitor.name || competitor;
+      const name = String(competitor.name || competitor || '').trim();
+      if (!name) continue;
       const sc = await fetchSocialCrawlMentions(credentials, name, {
-        lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 1,
+        lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 7,
         sources: credentials.socialcrawl?.sources || '',
       });
       if (sc.error) errors.push(`SocialCrawl/${name}: ${sc.error}`);
+      else if (!sc.mentions?.length) {
+        errors.push(`SocialCrawl/${name}: 0 resultados (raw=${sc.rawCount ?? 0})`);
+      }
       for (const m of sc.mentions || []) {
         if (
           pushOpp(
@@ -997,11 +1059,24 @@ export async function runCompetitorScan({
               sourceUrl: m.sourceUrl,
               channel: m.channel,
               detectedAt: m.detectedAt,
+              _scMeta: m._scMeta || null,
             },
             { socialcrawl: true },
           )
         ) {
           stats.socialcrawl += 1;
+        }
+      }
+      if (!sc.error && sc.mentions?.length) {
+        const cov =
+          typeof sc.coverage === 'number' ? ` cobertura ${Math.round(sc.coverage * 100)}%` : '';
+        const failed = sc.sourcesFailed ? Object.keys(sc.sourcesFailed).length : 0;
+        if (failed || cov) {
+          errors.push(
+            `SocialCrawl/${name}:${cov}${failed ? ` · ${failed} fuentes fallidas` : ''}${
+              sc.planIntent ? ` · intent=${sc.planIntent}` : ''
+            }`,
+          );
         }
       }
     }
@@ -1084,7 +1159,18 @@ export async function runOwnBrandScan({
 
   const useRedditOauth = hasRedditOAuth(credentials);
   const useNewsApi = hasNewsApi(credentials);
-  const seen = new Set();
+  const seen = new Map();
+
+  const findSeen = (keys) => {
+    for (const k of keys) {
+      if (seen.has(k)) return seen.get(k);
+    }
+    return null;
+  };
+
+  const registerSeen = (keys, opp) => {
+    for (const k of keys) seen.set(k, opp);
+  };
 
   const pushOwn = (partial, flags) => {
     const keys = mentionDedupeKeys({
@@ -1093,11 +1179,27 @@ export async function runOwnBrandScan({
       competitorName: ownName,
       _brandScope: 'own',
     });
-    if (!keys.length || keys.some((k) => seen.has(k))) {
+    const existing = findSeen(keys);
+    if (existing) {
+      if (partial._scMeta && scMetaRicher(partial._scMeta, existing._scMeta)) {
+        applyScMetaToOpp(existing, partial._scMeta);
+        if (flags.socialcrawl) {
+          existing._source = 'socialcrawl';
+          if (!/SocialCrawl/i.test(String(existing.notes || ''))) {
+            existing.notes = [existing.notes, 'SocialCrawl (multi-plataforma)']
+              .filter(Boolean)
+              .join(' · ');
+          }
+        }
+        return 'enriched';
+      }
       stats.skippedDupes += 1;
       return false;
     }
-    for (const k of keys) seen.add(k);
+    if (!keys.length) {
+      stats.skippedDupes += 1;
+      return false;
+    }
     const sentiment =
       partial.sentiment || classifySentiment(partial.complaint || '');
     const opp = buildOpportunity({
@@ -1110,6 +1212,7 @@ export async function runOwnBrandScan({
       alertId: partial.alertId || null,
       detectedAt: partial.detectedAt || null,
     });
+    if (partial._scMeta) opp._scMeta = partial._scMeta;
     opp._brandScope = 'own';
     opp._sentiment = sentiment;
     const mentionKindEarly = resolveOwnMentionKind({
@@ -1125,6 +1228,8 @@ export async function runOwnBrandScan({
       brandScope: 'own',
       companyName: ownName,
       mentionKind: mentionKindEarly,
+      frustrationScore: opp.frustrationScore,
+      scMeta: partial._scMeta || null,
       systemContext: {
         alertId: opp.alertId,
         provider: flags.socialcrawl ? 'socialcrawl' : flags.page ? 'page' : 'scan',
@@ -1137,6 +1242,13 @@ export async function runOwnBrandScan({
       '';
     if (intel.analisis_comentario_recibido?.respuesta_sugerida_publica) {
       opp.salesPitch = intel.analisis_comentario_recibido.respuesta_sugerida_publica;
+    }
+    if (typeof intel._rl?.aiScore === 'number') {
+      opp._aiScore = intel._rl.aiScore;
+      opp._aiScoreBand = intel._rl.aiScoreBand;
+      opp._aiScoreLabel = intel._rl.aiScoreLabel;
+      opp._aiScoreDrivers = intel._rl.aiScoreDrivers;
+      opp._aiScoreKind = 'risk';
     }
     const mappedSent = sentimentToStorage(intel.analisis_comentario_recibido?.sentimiento);
     if (mappedSent) opp._sentiment = mappedSent;
@@ -1199,6 +1311,7 @@ export async function runOwnBrandScan({
       return false;
     }
     opportunities.push(opp);
+    registerSeen(keys, opp);
     return true;
   };
 
@@ -1220,6 +1333,51 @@ export async function runOwnBrandScan({
         stats.page += 1;
       }
     }
+  }
+
+  // SocialCrawl primero: deja _scMeta en el registro canónico; HN/News posteriores dedupean.
+  if (hasSocialCrawl(credentials)) {
+    const sc = await fetchSocialCrawlMentions(credentials, ownName, {
+      lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 7,
+      sources: credentials.socialcrawl?.sources || '',
+    });
+    if (sc.error) errors.push(`SocialCrawl: ${sc.error}`);
+    else if (!sc.mentions?.length) {
+      errors.push(
+        `SocialCrawl: 0 resultados para "${ownName}" (raw=${sc.rawCount ?? 0}, lookback=${Number(credentials.socialcrawl?.lookbackDays) || 7}d)`,
+      );
+    }
+    for (const m of sc.mentions || []) {
+      const ok = pushOwn(
+        {
+          alertId: m.id || null,
+          complaint: m.text,
+          sourceUrl: m.sourceUrl,
+          channel: m.channel,
+          detectedAt: m.detectedAt,
+          _scMeta: m._scMeta || null,
+        },
+        { socialcrawl: true },
+      );
+      if (ok) stats.socialcrawl += 1;
+    }
+    if (!sc.error && sc.mentions?.length) {
+      const withMeta = (sc.mentions || []).filter((m) => m._scMeta).length;
+      const cov =
+        typeof sc.coverage === 'number' ? ` cobertura ${Math.round(sc.coverage * 100)}%` : '';
+      const failed = sc.sourcesFailed ? Object.keys(sc.sourcesFailed).length : 0;
+      const credits =
+        sc.creditsRemaining != null ? ` · créditos restantes ${sc.creditsRemaining}` : '';
+      errors.push(
+        `SocialCrawl OK: ${withMeta}/${sc.mentions.length} con meta${cov}${
+          failed ? ` · ${failed} fuentes fallidas` : ''
+        }${sc.planIntent ? ` · intent=${sc.planIntent}` : ''}${credits}`,
+      );
+    }
+  }     else {
+    errors.push(
+      'SocialCrawl off — key solo en servidor (Terraform socialcrawl_api_key + AppSync sync:env).',
+    );
   }
 
   for (const qName of queryNames) {
@@ -1328,30 +1486,6 @@ export async function runOwnBrandScan({
         ) {
           stats.youtube += 1;
         }
-      }
-    }
-  }
-
-  if (hasSocialCrawl(credentials)) {
-    const sc = await fetchSocialCrawlMentions(credentials, `"${ownName}"`, {
-      lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 1,
-      sources: credentials.socialcrawl?.sources || '',
-    });
-    if (sc.error) errors.push(`SocialCrawl: ${sc.error}`);
-    for (const m of sc.mentions || []) {
-      if (
-        pushOwn(
-          {
-            alertId: m.id || null,
-            complaint: m.text,
-            sourceUrl: m.sourceUrl,
-            channel: m.channel,
-            detectedAt: m.detectedAt,
-          },
-          { socialcrawl: true },
-        )
-      ) {
-        stats.socialcrawl += 1;
       }
     }
   }

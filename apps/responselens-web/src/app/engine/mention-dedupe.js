@@ -132,6 +132,23 @@ export function collapseDuplicateAlerts(alerts) {
 }
 
 /**
+ * @param {object | null | undefined} a
+ * @param {object | null | undefined} b
+ */
+function scMetaPrefer(a, b) {
+  if (a && b) {
+    const aEng = (a.engagement?.points || 0) + (a.engagement?.numComments || 0);
+    const bEng = (b.engagement?.points || 0) + (b.engagement?.numComments || 0);
+    const aC = Array.isArray(a.topComments) ? a.topComments.length : 0;
+    const bC = Array.isArray(b.topComments) ? b.topComments.length : 0;
+    if (aEng !== bEng) return aEng > bEng ? a : b;
+    if (aC !== bC) return aC > bC ? a : b;
+    return a;
+  }
+  return a || b || undefined;
+}
+
+/**
  * Fusiona alertas nuevas con las guardadas sin duplicar por alertId ni por URL/texto/YT.
  * Conserva status/workflow de la alerta existente si ya fue trabajada.
  *
@@ -229,6 +246,26 @@ export function mergeAlertLists(existing, incoming, opts = {}) {
         detectedAt: prev.detectedAt || opp.detectedAt,
         _firstSeenAt: prev._firstSeenAt || prev.detectedAt || opp.detectedAt,
         _lastSeenAt: opp.detectedAt || new Date().toISOString(),
+        // No pisar meta SC más rica con un upsert sin meta
+        _scMeta: scMetaPrefer(opp._scMeta, prev._scMeta),
+        _aiScoreDrivers: opp._scMeta
+          ? opp._aiScoreDrivers || prev._aiScoreDrivers
+          : prev._aiScoreDrivers || opp._aiScoreDrivers,
+        _aiScore: opp._scMeta
+          ? opp._aiScore ?? prev._aiScore
+          : prev._scMeta
+            ? prev._aiScore ?? opp._aiScore
+            : opp._aiScore ?? prev._aiScore,
+        _aiScoreBand: opp._scMeta
+          ? opp._aiScoreBand || prev._aiScoreBand
+          : prev._scMeta
+            ? prev._aiScoreBand || opp._aiScoreBand
+            : opp._aiScoreBand || prev._aiScoreBand,
+        _aiScoreLabel: opp._scMeta
+          ? opp._aiScoreLabel || prev._aiScoreLabel
+          : prev._scMeta
+            ? prev._aiScoreLabel || opp._aiScoreLabel
+            : opp._aiScoreLabel || prev._aiScoreLabel,
       };
       byId.set(targetId, next);
       for (const k of mentionDedupeKeys(next)) byKey.set(k, targetId);

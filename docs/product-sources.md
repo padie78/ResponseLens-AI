@@ -7,7 +7,7 @@ ResponseLens prioriza **APIs legales / RSS públicos** + **asistencia en página
 | Capa | Fuentes | Auth | Uso |
 |---|---|---|---|
 | A — Siempre on | Hacker News (Algolia), Google News RSS | Ninguna | Extensión + Lambda |
-| B — Profesional | Reddit OAuth (app-only), NewsAPI, YouTube Data API, **SocialCrawl** | Keys en Config (local) / Terraform | Preferidas si están habilitadas |
+| B — Profesional | Reddit OAuth (app-only), NewsAPI, YouTube Data API, **SocialCrawl** | SocialCrawl key en **Terraform/Lambda**; Reddit/News/YT pueden ser locales | Preferidas si están habilitadas |
 | C — Página | FB, IG, TikTok, Threads, LinkedIn, Glassdoor, G2… | Sesión del usuario | Content script al abrir la URL |
 
 Sin keys de capa B, el producto sigue vivo con A + C.
@@ -15,11 +15,12 @@ Sin keys de capa B, el producto sigue vivo con A + C.
 ## SocialCrawl (seguro)
 
 - Endpoint: `GET https://www.socialcrawl.dev/v1/search/everywhere`
-- Auth: header `x-api-key` **solo en el cliente HTTP** (`lib/socialcrawl-client.js` vía service worker).
-- **Nunca** inyectar la API key en prompts LLM ni en el JSON que ve el modelo.
-- Análisis de tono/sentimiento: `lib/mention-intelligence.js` (código puro).
-- Config → Fuentes profesionales → SocialCrawl (key en storage local del SPA).
-- Si una key se filtró en chat/logs: **rotarla** en el dashboard de SocialCrawl.
+- Auth: header `x-api-key` **solo en Lambda** (`SOCIALCRAWL_API_KEY` ← Terraform `socialcrawl_api_key`).
+- El SPA **nunca** guarda ni envía la key: usa `Mutation.searchSocialMentions` (AppSync → Lambda).
+- Preferencias locales (lookback / sources CSV) sí pueden vivir en Empresa.
+- Cron: `competitor_scan` usa la misma env var.
+- **Nunca** inyectar la API key en prompts LLM.
+- Si una key se filtró: **rotarla** en el dashboard de SocialCrawl.
 
 ## Reddit OAuth (recomendado)
 

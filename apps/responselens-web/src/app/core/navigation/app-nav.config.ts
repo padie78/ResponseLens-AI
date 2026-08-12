@@ -1,4 +1,12 @@
-export type AppNavIcon = 'own' | 'competitors' | 'stats' | 'ranking' | 'history' | 'settings';
+export type AppNavIcon =
+  | 'own'
+  | 'competitors'
+  | 'stats'
+  | 'ranking'
+  | 'history'
+  | 'settings';
+
+export type AppNavSectionId = 'ops' | 'intel' | 'system';
 
 export interface AppSubnavItem {
   id: string;
@@ -11,63 +19,97 @@ export interface AppSubnavItem {
   badge?: string;
 }
 
-/** Módulos del producto ResponseLens. */
-export const APP_SUBNAV_ITEMS: AppSubnavItem[] = [
+export interface AppNavSection {
+  id: AppNavSectionId;
+  label: string;
+  items: AppSubnavItem[];
+}
+
+/**
+ * IA de navegación alineada a listening tools (Brand24 / Sprout):
+ * - Operación: feed y acciones del día
+ * - Inteligencia: visión comparativa y ranking
+ * - Sistema: perfil de empresa e integraciones
+ *
+ * La salud de marca vive DENTRO de Propios (no como botón suelto de stats).
+ */
+export const APP_NAV_SECTIONS: AppNavSection[] = [
   {
-    id: 'own',
-    label: 'Propios',
-    title: 'Propios',
-    description: 'Menciones y crisis de tu marca',
-    route: '/app/own',
-    icon: 'own',
+    id: 'ops',
+    label: 'Operación',
+    items: [
+      {
+        id: 'own',
+        label: 'Propios',
+        title: 'Propios',
+        description: 'Salud de marca + menciones y crisis',
+        route: '/app/own',
+        icon: 'own',
+      },
+      {
+        id: 'competitors',
+        label: 'Competencia',
+        title: 'Competencia',
+        description: 'Quejas de rivales y captación',
+        route: '/app/competitors',
+        icon: 'competitors',
+      },
+      {
+        id: 'history',
+        label: 'Historial',
+        title: 'Historial',
+        description: 'Respuestas y captaciones',
+        route: '/app/history',
+        icon: 'history',
+      },
+    ],
   },
   {
-    id: 'competitors',
-    label: 'Competencia',
-    title: 'Competencia',
-    description: 'Quejas de rivales y captación',
-    route: '/app/competitors',
-    icon: 'competitors',
+    id: 'intel',
+    label: 'Inteligencia',
+    items: [
+      {
+        id: 'stats',
+        label: 'Insights',
+        title: 'Insights',
+        description: 'Comparativa Propios vs Competencia',
+        route: '/app/stats',
+        icon: 'stats',
+      },
+      {
+        id: 'ranking',
+        label: 'Ranking',
+        title: 'Ranking',
+        description: 'Score de vida digital de rivales',
+        route: '/app/ranking',
+        icon: 'ranking',
+      },
+    ],
   },
   {
-    id: 'stats',
-    label: 'Stats',
-    title: 'Stats',
-    description: 'KPIs y embudo',
-    route: '/app/stats',
-    icon: 'stats',
-  },
-  {
-    id: 'ranking',
-    label: 'Ranking',
-    title: 'Ranking',
-    description: 'Score de vida digital',
-    route: '/app/ranking',
-    icon: 'ranking',
-  },
-  {
-    id: 'history',
-    label: 'Historial',
-    title: 'Historial',
-    description: 'Respuestas y captaciones',
-    route: '/app/history',
-    icon: 'history',
-  },
-  {
-    id: 'settings',
-    label: 'Config',
-    title: 'Configuración',
-    description: 'Empresa, rivales e integraciones',
-    route: '/app/settings',
-    icon: 'settings',
+    id: 'system',
+    label: 'Sistema',
+    items: [
+      {
+        id: 'settings',
+        label: 'Empresa',
+        title: 'Empresa y config',
+        description: 'Perfil, rivales e integraciones',
+        route: '/app/settings',
+        icon: 'settings',
+      },
+    ],
   },
 ];
+
+/** Flat list (compat). */
+export const APP_SUBNAV_ITEMS: AppSubnavItem[] = APP_NAV_SECTIONS.flatMap((s) => s.items);
 
 export const APP_ROUTE_TITLES: Record<string, string> = {
   own: 'Propios',
   competitors: 'Competencia',
-  stats: 'Stats',
+  stats: 'Insights',
   ranking: 'Ranking',
   history: 'Historial',
-  settings: 'Configuración',
+  settings: 'Empresa',
 };

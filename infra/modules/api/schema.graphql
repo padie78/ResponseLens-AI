@@ -265,6 +265,33 @@ type Mutation {
 
   """Actualiza estado / notas del pipeline de captación en DynamoDB."""
   updateCompetitorAlert(input: UpdateCompetitorAlertInput!): CompetitorAlert! @aws_api_key @aws_cognito_user_pools
+
+  """
+  Proxy server-side a SocialCrawl. La API key vive solo en Lambda (Terraform).
+  El SPA NO debe enviar ni almacenar la key.
+  """
+  searchSocialMentions(input: SearchSocialMentionsInput!): SearchSocialMentionsResult!
+    @aws_api_key
+    @aws_cognito_user_pools
+}
+
+input SearchSocialMentionsInput {
+  query: String!
+  lookbackDays: Int
+  """CSV opcional; vacío = default del servidor."""
+  sources: String
+}
+
+type SearchSocialMentionsResult {
+  ok: Boolean!
+  error: String
+  """JSON array de menciones enriquecidas (id, text, sourceUrl, channel, detectedAt, _scMeta)."""
+  mentionsJson: AWSJSON!
+  rawCount: Int!
+  creditsUsed: Int
+  creditsRemaining: Int
+  coverage: Float
+  planIntent: String
 }
 
 type Subscription {

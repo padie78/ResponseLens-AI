@@ -4,3 +4,9 @@ aws_region   = "eu-central-1"
 openai_api_key = ""
 openai_model   = "gpt-4o-mini"
 llm_provider   = "openai"
+
+# SocialCrawl — solo servidor (Lambda). Nunca en el SPA.
+# En CI: GitHub Actions secret SOCIALCRAWL_API_KEY → TF_VAR_socialcrawl_api_key
+socialcrawl_api_key = ""
+# socialcrawl_lookback_days = 7
+# socialcrawl_sources       = ""  # CSV opcional; vacío = todas

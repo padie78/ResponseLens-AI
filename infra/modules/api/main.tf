@@ -162,6 +162,7 @@ locals {
     "Mutation.saveUserConfig"        = { type = "Mutation", field = "saveUserConfig" }
     "Mutation.upsertCompetitorAlert" = { type = "Mutation", field = "upsertCompetitorAlert" }
     "Mutation.updateCompetitorAlert" = { type = "Mutation", field = "updateCompetitorAlert" }
+    "Mutation.searchSocialMentions"  = { type = "Mutation", field = "searchSocialMentions" }
   }
 }
 

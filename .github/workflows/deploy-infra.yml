@@ -28,6 +28,10 @@ env:
   TF_VAR_aws_region: ${{ vars.AWS_REGION || 'eu-central-1' }}
   TF_VAR_appsync_graphql_api_name: ${{ vars.APPSYNC_GRAPHQL_API_NAME || 'responselens-api' }}
   TF_VAR_openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+  TF_VAR_socialcrawl_api_key: ${{ secrets.SOCIALCRAWL_API_KEY }}
+  TF_VAR_newsapi_api_key: ${{ secrets.NEWSAPI_API_KEY }}
+  TF_VAR_reddit_client_id: ${{ secrets.REDDIT_CLIENT_ID }}
+  TF_VAR_reddit_client_secret: ${{ secrets.REDDIT_CLIENT_SECRET }}
 
 jobs:
   terraform:

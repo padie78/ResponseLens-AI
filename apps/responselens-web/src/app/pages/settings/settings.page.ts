@@ -17,6 +17,7 @@ import {
 import type { CompetitorProfile } from '../../models/user-config.model';
 import { UserConfigStore } from '../../stores/user-config.store';
 import { loadScanCredentials, saveScanCredentials } from '../../engine/scan-credentials.js';
+import { hasSocialCrawlServer } from '../../engine/socialcrawl-client.js';
 
 @Component({
   standalone: true,
@@ -124,9 +125,29 @@ import { loadScanCredentials, saveScanCredentials } from '../../engine/scan-cred
             }
           </details>
 
-          <details class="rl-page__panel rl-disclosure">
-            <summary class="rl-disclosure__summary">APIs y credenciales</summary>
-            <p class="rl-settings__empty">Se guardan solo en este navegador (localStorage).</p>
+          <details class="rl-page__panel rl-disclosure" open>
+            <summary class="rl-disclosure__summary">
+              APIs y credenciales
+              @if (scServerReady()) {
+                <span class="rl-badge rl-badge--sent-pos">SocialCrawl server</span>
+              } @else {
+                <span class="rl-badge rl-badge--sent-neu">SC vía Terraform</span>
+              }
+            </summary>
+            <p class="rl-settings__empty">
+              La API key de SocialCrawl <strong>no se configura aquí</strong>: vive en el servidor
+              (<code>socialcrawl_api_key</code> en Terraform → Lambda). El SPA solo llama AppSync.
+            </p>
+
+            <h3 class="rl-settings__subh">SocialCrawl (preferencias)</h3>
+            <label class="rl-settings__label">
+              Fuentes (CSV, vacío = default servidor)
+              <input class="rl-settings__input" formControlName="socialcrawlSources" placeholder="reddit,youtube,hackernews,tiktok" />
+            </label>
+            <label class="rl-settings__label">
+              Lookback (días)
+              <input class="rl-settings__input" type="number" min="1" max="90" formControlName="socialcrawlLookback" />
+            </label>
 
             <h3 class="rl-settings__subh">Reddit OAuth</h3>
             <label class="rl-settings__toggle">
@@ -161,20 +182,6 @@ import { loadScanCredentials, saveScanCredentials } from '../../engine/scan-cred
               API Key
               <input class="rl-settings__input" formControlName="youtubeKey" type="password" autocomplete="off" />
             </label>
-
-            <h3 class="rl-settings__subh">SocialCrawl</h3>
-            <label class="rl-settings__toggle">
-              <input type="checkbox" formControlName="socialcrawlEnabled" />
-              <span>Activar SocialCrawl</span>
-            </label>
-            <label class="rl-settings__label">
-              API Key
-              <input class="rl-settings__input" formControlName="socialcrawlKey" type="password" autocomplete="off" />
-            </label>
-            <label class="rl-settings__label">
-              Fuentes (CSV)
-              <input class="rl-settings__input" formControlName="socialcrawlSources" placeholder="reddit,youtube,tiktok" />
-            </label>
           </details>
 
           @if (store.error(); as err) {
@@ -184,7 +191,7 @@ import { loadScanCredentials, saveScanCredentials } from '../../engine/scan-cred
             <p class="rl-auth-gate__notice">{{ savedNotice() }}</p>
           }
 
-          <button class="rl-auth-gate__submit" type="submit" [disabled]="form.invalid || store.saving()">
+          <button class="rl-auth-gate__submit" type="submit" [disabled]="store.saving()">
             {{ store.saving() ? 'Guardando…' : 'Guardar todo' }}
           </button>
         </form>
@@ -199,6 +206,7 @@ export class SettingsPageComponent implements OnInit {
   readonly scanSources = SCAN_SOURCES;
   readonly sourcePrefs = signal<ScanSourcesPrefs>(defaultScanSourcesPrefs());
   readonly savedNotice = signal('');
+  readonly scServerReady = signal(false);
 
   readonly form = this.fb.nonNullable.group({
     companyName: ['', Validators.required],
@@ -215,9 +223,8 @@ export class SettingsPageComponent implements OnInit {
     newsapiKey: [''],
     youtubeEnabled: [false],
     youtubeKey: [''],
-    socialcrawlEnabled: [false],
-    socialcrawlKey: [''],
     socialcrawlSources: [''],
+    socialcrawlLookback: [7],
   });
 
   get competitors(): FormArray {
@@ -258,10 +265,21 @@ export class SettingsPageComponent implements OnInit {
       newsapiKey: creds.newsapi.apiKey,
       youtubeEnabled: creds.youtube.enabled,
       youtubeKey: creds.youtube.apiKey,
-      socialcrawlEnabled: creds.socialcrawl.enabled,
-      socialcrawlKey: creds.socialcrawl.apiKey,
       socialcrawlSources: creds.socialcrawl.sources,
+      socialcrawlLookback: creds.socialcrawl.lookbackDays || 7,
     });
+    this.scServerReady.set(hasSocialCrawlServer());
+    // Limpiar key legacy si quedó en localStorage
+    if (creds.socialcrawl?.apiKey) {
+      await saveScanCredentials({
+        ...creds,
+        socialcrawl: {
+          ...creds.socialcrawl,
+          apiKey: '',
+          enabled: true,
+        },
+      });
+    }
   }
 
   competitorGroup(c?: Partial<CompetitorProfile> & { aliasesText?: string }) {
@@ -296,7 +314,23 @@ export class SettingsPageComponent implements OnInit {
   }
 
   async saveAll(): Promise<void> {
-    if (this.form.invalid) return;
+    // Quitar rivales vacíos que bloquean el form
+    for (let i = this.competitors.length - 1; i >= 0; i -= 1) {
+      const name = String(this.competitors.at(i).get('name')?.value || '').trim();
+      if (!name) this.competitors.removeAt(i);
+    }
+
+    if (this.form.controls.companyName.invalid) {
+      this.savedNotice.set('Completá el nombre de empresa antes de Guardar todo.');
+      setTimeout(() => this.savedNotice.set(''), 5000);
+      return;
+    }
+    if (this.form.invalid) {
+      this.form.markAllAsTouched();
+      this.savedNotice.set('Hay campos inválidos (revisá rivales).');
+      setTimeout(() => this.savedNotice.set(''), 6000);
+      return;
+    }
     const v = this.form.getRawValue();
 
     const keyLinks = v.websiteUrl.trim()
@@ -332,15 +366,20 @@ export class SettingsPageComponent implements OnInit {
       newsapi: { enabled: v.newsapiEnabled, apiKey: v.newsapiKey },
       youtube: { enabled: v.youtubeEnabled, apiKey: v.youtubeKey },
       socialcrawl: {
-        enabled: v.socialcrawlEnabled,
-        apiKey: v.socialcrawlKey,
+        enabled: true,
+        apiKey: '', // never store SC key in the browser
         sources: v.socialcrawlSources,
-        lookbackDays: 1,
+        lookbackDays: Number(v.socialcrawlLookback) || 7,
       },
     });
 
     saveScanSourcesPrefs(this.sourcePrefs());
-    this.savedNotice.set('Configuración guardada.');
-    setTimeout(() => this.savedNotice.set(''), 4000);
+    this.scServerReady.set(hasSocialCrawlServer());
+    this.savedNotice.set(
+      hasSocialCrawlServer()
+        ? 'Guardado. SocialCrawl usa la key del servidor (AppSync OK).'
+        : 'Guardado. SocialCrawl requiere Terraform socialcrawl_api_key + sync:env.',
+    );
+    setTimeout(() => this.savedNotice.set(''), 6000);
   }
 }

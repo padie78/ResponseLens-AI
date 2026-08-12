@@ -24,6 +24,9 @@ Anota outputs `state_bucket` y `locks_table`.
 |---|---|---|
 | Secret | `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::123:role/responselens-github-deploy` |
 | Secret | `OPENAI_API_KEY` | (opcional, analyzeReply) |
+| Secret | `SOCIALCRAWL_API_KEY` | Key `sc_…` — solo servidor (nunca en el SPA) |
+| Secret | `NEWSAPI_API_KEY` | (opcional) |
+| Secret | `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | (opcional) |
 | Variable | `AWS_REGION` | `eu-central-1` |
 | Variable | `TF_STATE_BUCKET` | output del bootstrap |
 | Variable | `TF_STATE_LOCKS_TABLE` | `responselens-tf-locks` |

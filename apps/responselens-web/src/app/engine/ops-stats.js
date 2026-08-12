@@ -231,6 +231,99 @@ function averageRiskFromHistory(entries) {
 }
 
 /**
+ * Salud de marca para el dashboard embebido en Propios (estilo Brand24).
+ * Usa solo alertas con brandScope=own.
+ * @param {{ alerts?: object[], history?: object[], days?: number }} opts
+ */
+export function computeOwnBrandHealth({ alerts = [], history = [], days = 14 } = {}) {
+  const now = Date.now();
+  const since = now - Math.max(1, days) * DAY_MS;
+  const own = (alerts || []).filter((a) => a.brandScope === 'own' || a._brandScope === 'own');
+  const inWindow = own.filter((a) => {
+    const t = parseAt(a.detectedAt);
+    return t == null || t >= since;
+  });
+
+  const sentiment = { POSITIVE: 0, NEGATIVE: 0, NEUTRAL: 0, MIXED: 0 };
+  /** @type {Record<string, number>} */
+  const byChannel = {};
+  /** @type {Record<string, number>} */
+  const bySeverity = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+  let scoreSum = 0;
+  let scoreN = 0;
+  let open = 0;
+  let criticalOpen = 0;
+  let actionable = 0;
+  let mediaMentions = 0;
+
+  for (const a of inWindow) {
+    const sent = String(a._sentiment || a.sentiment || 'NEUTRAL').toUpperCase();
+    if (sent in sentiment) sentiment[sent] += 1;
+    else sentiment.NEUTRAL += 1;
+
+    const ch = channelOf(a);
+    byChannel[ch] = (byChannel[ch] || 0) + 1;
+
+    const sev = String(a.severity || 'MEDIUM').toUpperCase();
+    if (sev in bySeverity) bySeverity[sev] += 1;
+
+    if (typeof a._aiScore === 'number' && Number.isFinite(a._aiScore)) {
+      scoreSum += a._aiScore;
+      scoreN += 1;
+    }
+
+    const st = a.status || 'NEW';
+    if (st === 'NEW' || st === 'SNOOZED') {
+      open += 1;
+      if (sev === 'CRITICAL' || sev === 'HIGH') criticalOpen += 1;
+    }
+    if (a._mentionKind === 'media' || a._actionable === false) mediaMentions += 1;
+    else actionable += 1;
+  }
+
+  const total = inWindow.length || 0;
+  const negPct = total ? Math.round((sentiment.NEGATIVE / total) * 100) : 0;
+  const posPct = total ? Math.round((sentiment.POSITIVE / total) * 100) : 0;
+  const avgScore = scoreN ? Math.round(scoreSum / scoreN) : 0;
+
+  const histOwn = (history || []).filter((h) => {
+    const t = parseAt(h.at);
+    return isOwnEntry(h) && t != null && t >= since;
+  });
+
+  let healthBand = 'stable';
+  let healthLabel = 'Estable';
+  if (criticalOpen >= 3 || negPct >= 55 || avgScore >= 75) {
+    healthBand = 'critical';
+    healthLabel = 'En riesgo';
+  } else if (criticalOpen >= 1 || negPct >= 35 || avgScore >= 55) {
+    healthBand = 'watch';
+    healthLabel = 'En observación';
+  } else if (posPct >= 50 && negPct < 20) {
+    healthBand = 'strong';
+    healthLabel = 'Saludable';
+  }
+
+  return {
+    days,
+    total,
+    open,
+    criticalOpen,
+    actionable,
+    mediaMentions,
+    avgScore,
+    negPct,
+    posPct,
+    sentiment,
+    byChannel,
+    bySeverity,
+    repliesInWindow: histOwn.length,
+    healthBand,
+    healthLabel,
+  };
+}
+
+/**
  * Serie diaria: respuestas propias + menciones competencia (por createdAt de alertas o historial).
  */
 function buildDailySeries({ history, alerts, days, now }) {

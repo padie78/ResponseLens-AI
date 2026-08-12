@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { AuthService } from '../core/auth/auth.service';
+import { mergeAlertLists } from '../engine/mention-dedupe.js';
 import {
   createAlertId,
   type BrandScope,
@@ -57,27 +58,15 @@ export class AlertsStore {
   }
 
   upsert(alert: CompetitorAlert): void {
-    const idx = this._items().findIndex((a) => a.alertId === alert.alertId);
-    if (idx >= 0) {
-      const next = [...this._items()];
-      next[idx] = { ...next[idx], ...alert };
-      this.persist(next);
-    } else {
-      this.persist([alert, ...this._items()]);
-    }
+    this.upsertMany([alert]);
   }
 
   upsertMany(alerts: CompetitorAlert[]): void {
     if (!alerts.length) return;
-    const map = new Map(this._items().map((a) => [a.alertId, a]));
-    for (const incoming of alerts) {
-      const existing = map.get(incoming.alertId);
-      map.set(incoming.alertId, existing ? { ...existing, ...incoming } : incoming);
-    }
-    const merged = [...map.values()].sort(
-      (a, b) => Date.parse(b.detectedAt) - Date.parse(a.detectedAt),
-    );
-    this.persist(merged);
+    const { merged } = mergeAlertLists(this._items(), alerts, {
+      limit: Math.max(200, this._items().length + alerts.length),
+    });
+    this.persist(merged as CompetitorAlert[]);
   }
 
   updateStatus(alertId: string, status: CompetitorAlert['status']): void {

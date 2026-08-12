@@ -1,5 +1,7 @@
 @use './theme/global';
 
+@import 'primeicons/primeicons.css';
+
 @import '@ionic/angular/css/core.css';
 @import '@ionic/angular/css/normalize.css';
 @import '@ionic/angular/css/structure.css';
@@ -35,4 +37,15 @@ body {
 ion-app,
 ion-content {
   --background: transparent;
+}
+
+/* PrimeNG denser controls in our dark shell */
+.p-dropdown,
+.p-inputtext,
+.p-button {
+  font-family: var(--rl-font-body);
+}
+
+.rl-page .p-button.p-button-sm {
+  font-size: 0.8rem;
 }

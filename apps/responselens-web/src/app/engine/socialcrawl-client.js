@@ -1,166 +1,175 @@
 /**
- * Cliente SocialCrawl — solo HTTP + API key desde credenciales locales.
- * Nunca pasa la key a un LLM / prompt.
- *
- * Docs: https://www.socialcrawl.dev/docs/search/everywhere
+ * Cliente SocialCrawl vía AppSync (server-side).
+ * La API key vive SOLO en Lambda (Terraform `socialcrawl_api_key`).
+ * El SPA nunca almacena ni envía `sc_…`.
  */
 
-import { hasSocialCrawl } from './scan-credentials.js';
+import { environment } from '../../environments/environment';
+import { loadScanCredentials } from './scan-credentials.js';
 import { normalizePlatformChannel } from './platforms.js';
 
-const BASE = 'https://www.socialcrawl.dev';
-
 /**
- * @param {string} url
- * @param {Record<string, string>} [headers]
+ * Preferencias locales (lookback/sources) — sin API key.
  */
-async function fetchJson(url, headers = {}) {
-  try {
-    const res = await fetch(url, { headers: { Accept: 'application/json', ...headers } });
-    const json = await res.json().catch(() => null);
-    if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status}`, json };
-    }
-    return { ok: true, json };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err), json: null };
-  }
+export function hasSocialCrawlServer() {
+  return Boolean(environment.appsync?.endpoint && environment.appsync?.apiKey);
+}
+
+/** @deprecated Use hasSocialCrawlServer — la key ya no vive en el cliente. */
+export function hasSocialCrawl(credentials) {
+  void credentials;
+  return hasSocialCrawlServer();
 }
 
 /**
- * @param {{
- *   apiKey: string,
- *   query: string,
- *   lookbackDays?: number,
- *   sources?: string,
- * }} opts
- */
-export async function searchEverywhere(opts) {
-  const key = String(opts.apiKey || '').trim();
-  const query = String(opts.query || '').trim().slice(0, 512);
-  if (!key || !query) {
-    return { ok: false, error: 'missing_key_or_query', mentions: [] };
-  }
-
-  const url = new URL(`${BASE}/v1/search/everywhere`);
-  url.searchParams.set('query', query);
-  url.searchParams.set('lookback_days', String(Math.min(Math.max(opts.lookbackDays || 1, 1), 90)));
-  if (opts.sources) url.searchParams.set('sources', opts.sources);
-
-  const res = await fetchJson(url.toString(), {
-    'x-api-key': key,
-    Accept: 'application/json',
-  });
-
-  if (!res.ok) {
-    return { ok: false, error: res.error || 'socialcrawl_failed', mentions: [] };
-  }
-
-  const envelope = res.json || {};
-  if (envelope.success === false) {
-    return {
-      ok: false,
-      error: envelope.error?.message || envelope.error || 'socialcrawl_error',
-      mentions: [],
-    };
-  }
-
-  const items = extractItems(envelope);
-  const mentions = items
-    .map((item) => mapItemToMention(item))
-    .filter((m) => m && m.text && m.text.length >= 12);
-
-  return {
-    ok: true,
-    mentions,
-    creditsUsed: envelope.credits_used ?? null,
-    creditsRemaining: envelope.credits_remaining ?? null,
-    requestId: envelope.request_id || null,
-  };
-}
-
-/**
- * @param {object | null} credentials
+ * @param {object | null} _credentials Ignorado (compat). Key solo en servidor.
  * @param {string} brandOrRivalName
  * @param {{ lookbackDays?: number, sources?: string }} [opts]
  */
-export async function fetchSocialCrawlMentions(credentials, brandOrRivalName, opts = {}) {
-  if (!hasSocialCrawl(credentials)) {
-    return { mentions: [], error: null, skipped: true };
+export async function fetchSocialCrawlMentions(_credentials, brandOrRivalName, opts = {}) {
+  if (!hasSocialCrawlServer()) {
+    return {
+      mentions: [],
+      error: 'SocialCrawl server off — falta AppSync (npm run sync:env) o SOCIALCRAWL_API_KEY en Terraform',
+      skipped: true,
+    };
   }
-  const name = String(brandOrRivalName || '').trim();
+
+  const name = String(brandOrRivalName || '')
+    .replace(/["']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!name) return { mentions: [], error: 'empty_name', skipped: false };
 
-  const result = await searchEverywhere({
-    apiKey: credentials.socialcrawl.apiKey,
+  const prefs = await loadScanCredentials();
+  const lookback =
+    opts.lookbackDays ??
+    Number(prefs.socialcrawl?.lookbackDays) ??
+    7;
+  const sources = opts.sources || prefs.socialcrawl?.sources || '';
+
+  const result = await searchViaAppSync({
     query: name,
-    lookbackDays: opts.lookbackDays ?? 1,
-    sources: opts.sources || credentials.socialcrawl.sources || '',
+    lookbackDays: lookback,
+    sources,
   });
 
   if (!result.ok) {
-    return { mentions: [], error: result.error, skipped: false };
+    return {
+      mentions: [],
+      error: result.error || 'socialcrawl_proxy_failed',
+      skipped: false,
+      status: result.status,
+    };
   }
+
+  const mentions = (result.mentions || [])
+    .map((m) => normalizeMention(m))
+    .filter((m) => m && m.text && m.text.length >= 8);
+
   return {
-    mentions: result.mentions,
+    mentions,
     error: null,
     skipped: false,
+    rawCount: result.rawCount ?? mentions.length,
     creditsUsed: result.creditsUsed,
     creditsRemaining: result.creditsRemaining,
+    sourcesSucceeded: result.sourcesSucceeded || [],
+    sourcesFailed: result.sourcesFailed || {},
+    coverage: result.coverage,
+    partialFailure: false,
+    planIntent: result.planIntent,
+    clusterCount: 0,
   };
 }
 
-function extractItems(envelope) {
-  const data = envelope.data;
-  if (!data) return [];
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data.items)) return data.items;
-  if (Array.isArray(data.results)) return data.results;
-  if (Array.isArray(data.clusters)) {
-    return data.clusters.flatMap((c) => (Array.isArray(c.items) ? c.items : [c]));
+/**
+ * @param {{ query: string, lookbackDays?: number, sources?: string }} input
+ */
+async function searchViaAppSync(input) {
+  const endpoint = environment.appsync.endpoint;
+  const apiKey = environment.appsync.apiKey;
+  const mutation = `
+    mutation SearchSocialMentions($input: SearchSocialMentionsInput!) {
+      searchSocialMentions(input: $input) {
+        ok
+        error
+        mentionsJson
+        rawCount
+        creditsUsed
+        creditsRemaining
+        coverage
+        planIntent
+      }
+    }
+  `;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        query: mutation,
+        variables: {
+          input: {
+            query: input.query,
+            lookbackDays: input.lookbackDays ?? 7,
+            sources: input.sources || null,
+          },
+        },
+      }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { ok: false, error: `AppSync HTTP ${res.status}`, status: res.status };
+    }
+    if (json?.errors?.length) {
+      return { ok: false, error: json.errors[0]?.message || 'appsync_error', status: res.status };
+    }
+    const data = json?.data?.searchSocialMentions;
+    if (!data) return { ok: false, error: 'empty_appsync_response' };
+    if (!data.ok) return { ok: false, error: data.error || 'socialcrawl_failed' };
+
+    let mentions = data.mentionsJson;
+    if (typeof mentions === 'string') {
+      try {
+        mentions = JSON.parse(mentions);
+      } catch {
+        mentions = [];
+      }
+    }
+    if (!Array.isArray(mentions)) mentions = [];
+
+    return {
+      ok: true,
+      mentions,
+      rawCount: data.rawCount ?? mentions.length,
+      creditsUsed: data.creditsUsed,
+      creditsRemaining: data.creditsRemaining,
+      coverage: data.coverage,
+      planIntent: data.planIntent,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
-  return [];
 }
 
-function mapItemToMention(item) {
-  if (!item || typeof item !== 'object') return null;
-  const rawPlatform = String(item.source || item.platform || item.provider || 'web')
-    .toLowerCase()
-    .replace(/-ai-search$/, '')
-    .replace(/^twitter$/, 'x');
-  const platform = normalizePlatformChannel(rawPlatform) || rawPlatform || 'web';
-
-  const title = String(item.title || item.headline || '').trim();
-  const body = String(
-    item.text || item.snippet || item.description || item.content || item.body || '',
-  ).trim();
-  const comments = Array.isArray(item.comments)
-    ? item.comments
-    : Array.isArray(item.top_comments)
-      ? item.top_comments
-      : [];
-  const topComment = comments
-    .map((c) => (typeof c === 'string' ? c : c?.text || c?.body || c?.content || ''))
-    .map((s) => String(s || '').trim())
-    .find(Boolean);
-
-  const text = [title, body, topComment].filter(Boolean).join('\n').trim();
-  const sourceUrl = String(item.url || item.link || item.permalink || item.source_url || '').trim();
-  const id = String(item.id || item.result_id || sourceUrl || Math.random().toString(36).slice(2, 9));
-
-  let detectedAt = new Date().toISOString();
-  const rawDate = item.published_at || item.created_at || item.date || item.timestamp;
-  if (rawDate) {
-    const t = Date.parse(rawDate);
-    if (Number.isFinite(t)) detectedAt = new Date(t).toISOString();
-  }
-
+function normalizeMention(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const channel = normalizePlatformChannel(raw.channel) || raw.channel || 'web';
   return {
-    id: `sc_${platform}_${id}`.slice(0, 120),
-    text: text.slice(0, 4000),
-    sourceUrl: sourceUrl || `https://www.socialcrawl.dev/?q=${encodeURIComponent(title || body.slice(0, 40))}`,
-    channel: platform,
-    detectedAt,
+    id: raw.id || `sc_${Date.now()}`,
+    text: String(raw.text || '').trim(),
+    sourceUrl: String(raw.sourceUrl || '').trim(),
+    channel,
+    detectedAt: raw.detectedAt || new Date().toISOString(),
     _provider: 'socialcrawl',
+    _scMeta: raw._scMeta || null,
   };
 }

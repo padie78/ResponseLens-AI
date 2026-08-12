@@ -9,6 +9,7 @@ import type { AlertSeverity, CompetitorAlert, CompetitorProfile } from '@respons
 import { randomUUID } from 'crypto';
 import type { ScheduledHandler } from 'aws-lambda';
 import { fetchLiveMentions } from './reddit-mentions';
+import { searchSocialCrawlEverywhere } from './socialcrawl';
 
 const logger = new ConsoleLogger({ source: 'competitor_scan' });
 const userConfigs = new DynamoDbUserConfigRepository();
@@ -64,16 +65,66 @@ function craftPitch(companyName: string | undefined, competitorName: string, com
 
 async function fetchMentionsForCompetitor(
   competitor: CompetitorProfile,
-): Promise<Array<{ id?: string; text: string; sourceUrl: string; channel?: string; detectedAt?: string }>> {
+): Promise<
+  Array<{
+    id?: string;
+    text: string;
+    sourceUrl: string;
+    channel?: string;
+    detectedAt?: string;
+    _scMeta?: unknown;
+  }>
+> {
+  const out: Array<{
+    id?: string;
+    text: string;
+    sourceUrl: string;
+    channel?: string;
+    detectedAt?: string;
+    _scMeta?: unknown;
+  }> = [];
   try {
-    return await fetchLiveMentions(competitor.name);
+    out.push(...(await fetchLiveMentions(competitor.name)));
   } catch (err) {
     logger.warn('mentions.fetch_failed', {
       competitor: competitor.name,
       error: err instanceof Error ? err.message : String(err),
     });
-    return [];
   }
+
+  try {
+    const sc = await searchSocialCrawlEverywhere({
+      query: competitor.name,
+      lookbackDays: Number(process.env.SOCIALCRAWL_LOOKBACK_DAYS) || 7,
+      sources: process.env.SOCIALCRAWL_SOURCES || '',
+    });
+    if (!sc.ok) {
+      logger.warn('socialcrawl.fetch_failed', { competitor: competitor.name, error: sc.error });
+    } else {
+      for (const m of sc.mentions) {
+        out.push({
+          id: m.id,
+          text: m.text,
+          sourceUrl: m.sourceUrl,
+          channel: m.channel,
+          detectedAt: m.detectedAt,
+          _scMeta: m._scMeta,
+        });
+      }
+      logger.info('socialcrawl.ok', {
+        competitor: competitor.name,
+        count: sc.mentions.length,
+        creditsRemaining: sc.creditsRemaining,
+      });
+    }
+  } catch (err) {
+    logger.warn('socialcrawl.exception', {
+      competitor: competitor.name,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return out;
 }
 
 export const handler: ScheduledHandler = async () => {

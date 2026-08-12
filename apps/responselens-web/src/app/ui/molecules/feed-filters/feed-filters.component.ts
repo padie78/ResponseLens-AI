@@ -1,5 +1,7 @@
 import { Component, ViewEncapsulation, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { DropdownModule } from 'primeng/dropdown';
+import { InputTextModule } from 'primeng/inputtext';
 import { PLATFORM_FILTER_OPTIONS } from '../../../engine/platforms.js';
 
 export type FeedMode = 'own' | 'comp';
@@ -24,85 +26,108 @@ export const DEFAULT_FEED_FILTERS: FeedFilterState = {
   q: '',
 };
 
+interface Opt {
+  label: string;
+  value: string;
+}
+
 @Component({
   standalone: true,
   selector: 'rl-feed-filters',
   encapsulation: ViewEncapsulation.None,
-  imports: [FormsModule],
+  imports: [FormsModule, DropdownModule, InputTextModule],
   template: `
     <div class="rl-filters">
       <label class="rl-filters__field">
         <span>Estado</span>
-        <select class="rl-filters__select" [ngModel]="state().status" (ngModelChange)="patch({ status: $event })">
-          <option value="all">Todos</option>
-          <option value="NEW">Nuevo</option>
-          <option value="CONTACTED">Contactado</option>
-          <option value="WON">Ganado</option>
-          <option value="SNOOZED">Pospuesto</option>
-        </select>
+        <p-dropdown
+          [options]="statusOpts"
+          optionLabel="label"
+          optionValue="value"
+          [ngModel]="state().status"
+          (ngModelChange)="patch({ status: $event })"
+          styleClass="rl-filters__dd"
+          [appendTo]="'body'"
+        />
       </label>
 
       <label class="rl-filters__field">
         <span>Fecha</span>
-        <select class="rl-filters__select" [ngModel]="state().date" (ngModelChange)="patch({ date: $event })">
-          <option value="all">Todo</option>
-          <option value="24h">24 h</option>
-          <option value="7d">7 días</option>
-          <option value="30d">30 días</option>
-        </select>
+        <p-dropdown
+          [options]="dateOpts"
+          optionLabel="label"
+          optionValue="value"
+          [ngModel]="state().date"
+          (ngModelChange)="patch({ date: $event })"
+          styleClass="rl-filters__dd"
+          [appendTo]="'body'"
+        />
       </label>
 
       <label class="rl-filters__field">
         <span>Plataforma</span>
-        <select class="rl-filters__select" [ngModel]="state().platform" (ngModelChange)="patch({ platform: $event })">
-          <option value="all">Todas</option>
-          @for (p of platformOptions; track p.id) {
-            <option [value]="p.id">{{ p.label }}</option>
-          }
-        </select>
+        <p-dropdown
+          [options]="platformOpts"
+          optionLabel="label"
+          optionValue="value"
+          [ngModel]="state().platform"
+          (ngModelChange)="patch({ platform: $event })"
+          styleClass="rl-filters__dd"
+          [filter]="true"
+          filterPlaceholder="Filtrar…"
+          [appendTo]="'body'"
+        />
       </label>
 
       <label class="rl-filters__field">
         <span>Severidad</span>
-        <select class="rl-filters__select" [ngModel]="state().severity" (ngModelChange)="patch({ severity: $event })">
-          <option value="all">Todas</option>
-          <option value="CRITICAL">Crítica</option>
-          <option value="HIGH">Alta</option>
-          <option value="MEDIUM">Media</option>
-          <option value="LOW">Baja</option>
-        </select>
+        <p-dropdown
+          [options]="severityOpts"
+          optionLabel="label"
+          optionValue="value"
+          [ngModel]="state().severity"
+          (ngModelChange)="patch({ severity: $event })"
+          styleClass="rl-filters__dd"
+          [appendTo]="'body'"
+        />
       </label>
 
       @if (mode() === 'own') {
         <label class="rl-filters__field">
           <span>Sentimiento</span>
-          <select class="rl-filters__select" [ngModel]="state().sentiment" (ngModelChange)="patch({ sentiment: $event })">
-            <option value="all">Todos</option>
-            <option value="NEGATIVE">Negativo</option>
-            <option value="POSITIVE">Positivo</option>
-            <option value="NEUTRAL">Neutro</option>
-            <option value="MIXED">Mixto</option>
-          </select>
+          <p-dropdown
+            [options]="sentimentOpts"
+            optionLabel="label"
+            optionValue="value"
+            [ngModel]="state().sentiment"
+            (ngModelChange)="patch({ sentiment: $event })"
+            styleClass="rl-filters__dd"
+            [appendTo]="'body'"
+          />
         </label>
       }
 
       @if (mode() === 'comp') {
         <label class="rl-filters__field">
           <span>Rival</span>
-          <select class="rl-filters__select" [ngModel]="state().rival" (ngModelChange)="patch({ rival: $event })">
-            <option value="all">Todos</option>
-            @for (r of rivals(); track r) {
-              <option [value]="r">{{ r }}</option>
-            }
-          </select>
+          <p-dropdown
+            [options]="rivalOpts()"
+            optionLabel="label"
+            optionValue="value"
+            [ngModel]="state().rival"
+            (ngModelChange)="patch({ rival: $event })"
+            styleClass="rl-filters__dd"
+            [appendTo]="'body'"
+          />
         </label>
       }
 
       <label class="rl-filters__field rl-filters__field--grow">
         <span>Buscar</span>
         <input
-          class="rl-filters__input"
+          pInputText
           type="search"
+          class="rl-filters__input"
           placeholder="Texto, URL, canal…"
           [ngModel]="state().q"
           (ngModelChange)="patch({ q: $event })"
@@ -116,8 +141,53 @@ export class FeedFiltersComponent {
   readonly rivals = input<string[]>([]);
   readonly filterChange = output<FeedFilterState>();
 
-  readonly platformOptions = PLATFORM_FILTER_OPTIONS as Array<{ id: string; label: string }>;
   readonly state = signal<FeedFilterState>({ ...DEFAULT_FEED_FILTERS });
+
+  readonly statusOpts: Opt[] = [
+    { label: 'Todos', value: 'all' },
+    { label: 'Nuevo', value: 'NEW' },
+    { label: 'Contactado', value: 'CONTACTED' },
+    { label: 'Ganado', value: 'WON' },
+    { label: 'Pospuesto', value: 'SNOOZED' },
+  ];
+
+  readonly dateOpts: Opt[] = [
+    { label: 'Todo', value: 'all' },
+    { label: '24 h', value: '24h' },
+    { label: '7 días', value: '7d' },
+    { label: '30 días', value: '30d' },
+  ];
+
+  readonly severityOpts: Opt[] = [
+    { label: 'Todas', value: 'all' },
+    { label: 'Crítica', value: 'CRITICAL' },
+    { label: 'Alta', value: 'HIGH' },
+    { label: 'Media', value: 'MEDIUM' },
+    { label: 'Baja', value: 'LOW' },
+  ];
+
+  readonly sentimentOpts: Opt[] = [
+    { label: 'Todos', value: 'all' },
+    { label: 'Negativo', value: 'NEGATIVE' },
+    { label: 'Positivo', value: 'POSITIVE' },
+    { label: 'Neutro', value: 'NEUTRAL' },
+    { label: 'Mixto', value: 'MIXED' },
+  ];
+
+  readonly platformOpts: Opt[] = [
+    { label: 'Todas', value: 'all' },
+    ...(PLATFORM_FILTER_OPTIONS as Array<{ id: string; label: string }>).map((p) => ({
+      label: p.label,
+      value: p.id,
+    })),
+  ];
+
+  rivalOpts(): Opt[] {
+    return [
+      { label: 'Todos', value: 'all' },
+      ...this.rivals().map((r) => ({ label: r, value: r })),
+    ];
+  }
 
   patch(partial: Partial<FeedFilterState>): void {
     this.state.update((s) => {

@@ -137,7 +137,8 @@ Compatible con Zapier/Make: Webhooks by Zapier → POST a esa URL.
 
 ### SocialCrawl (escucha multi-plataforma)
 
-- Config → Fuentes profesionales → SocialCrawl API key (local al cliente).
+- Key en Terraform (`socialcrawl_api_key`) → env Lambda. Nunca en el SPA/localStorage.
+- SPA: `searchSocialMentions` (AppSync). Cron: `competitor_scan`.
 - La API key **nunca** entra en prompts LLM. Si se filtró: rotarla en SocialCrawl.
 
 Próximo paso cloud (opcional): mutations AppSync `pushOpportunityToCrm` / `createShareLink` + S3 público firmado para shares HTTPS.

@@ -60,6 +60,24 @@ variable "newsapi_api_key" {
   default   = ""
 }
 
+variable "socialcrawl_api_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "SocialCrawl API key (server-only). Never expose to the SPA."
+}
+
+variable "socialcrawl_lookback_days" {
+  type    = number
+  default = 7
+}
+
+variable "socialcrawl_sources" {
+  type        = string
+  default     = ""
+  description = "Optional CSV allowlist for SocialCrawl sources (empty = all)."
+}
+
 variable "inbound_webhook_secret" {
   type        = string
   sensitive   = true

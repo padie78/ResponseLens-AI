@@ -1,35 +1,46 @@
 import { Component, OnInit, ViewEncapsulation, inject } from '@angular/core';
-import { Router, RouterLink, RouterOutlet } from '@angular/router';
+import { Router, RouterOutlet } from '@angular/router';
+import { ButtonModule } from 'primeng/button';
 import { AuthService } from '../../core/auth/auth.service';
 import { AlertsStore } from '../../stores/alerts.store';
 import { UserConfigStore } from '../../stores/user-config.store';
-import { AppSubnavComponent } from '../../ui';
+import { AppSidebarComponent } from '../../ui/organisms/app-sidebar/app-sidebar.component';
 
 @Component({
   standalone: true,
   selector: 'rl-shell-page',
   encapsulation: ViewEncapsulation.None,
-  imports: [RouterOutlet, RouterLink, AppSubnavComponent],
+  imports: [RouterOutlet, AppSidebarComponent, ButtonModule],
   template: `
-    <div class="rl-app-shell">
-      <div class="rl-app-shell__chrome">
-        <div class="rl-app-shell__top">
-          <a class="rl-app-shell__brand" routerLink="/app/own">
-            <span class="rl-app-shell__mark">RL</span>
-            <span class="rl-app-shell__name">ResponseLens</span>
-          </a>
-          <div class="rl-app-shell__actions">
-            @if (auth.email(); as email) {
-              <span class="rl-app-shell__user">{{ email }}</span>
-            }
-            <button type="button" class="rl-app-shell__logout" (click)="logout()">Salir</button>
+    <div class="rl-layout">
+      <rl-app-sidebar />
+      <div class="rl-layout__main">
+        <header class="rl-topbar">
+          <div class="rl-topbar__left">
+            <p class="rl-topbar__eyebrow">Listening · Control room</p>
+            <h1 class="rl-topbar__title">{{ companyLabel() }}</h1>
           </div>
-        </div>
-        <rl-app-subnav />
+          <div class="rl-topbar__actions">
+            @if (auth.email(); as email) {
+              <span class="rl-topbar__user">
+                <i class="pi pi-user"></i>
+                {{ email }}
+              </span>
+            }
+            <p-button
+              label="Salir"
+              icon="pi pi-sign-out"
+              severity="secondary"
+              [outlined]="true"
+              size="small"
+              (onClick)="logout()"
+            />
+          </div>
+        </header>
+        <main class="rl-layout__content">
+          <router-outlet />
+        </main>
       </div>
-      <main class="rl-app-shell__content">
-        <router-outlet />
-      </main>
     </div>
   `,
 })
@@ -37,11 +48,15 @@ export class ShellPageComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly alerts = inject(AlertsStore);
-  private readonly config = inject(UserConfigStore);
+  readonly config = inject(UserConfigStore);
 
   ngOnInit(): void {
     this.config.load();
     this.alerts.load();
+  }
+
+  companyLabel(): string {
+    return this.config.companyName() || 'ResponseLens AI';
   }
 
   async logout(): Promise<void> {

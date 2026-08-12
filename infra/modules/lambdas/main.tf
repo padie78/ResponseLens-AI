@@ -38,6 +38,9 @@ resource "aws_lambda_function" "appsync_api" {
       LOG_LEVEL           = "INFO"
       APPSYNC_GRAPHQL_URL = ""
       APPSYNC_API_KEY     = ""
+      SOCIALCRAWL_API_KEY = var.socialcrawl_api_key
+      SOCIALCRAWL_LOOKBACK_DAYS = tostring(var.socialcrawl_lookback_days)
+      SOCIALCRAWL_SOURCES = var.socialcrawl_sources
     }
   }
 }
@@ -68,6 +71,9 @@ resource "aws_lambda_function" "competitor_scan" {
       REDDIT_CLIENT_SECRET = var.reddit_client_secret
       REDDIT_USER_AGENT    = var.reddit_user_agent
       NEWSAPI_API_KEY      = var.newsapi_api_key
+      SOCIALCRAWL_API_KEY  = var.socialcrawl_api_key
+      SOCIALCRAWL_LOOKBACK_DAYS = tostring(var.socialcrawl_lookback_days)
+      SOCIALCRAWL_SOURCES  = var.socialcrawl_sources
     }
   }
 }

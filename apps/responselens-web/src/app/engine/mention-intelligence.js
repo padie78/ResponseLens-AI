@@ -1,3 +1,5 @@
+import { scoreFrustration } from './competitor-opportunity.js';
+
 /**
  * Motor de inteligencia de menciones (reputación / captación).
  * Analiza texto localmente (rápido, sin secrets) — NO llama APIs externas.
@@ -14,6 +16,10 @@ const NEG_RE =
   /\b(estafa|horrible|pésim|pesim|terrible|awful|scam|refund|no\s+funciona|basura|fraude|decepcion|odio|hate|sucks|worst|broken|outage|falla|caro|expensive|slow|unreliable|queja|complaint|problema|issue|bug|crash)\b/i;
 const EVENT_RE =
   /\b(conferencia|conference|evento|event|keynote|summit|webinar|meetup|vlog|entrevista|interview|podcast|lanzamiento|announces?|anuncia)\b/i;
+const CHURN_RE =
+  /\b(cancel|cancelar|churn|migr|switch|alternativa|competidor|cambiar\s+de|leaving|me\s+voy)\b/i;
+const VIRAL_RE =
+  /\b(viral|trending|hilo|thread|everyone|todo\s+el\s+mundo|rt\b|retweet)\b/i;
 
 const FORMAL_PLATFORMS = new Set([
   'linkedin',
@@ -299,6 +305,14 @@ export function analyzeBrandMention(input) {
     : null;
 
   const storageSentiment = sentimentToStorage(sentimiento) || 'NEUTRAL';
+  const scorePack = computeMentionScore({
+    text,
+    brandScope,
+    mentionKind,
+    sentimiento,
+    frustrationScore: input.frustrationScore,
+    scMeta: input.scMeta || null,
+  });
 
   return {
     metadatos_personalizados: { ...systemContext },
@@ -307,6 +321,10 @@ export function analyzeBrandMention(input) {
       sentimiento,
       es_competencia: esCompetencia,
       requiere_moderacion_humana: requiereModeracion,
+      score_ia: scorePack.score,
+      score_banda: scorePack.band,
+      score_etiqueta: scorePack.label,
+      score_drivers: scorePack.drivers,
       analisis_estrategico: {
         categoria_queja_o_elogio: categoria,
         resumen_insight: insight,
@@ -319,8 +337,149 @@ export function analyzeBrandMention(input) {
       mentionKind,
       sentimentStorage: storageSentiment,
       analysisSummary: insight,
+      aiScore: scorePack.score,
+      aiScoreBand: scorePack.band,
+      aiScoreLabel: scorePack.label,
+      aiScoreDrivers: scorePack.drivers,
     },
     error: text ? null : 'empty_text',
+  };
+}
+
+/**
+ * Score IA 0–100: riesgo reputacional (own) u oportunidad de captación (rival).
+ * Incorpora señal SocialCrawl (engagement / final_score) cuando existe.
+ * @param {{
+ *   text?: string,
+ *   brandScope?: 'own' | 'rival',
+ *   mentionKind?: 'comment' | 'media',
+ *   sentimiento?: string,
+ *   frustrationScore?: number,
+ *   scMeta?: {
+ *     finalScore?: number | null,
+ *     rerankScore?: number | null,
+ *     engagement?: { points?: number | null, numComments?: number | null },
+ *     topComments?: unknown[],
+ *     clusterTitle?: string | null,
+ *   } | null,
+ * }} input
+ */
+export function computeMentionScore(input = {}) {
+  const text = String(input.text || '');
+  const brandScope = input.brandScope === 'rival' ? 'rival' : 'own';
+  const mentionKind = input.mentionKind === 'media' ? 'media' : 'comment';
+  const sentimiento = String(input.sentimiento || classifySentiment(text)).toLowerCase();
+  const fr =
+    typeof input.frustrationScore === 'number' && Number.isFinite(input.frustrationScore)
+      ? Math.min(1, Math.max(0, input.frustrationScore))
+      : scoreFrustration(text);
+  const sc = input.scMeta && typeof input.scMeta === 'object' ? input.scMeta : null;
+
+  /** @type {string[]} */
+  const drivers = [];
+  let score = brandScope === 'rival' ? 18 : 12;
+
+  const frPts = Math.round(fr * (brandScope === 'rival' ? 42 : 48));
+  score += frPts;
+  if (frPts >= 20) drivers.push(brandScope === 'rival' ? 'Alta fricción del rival' : 'Alta fricción detectada');
+
+  if (sentimiento === 'critico') {
+    score += brandScope === 'rival' ? 22 : 28;
+    drivers.push(brandScope === 'rival' ? 'Crisis del rival' : 'Tono crítico');
+  } else if (sentimiento === 'negativo' || sentimiento === 'negative') {
+    score += brandScope === 'rival' ? 16 : 18;
+    drivers.push('Sentimiento negativo');
+  } else if (sentimiento === 'positivo' || sentimiento === 'positive') {
+    score += brandScope === 'rival' ? -8 : -14;
+    drivers.push(brandScope === 'rival' ? 'Elogio al rival' : 'Tono positivo');
+  } else {
+    drivers.push('Tono neutral');
+  }
+
+  if (LEGAL_RE.test(text) || SAFETY_RE.test(text)) {
+    score += 18;
+    drivers.push('Señal legal / seguridad');
+  }
+  if (CHURN_RE.test(text)) {
+    score += brandScope === 'rival' ? 20 : 12;
+    drivers.push(brandScope === 'rival' ? 'Intención de cambio' : 'Riesgo de churn');
+  }
+  if (VIRAL_RE.test(text)) {
+    score += 10;
+    drivers.push('Potencial de amplificación');
+  }
+  if (INSULT_RE.test(text)) {
+    score += 8;
+    drivers.push('Lenguaje agresivo');
+  }
+
+  // SocialCrawl: engagement + ranking quality
+  if (sc) {
+    const points = typeof sc.engagement?.points === 'number' ? sc.engagement.points : 0;
+    const comments =
+      typeof sc.engagement?.numComments === 'number' ? sc.engagement.numComments : 0;
+    let reachPts = 0;
+    if (points >= 500 || comments >= 200) reachPts = 16;
+    else if (points >= 100 || comments >= 50) reachPts = 10;
+    else if (points >= 20 || comments >= 10) reachPts = 6;
+    else if (points > 0 || comments > 0) reachPts = 3;
+    if (reachPts) {
+      score += reachPts;
+      drivers.push(
+        comments
+          ? `Alcance SocialCrawl (${points || 0} pts · ${comments} cmts)`
+          : `Alcance SocialCrawl (${points} pts)`,
+      );
+    }
+    const finalScore = typeof sc.finalScore === 'number' ? sc.finalScore : null;
+    const rerank = typeof sc.rerankScore === 'number' ? sc.rerankScore : null;
+    if (finalScore != null && finalScore >= 55) {
+      score += Math.min(10, Math.round((finalScore - 50) / 5));
+      drivers.push(`Ranking SocialCrawl ${Math.round(finalScore)}`);
+    } else if (rerank != null && rerank >= 70) {
+      score += 6;
+      drivers.push(`Rerank SocialCrawl ${Math.round(rerank)}`);
+    }
+    const nComments = Array.isArray(sc.topComments) ? sc.topComments.length : 0;
+    if (nComments >= 3) {
+      score += 4;
+      drivers.push(`${nComments} top comments enriquecidos`);
+    }
+    if (sc.clusterTitle) {
+      score += 2;
+      drivers.push(`Cluster: ${String(sc.clusterTitle).slice(0, 40)}`);
+    }
+  }
+
+  if (mentionKind === 'media') {
+    score = Math.round(score * (brandScope === 'rival' ? 0.62 : 0.55));
+    drivers.push('Mención en medio (menos accionable)');
+  }
+
+  score = Math.max(1, Math.min(100, Math.round(score)));
+
+  let band = 'medium';
+  let label = brandScope === 'rival' ? 'Oportunidad media' : 'Riesgo medio';
+  if (score >= 80) {
+    band = 'critical';
+    label = brandScope === 'rival' ? 'Oportunidad crítica' : 'Riesgo crítico';
+  } else if (score >= 60) {
+    band = 'high';
+    label = brandScope === 'rival' ? 'Oportunidad alta' : 'Riesgo alto';
+  } else if (score >= 35) {
+    band = 'medium';
+    label = brandScope === 'rival' ? 'Oportunidad media' : 'Riesgo medio';
+  } else {
+    band = 'low';
+    label = brandScope === 'rival' ? 'Oportunidad baja' : 'Riesgo bajo';
+  }
+
+  return {
+    score,
+    band,
+    label,
+    drivers: drivers.slice(0, 6),
+    kind: brandScope === 'rival' ? 'opportunity' : 'risk',
   };
 }
 
@@ -334,6 +493,7 @@ export function ensureItemIntel(alert, opts = {}) {
   const text = String(alert.originalComplaint || alert.text || '').trim();
   if (!text) {
     alert._sentiment = alert._sentiment || 'NEUTRAL';
+    alert._aiScore = alert._aiScore ?? 0;
     return alert;
   }
 
@@ -354,10 +514,35 @@ export function ensureItemIntel(alert, opts = {}) {
       String(alert._analysisSummary || alert._intel?.analisis_estrategico?.resumen_insight || ''),
     );
   const hasSent = Boolean(alert._sentiment);
+  const hasScore = typeof alert._aiScore === 'number' && alert._aiScore > 0;
 
-  if (hasSummary && hasSent && alert._intel) {
+  if (hasSummary && hasSent && alert._intel && hasScore) {
     alert._mentionKind = alert._mentionKind || mentionKind;
     alert._actionable = alert._actionable ?? mentionKind === 'comment';
+    return alert;
+  }
+
+  const scopeRaw = alert._brandScope || alert.brandScope;
+  const brandScope = scopeRaw === 'rival' ? 'rival' : 'own';
+
+  if (hasSummary && hasSent && alert._intel && !hasScore) {
+    const scorePack = computeMentionScore({
+      text,
+      brandScope,
+      mentionKind,
+      sentimiento: alert._intel?.sentimiento,
+      frustrationScore: alert.frustrationScore,
+      scMeta: alert._scMeta || null,
+    });
+    applyScoreToAlert(alert, scorePack);
+    alert._mentionKind = alert._mentionKind || mentionKind;
+    alert._actionable = alert._actionable ?? mentionKind === 'comment';
+    if (alert._intel && typeof alert._intel === 'object') {
+      alert._intel.score_ia = scorePack.score;
+      alert._intel.score_banda = scorePack.band;
+      alert._intel.score_etiqueta = scorePack.label;
+      alert._intel.score_drivers = scorePack.drivers;
+    }
     return alert;
   }
 
@@ -365,9 +550,11 @@ export function ensureItemIntel(alert, opts = {}) {
     text,
     channel: alert.channel || alert._source,
     sourceUrl: alert.sourceUrl,
-    brandScope: alert._brandScope === 'own' ? 'own' : alert._brandScope === 'rival' ? 'rival' : 'own',
+    brandScope,
     companyName: opts.companyName || alert.competitorName,
     mentionKind,
+    frustrationScore: alert.frustrationScore,
+    scMeta: alert._scMeta || null,
     systemContext: { alertId: alert.alertId },
   });
 
@@ -378,7 +565,22 @@ export function ensureItemIntel(alert, opts = {}) {
     block?.analisis_estrategico?.resumen_insight || intel._rl?.analysisSummary || '';
   alert._mentionKind = mentionKind;
   alert._actionable = mentionKind === 'comment';
+  applyScoreToAlert(alert, {
+    score: intel._rl?.aiScore ?? block?.score_ia ?? 0,
+    band: intel._rl?.aiScoreBand ?? block?.score_banda ?? 'medium',
+    label: intel._rl?.aiScoreLabel ?? block?.score_etiqueta ?? '',
+    drivers: intel._rl?.aiScoreDrivers ?? block?.score_drivers ?? [],
+    kind: brandScope === 'rival' ? 'opportunity' : 'risk',
+  });
   return alert;
+}
+
+function applyScoreToAlert(alert, pack) {
+  alert._aiScore = pack.score;
+  alert._aiScoreBand = pack.band;
+  alert._aiScoreLabel = pack.label;
+  alert._aiScoreDrivers = pack.drivers || [];
+  alert._aiScoreKind = pack.kind || 'risk';
 }
 
 function craftPublicReply({ text, plataforma, sentimiento, brand }) {

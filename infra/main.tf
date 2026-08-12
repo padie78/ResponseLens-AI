@@ -42,6 +42,9 @@ module "lambdas" {
   reddit_client_secret     = var.reddit_client_secret
   reddit_user_agent        = var.reddit_user_agent
   newsapi_api_key          = var.newsapi_api_key
+  socialcrawl_api_key      = var.socialcrawl_api_key
+  socialcrawl_lookback_days = var.socialcrawl_lookback_days
+  socialcrawl_sources      = var.socialcrawl_sources
   inbound_webhook_secret   = local.inbound_webhook_secret
 }
 

@@ -8,6 +8,7 @@ import {
   updateCompetitorAlert,
   upsertCompetitorAlert,
 } from './composition-root';
+import { searchSocialCrawlEverywhere } from './socialcrawl';
 
 type Args = Record<string, unknown>;
 
@@ -49,6 +50,30 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
       return updateCompetitorAlert.execute(
         args.input as Parameters<typeof updateCompetitorAlert.execute>[0],
       );
+
+    case 'searchSocialMentions': {
+      const input = (args.input || {}) as {
+        query?: string;
+        lookbackDays?: number;
+        sources?: string;
+      };
+      const result = await searchSocialCrawlEverywhere({
+        query: String(input.query || ''),
+        lookbackDays:
+          input.lookbackDays ?? (Number(process.env.SOCIALCRAWL_LOOKBACK_DAYS) || 7),
+        sources: input.sources || process.env.SOCIALCRAWL_SOURCES || '',
+      });
+      return {
+        ok: result.ok,
+        error: result.error ?? null,
+        mentionsJson: result.mentions,
+        rawCount: result.rawCount,
+        creditsUsed: result.creditsUsed,
+        creditsRemaining: result.creditsRemaining,
+        coverage: result.coverage,
+        planIntent: result.planIntent,
+      };
+    }
 
     case 'ping':
       return `pong:${String(args.message ?? '')}`;

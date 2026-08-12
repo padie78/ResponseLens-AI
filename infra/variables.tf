@@ -77,6 +77,24 @@ variable "newsapi_api_key" {
   description = "NewsAPI.org key para menciones de prensa en competitor_scan."
 }
 
+variable "socialcrawl_api_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "SocialCrawl API key — solo servidor (Lambda). Nunca en el SPA/localStorage."
+}
+
+variable "socialcrawl_lookback_days" {
+  type    = number
+  default = 7
+}
+
+variable "socialcrawl_sources" {
+  type        = string
+  default     = ""
+  description = "CSV opcional de fuentes SocialCrawl (vacío = todas)."
+}
+
 variable "inbound_webhook_secret" {
   type        = string
   sensitive   = true
