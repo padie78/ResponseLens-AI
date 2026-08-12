@@ -69,7 +69,7 @@ variable "socialcrawl_api_key" {
 
 variable "socialcrawl_lookback_days" {
   type    = number
-  default = 7
+  default = 3
 }
 
 variable "socialcrawl_sources" {
