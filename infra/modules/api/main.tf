@@ -19,22 +19,17 @@ locals {
 
 resource "aws_appsync_graphql_api" "this" {
   name                = var.graphql_api_name
-  authentication_type = var.cognito_user_pool_id != "" ? "AMAZON_COGNITO_USER_POOLS" : "API_KEY"
+  authentication_type = "API_KEY"
   schema              = file("${path.module}/schema.graphql")
-
-  dynamic "user_pool_config" {
-    for_each = var.cognito_user_pool_id != "" ? [1] : []
-    content {
-      user_pool_id   = var.cognito_user_pool_id
-      default_action = "ALLOW"
-      aws_region     = data.aws_region.current.name
-    }
-  }
 
   dynamic "additional_authentication_provider" {
     for_each = var.cognito_user_pool_id != "" ? [1] : []
     content {
-      authentication_type = "API_KEY"
+      authentication_type = "AMAZON_COGNITO_USER_POOLS"
+      user_pool_config {
+        user_pool_id = var.cognito_user_pool_id
+        aws_region   = data.aws_region.current.name
+      }
     }
   }
 

@@ -115,10 +115,6 @@ jobs:
         if: steps.auth.outputs.mode != 'skip'
         run: terraform validate
 
-      - name: Terraform plan
-        if: steps.auth.outputs.mode != 'skip'
-        run: terraform plan -input=false -out=tfplan
-
       - name: Terraform apply
         if: steps.auth.outputs.mode != 'skip' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
-        run: terraform apply -input=false -auto-approve tfplan
+        run: bash scripts/terraform-apply.sh

@@ -1,7 +1,3 @@
-variable "name_prefix" {
-  type = string
-}
-
 resource "aws_sqs_queue" "competitor_scan_dlq" {
   name                      = "${var.name_prefix}-competitor-scan-dlq"
   message_retention_seconds = 1209600

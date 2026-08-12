@@ -141,6 +141,17 @@ Compatible con Zapier/Make: Webhooks by Zapier → POST a esa URL.
 - SPA: `searchSocialMentions` (AppSync). Cron: `competitor_scan`.
 - La API key **nunca** entra en prompts LLM. Si se filtró: rotarla en SocialCrawl.
 
+#### Troubleshooting: "SC OFF" en local
+
+| Síntoma | Causa | Fix |
+|--------|-------|-----|
+| `SC OFF (falta AppSync…)` | `environment.ts` sin endpoint/apiKey | `npm run sync:env` tras `terraform apply` |
+| `sync:env` falla | Backend Terraform no inicializado | `export TF_STATE_BUCKET=…` (GitHub Variables) y reintentar |
+| AppSync OK pero mutation error | Lambda aún en bootstrap | GitHub → **Deploy Lambdas** (workflow_dispatch) |
+| `Failed to fetch` Reddit/YouTube | CORS del browser en localhost | Normal; SC va por AppSync, no por el browser |
+
+Tras `sync:env`, **reiniciá** `npm run start:web`. Verificá en consola: `environment.appsync.endpoint` no vacío.
+
 Próximo paso cloud (opcional): mutations AppSync `pushOpportunityToCrm` / `createShareLink` + S3 público firmado para shares HTTPS.
 
 ## Cómo probar

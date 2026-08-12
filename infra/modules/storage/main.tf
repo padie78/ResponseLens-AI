@@ -1,7 +1,3 @@
-variable "name_prefix" {
-  type = string
-}
-
 # Placeholder bucket for future cold telemetry / exports (S3 → Glue path).
 resource "aws_s3_bucket" "data_lake" {
   bucket_prefix = "${var.name_prefix}-lake-"

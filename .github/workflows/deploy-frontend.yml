@@ -106,10 +106,11 @@ jobs:
           BUCKET=$(jq -r '.frontend_bucket.value // empty' tf-outputs.json)
           DIST_ID=$(jq -r '.frontend_cloudfront_id.value // empty' tf-outputs.json)
           CF_DOMAIN=$(jq -r '.frontend_cloudfront_domain.value // empty' tf-outputs.json)
-          APPSYNC_ENDPOINT=$(jq -r '.graphql_endpoint.value // empty' tf-outputs.json)
+          APPSYNC_ENDPOINT=$(jq -r '.appsync_endpoint.value // .graphql_endpoint.value // empty' tf-outputs.json)
           APPSYNC_API_KEY=$(jq -r '.appsync_api_key.value // empty' tf-outputs.json)
           COGNITO_POOL=$(jq -r '.cognito_user_pool_id.value // empty' tf-outputs.json)
           COGNITO_CLIENT=$(jq -r '.cognito_client_id.value // empty' tf-outputs.json)
+          COGNITO_DOMAIN=$(jq -r '.cognito_domain.value // empty' tf-outputs.json)
           AWS_REGION_OUT=$(jq -r '.aws_region.value // empty' tf-outputs.json)
 
           if [ -z "$BUCKET" ] || [ -z "$DIST_ID" ] || [ -z "$APPSYNC_ENDPOINT" ] || [ -z "$APPSYNC_API_KEY" ] || [ -z "$COGNITO_POOL" ] || [ -z "$COGNITO_CLIENT" ]; then
@@ -125,6 +126,7 @@ jobs:
             echo "appsync_endpoint=$APPSYNC_ENDPOINT"
             echo "cognito_user_pool_id=$COGNITO_POOL"
             echo "cognito_client_id=$COGNITO_CLIENT"
+            echo "cognito_domain=$COGNITO_DOMAIN"
             echo "aws_region=${AWS_REGION_OUT:-$AWS_REGION}"
           } >> "$GITHUB_OUTPUT"
           echo "::add-mask::$APPSYNC_API_KEY"
@@ -152,7 +154,7 @@ jobs:
             cognito: {
               userPoolId: '${{ steps.tf.outputs.cognito_user_pool_id }}',
               userPoolClientId: '${{ steps.tf.outputs.cognito_client_id }}',
-              domain: '',
+              domain: '${{ steps.tf.outputs.cognito_domain }}',
               oauthRedirectSignIn: '${ORIGIN}/auth/callback',
               oauthRedirectSignOut: '${ORIGIN}/login',
             },

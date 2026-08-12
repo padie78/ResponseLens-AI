@@ -1,7 +1,3 @@
-variable "name_prefix" {
-  type = string
-}
-
 resource "aws_cognito_user_pool" "this" {
   name = "${var.name_prefix}-users"
 
@@ -30,6 +26,11 @@ resource "aws_cognito_user_pool" "this" {
   }
 }
 
+resource "aws_cognito_user_pool_domain" "this" {
+  domain       = var.domain_prefix
+  user_pool_id = aws_cognito_user_pool.this.id
+}
+
 resource "aws_cognito_user_pool_client" "web" {
   name         = "${var.name_prefix}-web"
   user_pool_id = aws_cognito_user_pool.this.id
@@ -43,6 +44,15 @@ resource "aws_cognito_user_pool_client" "web" {
     "ALLOW_REFRESH_TOKEN_AUTH",
     "ALLOW_USER_SRP_AUTH",
   ]
+
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+
+  callback_urls = var.oauth_callback_urls
+  logout_urls   = var.oauth_logout_urls
+
+  supported_identity_providers = ["COGNITO"]
 
   access_token_validity  = 1
   id_token_validity      = 1

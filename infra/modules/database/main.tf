@@ -1,7 +1,3 @@
-variable "name_prefix" {
-  type = string
-}
-
 resource "aws_dynamodb_table" "core" {
   name         = "${var.name_prefix}-core"
   billing_mode = "PAY_PER_REQUEST"

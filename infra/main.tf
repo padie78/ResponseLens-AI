@@ -31,26 +31,36 @@ module "lambdas" {
   source      = "./modules/lambdas"
   name_prefix = local.name_prefix
 
-  table_name               = module.database.table_name
-  table_arn                = module.database.table_arn
-  openai_api_key           = var.openai_api_key
-  openai_model             = var.openai_model
-  llm_provider             = var.llm_provider
-  gemini_api_key           = var.gemini_api_key
-  competitor_scan_schedule = var.competitor_scan_schedule
-  reddit_client_id         = var.reddit_client_id
-  reddit_client_secret     = var.reddit_client_secret
-  reddit_user_agent        = var.reddit_user_agent
-  newsapi_api_key          = var.newsapi_api_key
-  socialcrawl_api_key      = var.socialcrawl_api_key
+  table_name                = module.database.table_name
+  table_arn                 = module.database.table_arn
+  openai_api_key            = var.openai_api_key
+  openai_model              = var.openai_model
+  llm_provider              = var.llm_provider
+  gemini_api_key            = var.gemini_api_key
+  competitor_scan_schedule  = var.competitor_scan_schedule
+  reddit_client_id          = var.reddit_client_id
+  reddit_client_secret      = var.reddit_client_secret
+  reddit_user_agent         = var.reddit_user_agent
+  newsapi_api_key           = var.newsapi_api_key
+  socialcrawl_api_key       = var.socialcrawl_api_key
   socialcrawl_lookback_days = var.socialcrawl_lookback_days
-  socialcrawl_sources      = var.socialcrawl_sources
-  inbound_webhook_secret   = local.inbound_webhook_secret
+  socialcrawl_sources       = var.socialcrawl_sources
+  inbound_webhook_secret    = local.inbound_webhook_secret
+}
+
+module "frontend_hosting" {
+  source      = "./modules/frontend_hosting"
+  name_prefix = local.name_prefix
 }
 
 module "auth" {
   source      = "./modules/auth"
   name_prefix = local.name_prefix
+  aws_region  = data.aws_region.current.name
+
+  domain_prefix       = local.cognito_domain_prefix
+  oauth_callback_urls = local.cognito_oauth_callback_urls
+  oauth_logout_urls   = local.cognito_oauth_logout_urls
 }
 
 module "api" {
@@ -66,9 +76,4 @@ module "http_api" {
   name_prefix                 = local.name_prefix
   mention_webhook_lambda_arn  = module.lambdas.mention_webhook_arn
   mention_webhook_lambda_name = module.lambdas.mention_webhook_function_name
-}
-
-module "frontend_hosting" {
-  source      = "./modules/frontend_hosting"
-  name_prefix = local.name_prefix
 }

@@ -31,7 +31,19 @@ Anota outputs `state_bucket` y `locks_table`.
 | Variable | `TF_STATE_BUCKET` | output del bootstrap |
 | Variable | `TF_STATE_LOCKS_TABLE` | `responselens-tf-locks` |
 | Variable | `TF_STATE_KEY` | `dev/terraform.tfstate` |
-| Variable | `NAME_PREFIX` | `responselens-dev` |
+| Variable | `NAME_PREFIX` | `responselens-dev` (fallback local; CI usa Terraform outputs) |
+
+## Orden de deploy (patrón statsGames)
+
+```text
+1. bootstrap apply → TF_STATE_BUCKET en GitHub
+2. Deploy Infrastructure (manual o push infra/**)
+3. Deploy Lambdas (auto vía workflow_run tras infra, o manual)
+4. npm run sync:env (local)
+5. Deploy Frontend (CloudFront)
+```
+
+Ver también `.github/workflows/README.md`.
 
 Sin `AWS_DEPLOY_ROLE_ARN` / keys, el workflow **omite** apply (no cuelga).
 Sin `TF_STATE_BUCKET` (con credenciales), **falla rápido** con mensaje claro.

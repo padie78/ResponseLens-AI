@@ -11,6 +11,10 @@ on:
       - 'tsconfig.base.json'
       - 'scripts/deploy-lambdas.sh'
       - '.github/workflows/deploy-lambdas.yml'
+  workflow_run:
+    workflows: ['Deploy Infrastructure']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -23,51 +27,76 @@ permissions:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
-  NAME_PREFIX: ${{ vars.NAME_PREFIX || 'responselens-dev' }}
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+  TF_STATE_LOCKS_TABLE: ${{ vars.TF_STATE_LOCKS_TABLE || 'responselens-tf-locks' }}
+  TF_STATE_KEY: ${{ vars.TF_STATE_KEY || 'dev/terraform.tfstate' }}
 
 jobs:
   build:
-    name: Build lambdas
+    name: Build (${{ matrix.artifact }})
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - path: api/api
+            artifact: appsync-api
+            tf_output: appsync_api_function_name
+          - path: ingestion/competitor_scan
+            artifact: competitor-scan
+            tf_output: competitor_scan_function_name
+          - path: ingestion/mention_webhook
+            artifact: mention-webhook
+            tf_output: mention_webhook_function_name
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/setup-node-monorepo
 
-      - name: Build libs + bundle lambdas
-        run: npm run build:lambdas
+      - name: Build libs (tsc)
+        run: npx nx run-many --target=build --projects=common,domain,application,infrastructure --parallel=4
 
-      - name: Zip artifacts
+      - name: Bundle lambda
+        working-directory: lambda_code/${{ matrix.path }}
+        run: npm run build
+
+      - name: Zip artifact
+        working-directory: lambda_code/${{ matrix.path }}
         run: |
-          set -euo pipefail
-          mkdir -p artifacts
-          for pair in "api/api:appsync-api" "ingestion/competitor_scan:competitor-scan"; do
-            path="${pair%%:*}"
-            name="${pair##*:}"
-            dir="lambda_code/${path}"
-            test -f "${dir}/dist/index.js"
-            (cd "${dir}/dist" && zip -qr "${GITHUB_WORKSPACE}/artifacts/${name}.zip" .)
-            echo "Zipped ${name}.zip"
-          done
+          cd dist
+          zip -qr ../${{ matrix.artifact }}.zip .
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lambda-zips
-          path: artifacts/*.zip
+          name: ${{ matrix.artifact }}-zip
+          path: lambda_code/${{ matrix.path }}/${{ matrix.artifact }}.zip
           retention-days: 7
           if-no-files-found: error
 
   deploy:
-    name: Deploy to AWS
+    name: Deploy (${{ matrix.artifact }})
     needs: build
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - artifact: appsync-api
+            tf_output: appsync_api_function_name
+            patch_appsync: false
+          - artifact: competitor-scan
+            tf_output: competitor_scan_function_name
+            patch_appsync: true
+          - artifact: mention-webhook
+            tf_output: mention_webhook_function_name
+            patch_appsync: true
+
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: lambda-zips
-          path: artifacts
 
       - name: Resolve auth mode
         id: auth
@@ -79,13 +108,11 @@ jobs:
           set -euo pipefail
           if [ -n "${AWS_DEPLOY_ROLE_ARN}" ]; then
             echo "mode=oidc" >> "$GITHUB_OUTPUT"
-            echo "Using OIDC role assumption"
           elif [ -n "${AWS_ACCESS_KEY_ID}" ] && [ -n "${AWS_SECRET_ACCESS_KEY}" ]; then
             echo "mode=keys" >> "$GITHUB_OUTPUT"
-            echo "Using static access keys"
           else
             echo "mode=skip" >> "$GITHUB_OUTPUT"
-            echo "::warning::Sin credenciales AWS. Configurá el secret AWS_DEPLOY_ROLE_ARN (OIDC, recomendado) o AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY. Deploy omitido; el build ya validó el código."
+            echo "::warning::Sin credenciales AWS. Deploy omitido."
           fi
 
       - name: Configure AWS credentials (OIDC)
@@ -103,24 +130,114 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Publish Lambda code
+      - name: Setup Terraform
         if: steps.auth.outputs.mode != 'skip'
-        env:
-          PREFIX: ${{ env.NAME_PREFIX }}
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.2
+          terraform_wrapper: false
+
+      - uses: actions/download-artifact@v4
+        if: steps.auth.outputs.mode != 'skip'
+        with:
+          name: ${{ matrix.artifact }}-zip
+          path: artifact
+
+      - name: Resolve function name from Terraform output
+        id: tf
+        if: steps.auth.outputs.mode != 'skip'
+        working-directory: infra
         run: |
           set -euo pipefail
-          publish() {
-            local zip="$1"
-            local fn="$2"
-            echo "Updating ${fn} from ${zip}"
-            aws lambda update-function-code \
-              --region "${AWS_REGION}" \
-              --function-name "${fn}" \
-              --zip-file "fileb://${zip}" \
-              --publish \
-              --no-cli-pager
-            aws lambda wait function-updated-v2 --function-name "${fn}"
-          }
-          publish artifacts/appsync-api.zip "${PREFIX}-appsync-api"
-          publish artifacts/competitor-scan.zip "${PREFIX}-competitor-scan"
-          echo "Deploy complete"
+
+          if [ -z "${TF_STATE_BUCKET}" ]; then
+            echo "::error::Falta la repository variable TF_STATE_BUCKET."
+            exit 1
+          fi
+
+          terraform init -input=false -no-color \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TF_STATE_LOCKS_TABLE}" \
+            -backend-config="encrypt=true"
+
+          terraform output -json > tf-outputs.json 2> tf-output.err || true
+          if ! jq -e 'type == "object" and length > 0' tf-outputs.json >/dev/null 2>&1; then
+            cat tf-output.err || true
+            echo "::error::Terraform no tiene outputs. Ejecutá primero Deploy Infrastructure."
+            exit 1
+          fi
+
+          FN_NAME=$(jq -r '.["${{ matrix.tf_output }}"].value // empty' tf-outputs.json)
+          if [ -z "$FN_NAME" ] || [ "$FN_NAME" = "null" ]; then
+            echo "::warning::Output '${{ matrix.tf_output }}' ausente."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          APPSYNC_ENDPOINT=$(jq -r '.appsync_endpoint.value // .graphql_endpoint.value // empty' tf-outputs.json)
+          APPSYNC_API_KEY=$(jq -r '.appsync_api_key.value // empty' tf-outputs.json)
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "function_name=$FN_NAME" >> "$GITHUB_OUTPUT"
+          echo "appsync_endpoint=$APPSYNC_ENDPOINT" >> "$GITHUB_OUTPUT"
+          echo "::add-mask::$APPSYNC_API_KEY"
+          echo "appsync_api_key=$APPSYNC_API_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Wait until Lambda is fully provisioned
+        if: steps.auth.outputs.mode != 'skip' && steps.tf.outputs.skip != 'true'
+        run: |
+          aws lambda wait function-active-v2 \
+            --function-name "${{ steps.tf.outputs.function_name }}"
+
+      - name: Update Lambda code
+        if: steps.auth.outputs.mode != 'skip' && steps.tf.outputs.skip != 'true'
+        run: |
+          aws lambda update-function-code \
+            --function-name "${{ steps.tf.outputs.function_name }}" \
+            --zip-file "fileb://artifact/${{ matrix.artifact }}.zip" \
+            --publish \
+            --no-cli-pager
+
+      - name: Wait until Lambda update is propagated
+        if: steps.auth.outputs.mode != 'skip' && steps.tf.outputs.skip != 'true'
+        run: |
+          aws lambda wait function-updated-v2 \
+            --function-name "${{ steps.tf.outputs.function_name }}"
+
+      - name: Patch AppSync publisher environment
+        if: >-
+          steps.auth.outputs.mode != 'skip'
+          && steps.tf.outputs.skip != 'true'
+          && matrix.patch_appsync == true
+        env:
+          FUNCTION_NAME: ${{ steps.tf.outputs.function_name }}
+          APPSYNC_ENDPOINT: ${{ steps.tf.outputs.appsync_endpoint }}
+          APPSYNC_API_KEY: ${{ steps.tf.outputs.appsync_api_key }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$APPSYNC_ENDPOINT" ] || [ -z "$APPSYNC_API_KEY" ]; then
+            echo "::error::No se pudieron resolver appsync_endpoint/appsync_api_key desde Terraform."
+            exit 1
+          fi
+
+          aws lambda get-function-configuration \
+            --function-name "$FUNCTION_NAME" \
+            --query 'Environment.Variables' \
+            --output json > current-env.json
+
+          jq \
+            --arg url "$APPSYNC_ENDPOINT" \
+            --arg key "$APPSYNC_API_KEY" \
+            '{Variables: (. + {APPSYNC_GRAPHQL_URL: $url, APPSYNC_API_KEY: $key})}' \
+            current-env.json > env-payload.json
+
+          aws lambda update-function-configuration \
+            --function-name "$FUNCTION_NAME" \
+            --environment "file://env-payload.json" \
+            --no-cli-pager
+
+          aws lambda wait function-updated-v2 \
+            --function-name "$FUNCTION_NAME"

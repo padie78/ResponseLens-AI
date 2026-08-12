@@ -2,8 +2,18 @@ output "graphql_endpoint" {
   value = module.api.graphql_endpoint
 }
 
+output "appsync_endpoint" {
+  value       = module.api.graphql_endpoint
+  description = "Alias statsGames-compatible para CI/sync."
+}
+
 output "realtime_endpoint" {
   value = module.api.realtime_endpoint
+}
+
+output "appsync_realtime_endpoint" {
+  value       = module.api.realtime_endpoint
+  description = "Alias statsGames-compatible."
 }
 
 output "appsync_api_key" {
@@ -44,6 +54,10 @@ output "cognito_user_pool_id" {
 
 output "cognito_client_id" {
   value = module.auth.user_pool_client_id
+}
+
+output "cognito_domain" {
+  value = module.auth.cognito_domain
 }
 
 output "cognito_endpoint" {
