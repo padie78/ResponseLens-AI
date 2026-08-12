@@ -1,4 +1,7 @@
 import type { SQSHandler } from 'aws-lambda';
+import { PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoKeys } from '@responselens/common';
+import { getDynamoDocClient, coreTableName } from '@responselens/infrastructure';
 import { searchSocialCrawlEverywhere } from './socialcrawl';
 
 type SocialCrawlJob = {
@@ -6,6 +9,19 @@ type SocialCrawlJob = {
   query: string;
   lookbackDays?: number;
   sources?: string;
+};
+
+type JobResultPayload = {
+  jobId: string;
+  query: string;
+  ok: boolean;
+  error: string | null;
+  mentionsJson: string;
+  rawCount: number;
+  creditsUsed: number | null;
+  creditsRemaining: number | null;
+  coverage: number | null;
+  planIntent: string | null;
 };
 
 const PUBLISH_MUTATION = `
@@ -17,18 +33,23 @@ const PUBLISH_MUTATION = `
   }
 `;
 
-async function publishResult(input: {
-  jobId: string;
-  query: string;
-  ok: boolean;
-  error: string | null;
-  mentionsJson: string;
-  rawCount: number;
-  creditsUsed: number | null;
-  creditsRemaining: number | null;
-  coverage: number | null;
-  planIntent: string | null;
-}): Promise<void> {
+async function persistJobResult(input: JobResultPayload): Promise<void> {
+  const ttl = Math.floor(Date.now() / 1000) + 3600;
+  await getDynamoDocClient().send(
+    new PutCommand({
+      TableName: coreTableName(),
+      Item: {
+        PK: DynamoKeys.socialCrawlJobPk(input.jobId),
+        SK: DynamoKeys.socialCrawlJobSk(),
+        entityType: 'SOCIALCRAWL_JOB',
+        ttl,
+        ...input,
+      },
+    }),
+  );
+}
+
+async function publishResult(input: JobResultPayload): Promise<void> {
   const url = process.env.APPSYNC_GRAPHQL_URL || '';
   const apiKey = process.env.APPSYNC_API_KEY || '';
   if (!url || !apiKey || url.includes('placeholder')) {
@@ -71,7 +92,7 @@ async function processJob(job: SocialCrawlJob): Promise<void> {
     sources: job.sources,
   });
 
-  await publishResult({
+  const payload: JobResultPayload = {
     jobId,
     query,
     ok: result.ok,
@@ -82,7 +103,18 @@ async function processJob(job: SocialCrawlJob): Promise<void> {
     creditsRemaining: result.creditsRemaining,
     coverage: result.coverage,
     planIntent: result.planIntent,
-  });
+  };
+
+  // Persist first so SPA poll works even if subscription drops.
+  await persistJobResult(payload);
+  try {
+    await publishResult(payload);
+  } catch (err) {
+    console.error('socialcrawl_worker.publish_failed', {
+      jobId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export const handler: SQSHandler = async (event) => {

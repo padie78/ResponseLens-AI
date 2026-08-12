@@ -242,6 +242,9 @@ type Query {
   getUserConfig(userId: ID!): UserConfig @aws_api_key @aws_cognito_user_pools
 
   listCompetitorAlerts(userId: ID!, limit: Int): [CompetitorAlert!]! @aws_api_key @aws_cognito_user_pools
+
+  """Resultado de un job SocialCrawl async (poll fallback si la subscription no llega)."""
+  getSocialCrawlJob(jobId: ID!): SocialCrawlJobResult @aws_api_key @aws_cognito_user_pools
 }
 
 type Mutation {

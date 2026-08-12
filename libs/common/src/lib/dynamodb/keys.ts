@@ -4,12 +4,15 @@
  *   1. Config usuario:  PK = USER#<userId>  SK = CONFIG
  *   2. Alerta rival:    PK = USER#<userId>  SK = ALERT#<detectedAt>#<alertId>
  *   3. Lookup alerta:   GSI1PK = ALERT#<alertId>  GSI1SK = USER#<userId>
+ *   4. Job SocialCrawl: PK = JOB#SC#<jobId>  SK = RESULT  (TTL ~1h)
  */
 
 export const KeyPrefix = {
   User: 'USER#',
   Config: 'CONFIG',
   Alert: 'ALERT#',
+  JobSc: 'JOB#SC#',
+  Result: 'RESULT',
 } as const;
 
 export const DynamoKeys = {
@@ -35,5 +38,13 @@ export const DynamoKeys = {
 
   alertGsi1Sk(userId: string): string {
     return `${KeyPrefix.User}${userId}`;
+  },
+
+  socialCrawlJobPk(jobId: string): string {
+    return `${KeyPrefix.JobSc}${jobId}`;
+  },
+
+  socialCrawlJobSk(): string {
+    return KeyPrefix.Result;
   },
 };

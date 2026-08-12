@@ -113,6 +113,9 @@ export class ScanService {
       const scKeyMissing = scErrs.some((e) =>
         /SOCIALCRAWL_API_KEY missing|key solo en servidor|socialcrawl_proxy_failed/i.test(e),
       );
+      const scCredits = scErrs.some((e) =>
+        /credit|quota|payment|billing|insufficient|402|429/i.test(e),
+      );
       const scTimeout = scErrs.some((e) =>
         /timed out|socialcrawl_timeout|socialcrawl_job_timeout|Task timed out/i.test(e),
       );
@@ -120,6 +123,8 @@ export class ScanService {
         ? 'SC OFF (falta AppSync — npm run sync:env)'
         : scKeyMissing
           ? 'SC ERROR (key falta en Lambda — Deploy Infrastructure)'
+          : scCredits
+            ? 'SC SIN CRÉDITOS (recargá en socialcrawl.dev)'
           : scTimeout
             ? 'SC TIMEOUT (worker >100s — SocialCrawl lento o cola)'
             : sc > 0

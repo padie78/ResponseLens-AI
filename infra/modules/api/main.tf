@@ -169,6 +169,7 @@ locals {
   lambda_resolvers = {
     "Query.getUserConfig"             = { type = "Query", field = "getUserConfig" }
     "Query.listCompetitorAlerts"      = { type = "Query", field = "listCompetitorAlerts" }
+    "Query.getSocialCrawlJob"         = { type = "Query", field = "getSocialCrawlJob" }
     "Mutation.analyzeReply"           = { type = "Mutation", field = "analyzeReply" }
     "Mutation.analyzeRivalReport"     = { type = "Mutation", field = "analyzeRivalReport" }
     "Mutation.saveUserConfig"         = { type = "Mutation", field = "saveUserConfig" }

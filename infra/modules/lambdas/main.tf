@@ -164,6 +164,7 @@ resource "aws_lambda_function" "socialcrawl_worker" {
       SOCIALCRAWL_LOOKBACK_DAYS    = tostring(var.socialcrawl_lookback_days)
       SOCIALCRAWL_SOURCES          = var.socialcrawl_sources
       SOCIALCRAWL_FETCH_TIMEOUT_MS = "110000"
+      CORE_TABLE_NAME              = var.table_name
     }
   }
 

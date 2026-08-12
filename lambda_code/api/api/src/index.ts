@@ -1,6 +1,9 @@
 import type { AppSyncResolverHandler } from 'aws-lambda';
 import { randomUUID } from 'crypto';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoKeys } from '@responselens/common';
+import { coreTableName, getDynamoDocClient } from '@responselens/infrastructure';
 import {
   analyzeReply,
   analyzeRivalReport,
@@ -54,6 +57,35 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
       return updateCompetitorAlert.execute(
         args.input as Parameters<typeof updateCompetitorAlert.execute>[0],
       );
+
+    case 'getSocialCrawlJob': {
+      const jobId = String(args.jobId || '').trim();
+      if (!jobId) return null;
+      const res = await getDynamoDocClient().send(
+        new GetCommand({
+          TableName: coreTableName(),
+          Key: {
+            PK: DynamoKeys.socialCrawlJobPk(jobId),
+            SK: DynamoKeys.socialCrawlJobSk(),
+          },
+        }),
+      );
+      const item = res.Item;
+      if (!item) return null;
+      return {
+        jobId: String(item.jobId ?? jobId),
+        query: String(item.query ?? ''),
+        ok: Boolean(item.ok),
+        error: item.error != null ? String(item.error) : null,
+        mentionsJson: item.mentionsJson ?? '[]',
+        rawCount: Number(item.rawCount ?? 0),
+        creditsUsed: typeof item.creditsUsed === 'number' ? item.creditsUsed : null,
+        creditsRemaining:
+          typeof item.creditsRemaining === 'number' ? item.creditsRemaining : null,
+        coverage: typeof item.coverage === 'number' ? item.coverage : null,
+        planIntent: item.planIntent != null ? String(item.planIntent) : null,
+      };
+    }
 
     case 'startSocialCrawlSearch': {
       const input = (args.input || {}) as {
