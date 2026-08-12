@@ -11,7 +11,8 @@
     "build:lambdas": "npm run build && npm run build --workspaces --if-present",
     "build:web": "nx build responselens-web",
     "start:web": "nx serve responselens-web",
-    "sync:env": "bash scripts/sync-local-env.sh"
+    "sync:env": "bash scripts/sync-local-env.sh",
+    "patch:socialcrawl": "bash scripts/patch-socialcrawl-env.sh"
   },
   "workspaces": [
     "lambda_code/ingestion/*",

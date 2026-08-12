@@ -241,3 +241,59 @@ jobs:
 
           aws lambda wait function-updated-v2 \
             --function-name "$FUNCTION_NAME"
+
+  patch-socialcrawl:
+    name: Patch SocialCrawl API key
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve auth mode
+        id: auth
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${AWS_DEPLOY_ROLE_ARN}" ]; then echo "mode=oidc" >> "$GITHUB_OUTPUT"
+          elif [ -n "${AWS_ACCESS_KEY_ID}" ] && [ -n "${AWS_SECRET_ACCESS_KEY}" ]; then echo "mode=keys" >> "$GITHUB_OUTPUT"
+          else echo "mode=skip" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.auth.outputs.mode == 'oidc'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials (access keys)
+        if: steps.auth.outputs.mode == 'keys'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        if: steps.auth.outputs.mode != 'skip'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.2
+          terraform_wrapper: false
+
+      - name: Patch SOCIALCRAWL_API_KEY on Lambdas
+        if: steps.auth.outputs.mode != 'skip'
+        env:
+          SOCIALCRAWL_API_KEY: ${{ secrets.SOCIALCRAWL_API_KEY }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SOCIALCRAWL_API_KEY}" ]; then
+            echo "::error::Secret SOCIALCRAWL_API_KEY vacío."
+            exit 1
+          fi
+          export TF_STATE_BUCKET
+          bash scripts/patch-socialcrawl-env.sh

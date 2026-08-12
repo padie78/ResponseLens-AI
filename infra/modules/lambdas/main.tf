@@ -44,6 +44,11 @@ resource "aws_lambda_function" "appsync_api" {
       SOCIALCRAWL_FETCH_TIMEOUT_MS = "25000"
     }
   }
+
+  # CI / patch-socialcrawl-env.sh inyectan secrets reales; Terraform no debe pisarlos en cada apply.
+  lifecycle {
+    ignore_changes = [environment]
+  }
 }
 
 resource "aws_cloudwatch_log_group" "appsync_api" {

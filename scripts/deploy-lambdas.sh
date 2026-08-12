@@ -112,4 +112,10 @@ zip_and_publish "$ROOT/lambda_code/ingestion/mention_webhook" "$FN_WEBHOOK"
 patch_appsync_env "$FN_SCAN"
 patch_appsync_env "$FN_WEBHOOK"
 
+if [[ -f "$ROOT/.env.local" ]] || [[ -n "${SOCIALCRAWL_API_KEY:-}" ]] || [[ -n "${TF_VAR_socialcrawl_api_key:-}" ]]; then
+  bash "$ROOT/scripts/patch-socialcrawl-env.sh" || echo "WARN: patch SocialCrawl omitido (sin key)" >&2
+else
+  echo "WARN: sin SOCIALCRAWL_API_KEY — corré scripts/patch-socialcrawl-env.sh después del deploy" >&2
+fi
+
 echo "Deploy complete"
