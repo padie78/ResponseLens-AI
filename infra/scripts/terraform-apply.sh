@@ -22,10 +22,3 @@ terraform output frontend_url || true
 echo ""
 echo "=== Webhook inbound ==="
 terraform output mentions_webhook_url || true
-
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-if [[ -f "$ROOT/.env.local" ]] || [[ -n "${SOCIALCRAWL_API_KEY:-}" ]] || [[ -n "${TF_VAR_socialcrawl_api_key:-}" ]]; then
-  echo ""
-  echo "=== Patch SocialCrawl key en Lambdas ==="
-  bash "$ROOT/scripts/patch-socialcrawl-env.sh" || echo "WARN: patch SocialCrawl falló (revisá SOCIALCRAWL_API_KEY)" >&2
-fi
