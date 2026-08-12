@@ -7,7 +7,6 @@ import { environment } from '../../environments/environment';
 import {
   packAlertMeta,
   unpackAlertMeta,
-  type CompetitorAlert,
 } from '../models/alert.model';
 
 const ALERT_FIELDS = `
