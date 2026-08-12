@@ -224,16 +224,7 @@ function normalizeJobPayload(data) {
   const row = /** @type {Record<string, unknown>} */ (data);
   if (!row.ok) return { ok: false, error: String(row.error || 'socialcrawl_failed') };
 
-  let mentions = row.mentionsJson;
-  if (typeof mentions === 'string') {
-    try {
-      mentions = JSON.parse(mentions);
-    } catch {
-      mentions = [];
-    }
-  }
-  if (!Array.isArray(mentions)) mentions = [];
-
+  const mentions = coerceMentionsJson(row.mentionsJson);
   return {
     ok: true,
     mentions,
@@ -243,6 +234,28 @@ function normalizeJobPayload(data) {
     coverage: row.coverage,
     planIntent: row.planIntent,
   };
+}
+
+/**
+ * AppSync AWSJSON + JSON.stringify en el worker a veces dejan el payload
+ * doble-encodeado (string que contiene el JSON array).
+ * @param {unknown} raw
+ * @returns {unknown[]}
+ */
+function coerceMentionsJson(raw) {
+  let cur = raw;
+  for (let i = 0; i < 3; i += 1) {
+    if (Array.isArray(cur)) return cur;
+    if (typeof cur !== 'string') break;
+    const s = cur.trim();
+    if (!s) return [];
+    try {
+      cur = JSON.parse(s);
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(cur) ? cur : [];
 }
 
 /**

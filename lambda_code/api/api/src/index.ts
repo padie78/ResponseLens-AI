@@ -72,12 +72,23 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
       );
       const item = res.Item;
       if (!item) return null;
+      let mentionsJson: unknown = item.mentionsJson ?? [];
+      // Legacy rows may store a JSON string (possibly double-encoded).
+      for (let i = 0; i < 3 && typeof mentionsJson === 'string'; i += 1) {
+        try {
+          mentionsJson = JSON.parse(mentionsJson);
+        } catch {
+          mentionsJson = [];
+          break;
+        }
+      }
+      if (!Array.isArray(mentionsJson)) mentionsJson = [];
       return {
         jobId: String(item.jobId ?? jobId),
         query: String(item.query ?? ''),
         ok: Boolean(item.ok),
         error: item.error != null ? String(item.error) : null,
-        mentionsJson: item.mentionsJson ?? '[]',
+        mentionsJson,
         rawCount: Number(item.rawCount ?? 0),
         creditsUsed: typeof item.creditsUsed === 'number' ? item.creditsUsed : null,
         creditsRemaining:

@@ -18,7 +18,8 @@ type JobResultPayload = {
   query: string;
   ok: boolean;
   error: string | null;
-  mentionsJson: string;
+  /** Mentions array — AppSync AWSJSON + Dynamo document list */
+  mentionsJson: unknown;
   rawCount: number;
   creditsUsed: number | null;
   creditsRemaining: number | null;
@@ -104,7 +105,8 @@ async function processJob(job: SocialCrawlJob): Promise<void> {
     query,
     ok: result.ok,
     error: result.error ?? null,
-    mentionsJson: JSON.stringify(result.mentions ?? []),
+    // Array/object for AppSync AWSJSON — never pre-stringify (avoids double encoding).
+    mentionsJson: result.mentions ?? [],
     rawCount: result.rawCount,
     creditsUsed: result.creditsUsed,
     creditsRemaining: result.creditsRemaining,
