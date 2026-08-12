@@ -73,6 +73,20 @@ jobs:
             exit 1
           fi
 
+      - name: Validate required secrets
+        if: steps.auth.outputs.mode != 'skip'
+        env:
+          SOCIALCRAWL_API_KEY: ${{ secrets.SOCIALCRAWL_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SOCIALCRAWL_API_KEY}" ]; then
+            echo "::error::Secret SOCIALCRAWL_API_KEY vacío o inexistente."
+            echo "::error::GitHub → Settings → Secrets and variables → Actions → Secrets"
+            echo "::error::Nombre exacto: SOCIALCRAWL_API_KEY (Repository secret, no Variable)."
+            exit 1
+          fi
+          echo "SOCIALCRAWL_API_KEY presente (${#SOCIALCRAWL_API_KEY} chars)."
+
       - name: Configure AWS credentials (OIDC)
         if: steps.auth.outputs.mode == 'oidc'
         uses: aws-actions/configure-aws-credentials@v4
