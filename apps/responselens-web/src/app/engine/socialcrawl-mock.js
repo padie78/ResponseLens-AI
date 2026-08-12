@@ -46,8 +46,15 @@ export async function fetchMockSocialCrawlMentions(query) {
 
   const envelope = buildMockEverywhereEnvelope(q);
   const planIntent = envelope.data.plan?.intent || 'opinion';
+  /** @type {Record<string, { title?: string, score?: number }>} */
+  const clustersById = {};
+  for (const c of envelope.data.clusters || []) {
+    const id = String(c.cluster_id || c.id || '');
+    if (!id) continue;
+    clustersById[id] = { title: c.title, score: c.score };
+  }
   const mentions = envelope.data.items
-    .map((item) => mapMockItem(item, planIntent))
+    .map((item) => mapMockItem(item, planIntent, clustersById))
     .filter(Boolean);
 
   return {
@@ -374,6 +381,13 @@ export function buildMockEverywhereEnvelope(query) {
           sources: ['reddit', 'threads'],
           score: 0.61,
         },
+        {
+          cluster_id: 'c_mock_dx',
+          title: `${brand} DX / SDK friction`,
+          candidate_ids: [items[4].candidate_id],
+          sources: ['github'],
+          score: 0.44,
+        },
       ],
       sources_called: [
         'hackernews',
@@ -415,7 +429,7 @@ export function buildMockEverywhereEnvelope(query) {
   };
 }
 
-function mapMockItem(item, planIntent) {
+function mapMockItem(item, planIntent, clustersById = {}) {
   const platform =
     normalizePlatformChannel(item.source || 'web') ||
     String(item.source || 'web')
@@ -455,6 +469,8 @@ function mapMockItem(item, planIntent) {
   }
 
   const candidateId = String(item.candidate_id || item.id || Math.random().toString(36).slice(2, 9));
+  const clusterId = item.cluster_id != null ? String(item.cluster_id) : null;
+  const cluster = clusterId ? clustersById[clusterId] : null;
   return {
     id: `sc_${platform}_${candidateId}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120),
     text: text.slice(0, 4000),
@@ -470,8 +486,9 @@ function mapMockItem(item, planIntent) {
       engagement,
       topComments: topComments.slice(0, 5),
       sources: Array.isArray(item.sources) ? item.sources.map(String) : [String(item.source)],
-      clusterId: item.cluster_id != null ? String(item.cluster_id) : null,
-      clusterTitle: null,
+      clusterId,
+      clusterTitle: cluster?.title ? String(cluster.title) : null,
+      clusterScore: typeof cluster?.score === 'number' ? cluster.score : null,
       thumbnailUrl: null,
       planIntent,
       candidateId,

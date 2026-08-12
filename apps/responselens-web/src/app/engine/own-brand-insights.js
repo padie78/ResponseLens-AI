@@ -53,8 +53,8 @@ export function computeOwnPredictive({ alerts = [], days = 14 } = {}) {
   const scorePrev = avg(previous);
   const scoreDelta = scoreRecent - scorePrev;
 
-  /** series diarias volumen + score medio (7 días) */
-  /** @type {{ label: string, volume: number, avgScore: number }[]} */
+  /** series diarias volumen + score medio + reach (7 días) */
+  /** @type {{ label: string, volume: number, avgScore: number, reach: number }[]} */
   const series = [];
   for (let i = 6; i >= 0; i -= 1) {
     const dayStart = new Date(now - i * DAY_MS);
@@ -68,6 +68,10 @@ export function computeOwnPredictive({ alerts = [], days = 14 } = {}) {
       label,
       volume: bucket.length,
       avgScore: avg(bucket),
+      reach: bucket.reduce((s, a) => {
+        const p = a?._scMeta?.engagement?.points;
+        return s + (typeof p === 'number' ? p : 0);
+      }, 0),
     });
   }
 
@@ -77,6 +81,21 @@ export function computeOwnPredictive({ alerts = [], days = 14 } = {}) {
   crisisProb += Math.min(20, health.criticalOpen * 8);
   if (volDeltaPct > 40) crisisProb += 12;
   if (scoreDelta > 10) crisisProb += 10;
+  const reachRecent = recent.reduce((s, a) => {
+    const p = a?._scMeta?.engagement?.points;
+    return s + (typeof p === 'number' ? p : 0);
+  }, 0);
+  const reachPrev = previous.reduce((s, a) => {
+    const p = a?._scMeta?.engagement?.points;
+    return s + (typeof p === 'number' ? p : 0);
+  }, 0);
+  const reachDeltaPct =
+    reachPrev > 0
+      ? Math.round(((reachRecent - reachPrev) / reachPrev) * 100)
+      : reachRecent > 0
+        ? 100
+        : 0;
+  if (reachDeltaPct > 50) crisisProb += 8;
   crisisProb = Math.max(5, Math.min(95, Math.round(crisisProb)));
 
   let outlook = 'estable';
@@ -107,14 +126,17 @@ export function computeOwnPredictive({ alerts = [], days = 14 } = {}) {
     scoreRecent,
     scorePrev,
     scoreDelta,
+    reachRecent,
+    reachPrev,
+    reachDeltaPct,
     forecastScore7d,
     series,
     narrative:
       outlook === 'worsening'
-        ? `El volumen reciente (${volRecent}) y el score medio (${scoreRecent}) sugieren presión reputacional. Probabilidad de crisis ~${crisisProb}%.`
+        ? `El volumen reciente (${volRecent}) y el score medio (${scoreRecent}) sugieren presión reputacional. Alcance ${reachRecent.toLocaleString('es')} pts (Δ ${reachDeltaPct > 0 ? '+' : ''}${reachDeltaPct}%). Prob. crisis ~${crisisProb}%.`
         : outlook === 'improving'
-          ? `Señal de alivio: score bajando (${scoreDelta}) y volumen controlado. Seguí cerrando abiertas.`
-          : `Trayectoria ${outlookLabel.toLowerCase()}. Score proyectado a 7 días: ${forecastScore7d}/100.`,
+          ? `Señal de alivio: score bajando (${scoreDelta}) y volumen controlado. Alcance reciente ${reachRecent.toLocaleString('es')} pts. Seguí cerrando abiertas.`
+          : `Trayectoria ${outlookLabel.toLowerCase()}. Score proyectado a 7 días: ${forecastScore7d}/100 · alcance ${reachRecent.toLocaleString('es')} pts.`,
   };
 }
 
@@ -207,16 +229,25 @@ export function computeOwnPrescriptive({ alerts = [], companyName = 'tu marca' }
  */
 export function computeOwnThemes({ alerts = [] } = {}) {
   const list = ownAlerts(alerts);
-  /** @type {Record<string, { count: number, avgScore: number, sum: number, n: number, neg: number }>} */
+  /** @type {Record<string, { count: number, avgScore: number, sum: number, n: number, neg: number, points: number }>} */
   const map = {};
   for (const a of list) {
     const themes = detectThemes(a.originalComplaint || '', 'es');
     const score = typeof a._aiScore === 'number' ? a._aiScore : 0;
     const sent = String(a._sentiment || a.sentiment || '').toUpperCase();
-    for (const t of themes) {
+    const pts =
+      typeof a?._scMeta?.engagement?.points === 'number' ? a._scMeta.engagement.points : 0;
+    const clusterTheme = a?._scMeta?.clusterTitle;
+    const themeList = themes.length
+      ? themes
+      : clusterTheme
+        ? [{ id: 'cluster', label: String(clusterTheme) }]
+        : [{ id: 'general', label: 'General' }];
+    for (const t of themeList) {
       const key = t.label || t.id;
-      if (!map[key]) map[key] = { count: 0, avgScore: 0, sum: 0, n: 0, neg: 0 };
+      if (!map[key]) map[key] = { count: 0, avgScore: 0, sum: 0, n: 0, neg: 0, points: 0 };
       map[key].count += 1;
+      map[key].points += pts;
       if (score) {
         map[key].sum += score;
         map[key].n += 1;
@@ -230,6 +261,7 @@ export function computeOwnThemes({ alerts = [] } = {}) {
       count: v.count,
       avgScore: v.n ? Math.round(v.sum / v.n) : 0,
       negPct: v.count ? Math.round((v.neg / v.count) * 100) : 0,
+      points: v.points,
     }))
-    .sort((a, b) => b.count - a.count || b.avgScore - a.avgScore);
+    .sort((a, b) => b.points - a.points || b.count - a.count || b.avgScore - a.avgScore);
 }

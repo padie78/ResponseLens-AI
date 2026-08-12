@@ -32,6 +32,7 @@ import {
   BrandHealthPanelComponent,
   EchartComponent,
   FeedFiltersComponent,
+  ListeningPulseComponent,
   ScanBlockerComponent,
   type EChartOptions,
   type FeedFilterState,
@@ -54,6 +55,7 @@ import {
     TabViewModule,
     AlertCardComponent,
     BrandHealthPanelComponent,
+    ListeningPulseComponent,
     FeedFiltersComponent,
     ScanBlockerComponent,
     EchartComponent,
@@ -221,13 +223,22 @@ import {
 
           <p-tabPanel header="Stats" leftIcon="pi pi-chart-bar">
             @if (config.hasCompany()) {
-              <rl-brand-health-panel
-                variant="dashboard"
-                [companyName]="config.companyName()"
-                [aliases]="companyAliases()"
-                [alerts]="alerts.items()"
-                [history]="history.items()"
-              />
+              <div class="rl-stats-stack">
+                <rl-listening-pulse
+                  [alerts]="alerts.items()"
+                  scope="own"
+                  mode="reputation"
+                  eyebrow="Propios · SocialCrawl"
+                  title="Pulse de reputación"
+                />
+                <rl-brand-health-panel
+                  variant="dashboard"
+                  [companyName]="config.companyName()"
+                  [aliases]="companyAliases()"
+                  [alerts]="alerts.items()"
+                  [history]="history.items()"
+                />
+              </div>
             } @else {
               <div class="rl-page__panel"><p>Configurá la empresa para ver estadísticas.</p></div>
             }
@@ -253,14 +264,14 @@ import {
                     <strong>{{ predictive().volDeltaPct > 0 ? '+' : '' }}{{ predictive().volDeltaPct }}%</strong>
                   </div>
                   <div>
-                    <span>Δ score</span>
-                    <strong>{{ predictive().scoreDelta > 0 ? '+' : '' }}{{ predictive().scoreDelta }}</strong>
+                    <span>Δ alcance</span>
+                    <strong>{{ predictive().reachDeltaPct > 0 ? '+' : '' }}{{ predictive().reachDeltaPct }}%</strong>
                   </div>
                 </div>
               </article>
               <section class="rl-panel">
-                <header class="rl-panel__head"><h2 class="rl-panel__title">Volumen y score (7 días)</h2></header>
-                <rl-echart [options]="predictiveChart()" style="--rl-echart-height: 280px" />
+                <header class="rl-panel__head"><h2 class="rl-panel__title">Volumen · score · alcance (7 días)</h2></header>
+                <rl-echart [options]="predictiveChart()" style="--rl-echart-height: 300px" />
               </section>
             </div>
           </p-tabPanel>
@@ -328,6 +339,7 @@ import {
                     <div class="rl-themes-table__row">
                       <strong>{{ t.theme }}</strong>
                       <span>{{ t.count }} menciones</span>
+                      <span>{{ t.points || 0 }} pts</span>
                       <span>Score {{ t.avgScore || '—' }}</span>
                       <span [class.rl-themes-table__neg]="t.negPct >= 40">{{ t.negPct }}% neg</span>
                     </div>
@@ -393,11 +405,11 @@ export class OwnPageComponent implements OnInit {
     return {
       tooltip: { trigger: 'axis' },
       legend: { bottom: 0, textStyle: { color: '#9aa8c0' } },
-      grid: { left: 40, right: 24, top: 24, bottom: 48 },
+      grid: { left: 44, right: 48, top: 28, bottom: 52 },
       xAxis: { type: 'category', data: s.map((d) => d.label) },
       yAxis: [
         { type: 'value', name: 'Vol', minInterval: 1 },
-        { type: 'value', name: 'Score', min: 0, max: 100 },
+        { type: 'value', name: 'Score/Reach', min: 0 },
       ],
       series: [
         {
@@ -405,7 +417,7 @@ export class OwnPageComponent implements OnInit {
           type: 'bar',
           data: s.map((d) => d.volume),
           itemStyle: { color: '#38bdf8' },
-          barMaxWidth: 28,
+          barMaxWidth: 22,
         },
         {
           name: 'Score medio',
@@ -415,6 +427,15 @@ export class OwnPageComponent implements OnInit {
           itemStyle: { color: '#2dd4bf' },
           smooth: true,
         },
+        {
+          name: 'Alcance (pts)',
+          type: 'line',
+          yAxisIndex: 1,
+          data: s.map((d) => d.reach || 0),
+          itemStyle: { color: '#f59e0b' },
+          smooth: true,
+          lineStyle: { type: 'dashed' },
+        },
       ],
     };
   });
@@ -423,15 +444,24 @@ export class OwnPageComponent implements OnInit {
     const rows = this.themes().slice(0, 8);
     return {
       tooltip: { trigger: 'axis' },
-      grid: { left: 120, right: 24, top: 16, bottom: 28 },
+      legend: { bottom: 0, textStyle: { color: '#9aa8c0' } },
+      grid: { left: 130, right: 28, top: 16, bottom: 48 },
       xAxis: { type: 'value', minInterval: 1 },
       yAxis: { type: 'category', data: rows.map((r) => r.theme).reverse() },
       series: [
         {
+          name: 'Menciones',
           type: 'bar',
           data: rows.map((r) => r.count).reverse(),
-          itemStyle: { color: '#a78bfa', borderRadius: [0, 6, 6, 0] },
-          barMaxWidth: 18,
+          itemStyle: { color: '#38bdf8', borderRadius: [0, 6, 6, 0] },
+          barMaxWidth: 12,
+        },
+        {
+          name: 'Alcance (pts)',
+          type: 'bar',
+          data: rows.map((r) => r.points || 0).reverse(),
+          itemStyle: { color: '#2dd4bf', borderRadius: [0, 6, 6, 0] },
+          barMaxWidth: 12,
         },
       ],
     };

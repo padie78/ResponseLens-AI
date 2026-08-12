@@ -27,6 +27,7 @@ export type SocialCrawlMention = {
     sources?: string[];
     clusterId?: string | null;
     clusterTitle?: string | null;
+    clusterScore?: number | null;
     thumbnailUrl?: string | null;
     planIntent?: string | null;
     candidateId?: string | null;
@@ -78,8 +79,16 @@ type RawItem = Record<string, unknown> & {
   }>;
 };
 
-function mapItem(item: RawItem, planIntent: string | null): SocialCrawlMention | null {
-  const platform = normalizePlatform(String(item.source || 'web'));
+function mapItem(
+  item: RawItem,
+  planIntent: string | null,
+  clustersById: Record<string, { title: string; score: number }> = {},
+): SocialCrawlMention | null {
+  const platform =
+    normalizePlatform(String(item.source || 'web')) ||
+    String(item.source || 'web')
+      .toLowerCase()
+      .replace(/-ai-search$/, '');
   const title = String(item.title || '').trim();
   const body = String(item.text || '').trim();
   const topComments: SocialCrawlTopComment[] = [];
@@ -114,6 +123,8 @@ function mapItem(item: RawItem, planIntent: string | null): SocialCrawlMention |
   const candidateId = String(
     item.candidate_id || item.url || Math.random().toString(36).slice(2, 9),
   );
+  const clusterId = item.cluster_id != null ? String(item.cluster_id) : null;
+  const cluster = clusterId ? clustersById[clusterId] : undefined;
   return {
     id: `sc_${platform}_${candidateId}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120),
     text: text.slice(0, 4000),
@@ -128,8 +139,9 @@ function mapItem(item: RawItem, planIntent: string | null): SocialCrawlMention |
       engagement: { points, numComments },
       topComments: topComments.slice(0, 5),
       sources: Array.isArray(item.sources) ? item.sources.map(String) : [String(item.source)],
-      clusterId: item.cluster_id != null ? String(item.cluster_id) : null,
-      clusterTitle: null,
+      clusterId,
+      clusterTitle: cluster?.title ?? null,
+      clusterScore: cluster?.score ?? null,
       thumbnailUrl: null,
       planIntent,
       candidateId,
@@ -331,8 +343,13 @@ export async function searchSocialCrawlMock(query: string): Promise<SocialCrawlS
 
   const items = buildItems(brand, Date.now());
   const planIntent = 'opinion';
+  const clustersById: Record<string, { title: string; score: number }> = {
+    c_mock_outage: { title: `${brand} incident / status mismatch`, score: 0.78 },
+    c_mock_billing: { title: `${brand} double charges`, score: 0.61 },
+    c_mock_dx: { title: `${brand} DX / SDK friction`, score: 0.44 },
+  };
   const mentions = items
-    .map((item) => mapItem(item, planIntent))
+    .map((item) => mapItem(item, planIntent, clustersById))
     .filter((m): m is SocialCrawlMention => Boolean(m));
 
   return {

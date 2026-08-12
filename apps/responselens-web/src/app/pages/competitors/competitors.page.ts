@@ -9,6 +9,9 @@ import {
 import { RouterLink } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
 import { ButtonModule } from 'primeng/button';
+import { TabViewModule } from 'primeng/tabview';
+import { TagModule } from 'primeng/tag';
+import { computeListeningPulse } from '../../engine/listening-insights.js';
 import { ScanService } from '../../services/scan.service';
 import { AlertsStore } from '../../stores/alerts.store';
 import { HistoryStore } from '../../stores/history.store';
@@ -16,8 +19,11 @@ import { UserConfigStore } from '../../stores/user-config.store';
 import { filterAlerts } from '../../utils/alert-filters';
 import {
   AlertCardComponent,
+  EchartComponent,
   FeedFiltersComponent,
+  ListeningPulseComponent,
   ScanBlockerComponent,
+  type EChartOptions,
   type FeedFilterState,
 } from '../../ui';
 
@@ -29,9 +35,13 @@ import {
     IonContent,
     RouterLink,
     ButtonModule,
+    TabViewModule,
+    TagModule,
     AlertCardComponent,
     FeedFiltersComponent,
     ScanBlockerComponent,
+    ListeningPulseComponent,
+    EchartComponent,
   ],
   template: `
     <ion-content>
@@ -94,61 +104,146 @@ import {
             <span>Rivales:</span>
             <strong>{{ rivalNames().join(' · ') }}</strong>
           </div>
-        }
 
-        <rl-feed-filters
-          mode="comp"
-          [rivals]="rivalNames()"
-          (filterChange)="onFilterChange($event)"
-        />
-
-        @if (alerts.loading()) {
-          <p class="rl-page__lead">Cargando…</p>
-        } @else if (filtered().length === 0) {
-          <div class="rl-page__panel">
-            <p>No hay oportunidades con estos filtros.</p>
-            <button type="button" class="rl-auth-gate__submit" style="margin-top: 1rem" (click)="runScan()">
-              Escanear ahora
-            </button>
-          </div>
-        } @else {
-          <div class="rl-feed">
-            @for (item of filtered(); track item.alertId) {
-              <rl-alert-card
-                [alert]="item"
-                [showCapture]="true"
-                [companyName]="config.companyName()"
-                [selected]="selectedId() === item.alertId"
-                (select)="selectedId.set($event)"
-                (dismiss)="onDismiss($event)"
-                (contact)="onContact($event)"
-                (won)="onWon($event)"
+          <p-tabView styleClass="rl-own-tabs" [(activeIndex)]="activeTab">
+            <p-tabPanel header="Feed" leftIcon="pi pi-inbox">
+              <rl-feed-filters
+                mode="comp"
+                [rivals]="rivalNames()"
+                (filterChange)="onFilterChange($event)"
               />
-            }
-          </div>
-        }
 
-        @if (selectedAlert(); as sel) {
-          <aside class="rl-workspace rl-workspace--inline">
-            <h2 class="rl-workspace__title">Pipeline — {{ sel.competitorName }}</h2>
-            @if (sel.salesPitch) {
-              <p class="rl-workspace__preview">{{ sel.salesPitch }}</p>
-              <button type="button" class="rl-auth-gate__submit" (click)="copyPitch(sel.salesPitch)">
-                Copiar pitch
-              </button>
-            } @else {
-              <p class="rl-workspace__preview">{{ sel.originalComplaint }}</p>
-            }
-            <div class="rl-workspace__pipeline">
-              <button type="button" class="rl-alert__btn rl-alert__btn--primary" (click)="onContact(sel.alertId)">
-                Contactado
-              </button>
-              <button type="button" class="rl-alert__btn rl-alert__btn--ok" (click)="onWon(sel.alertId)">
-                Ganado
-              </button>
-              <button type="button" class="rl-alert__btn" (click)="onDismiss(sel.alertId)">Descartar</button>
-            </div>
-          </aside>
+              <div class="rl-layout-split">
+                <section class="rl-layout-split__main">
+                  @if (alerts.loading()) {
+                    <p class="rl-page__lead">Cargando…</p>
+                  } @else if (filtered().length === 0) {
+                    <div class="rl-page__panel">
+                      <p>No hay oportunidades con estos filtros.</p>
+                      <button
+                        type="button"
+                        class="rl-auth-gate__submit"
+                        style="margin-top: 1rem"
+                        (click)="runScanMock()"
+                      >
+                        Scanner mock
+                      </button>
+                    </div>
+                  } @else {
+                    <div class="rl-feed">
+                      @for (item of filtered(); track item.alertId) {
+                        <rl-alert-card
+                          [alert]="item"
+                          [showCapture]="true"
+                          [companyName]="config.companyName()"
+                          [selected]="selectedId() === item.alertId"
+                          (select)="selectedId.set($event)"
+                          (dismiss)="onDismiss($event)"
+                          (contact)="onContact($event)"
+                          (won)="onWon($event)"
+                        />
+                      }
+                    </div>
+                  }
+                </section>
+
+                @if (selectedAlert(); as sel) {
+                  <aside class="rl-workspace">
+                    <h2 class="rl-workspace__title">Pipeline — {{ sel.competitorName }}</h2>
+                    @if (sel.salesPitch) {
+                      <p class="rl-workspace__preview">{{ sel.salesPitch }}</p>
+                      <p-button
+                        label="Copiar pitch"
+                        icon="pi pi-copy"
+                        size="small"
+                        (onClick)="copyPitch(sel.salesPitch)"
+                      />
+                    } @else {
+                      <p class="rl-workspace__preview">{{ sel.originalComplaint }}</p>
+                    }
+                    <div class="rl-workspace__pipeline" style="margin-top: 0.85rem">
+                      <button
+                        type="button"
+                        class="rl-alert__btn rl-alert__btn--primary"
+                        (click)="onContact(sel.alertId)"
+                      >
+                        Contactado
+                      </button>
+                      <button
+                        type="button"
+                        class="rl-alert__btn rl-alert__btn--ok"
+                        (click)="onWon(sel.alertId)"
+                      >
+                        Ganado
+                      </button>
+                      <button type="button" class="rl-alert__btn" (click)="onDismiss(sel.alertId)">
+                        Descartar
+                      </button>
+                    </div>
+                  </aside>
+                }
+              </div>
+            </p-tabPanel>
+
+            <p-tabPanel header="Insights" leftIcon="pi pi-chart-bar">
+              <div class="rl-stats-stack">
+                <rl-listening-pulse
+                  [alerts]="alerts.items()"
+                  scope="rival"
+                  mode="capture"
+                  eyebrow="Competencia · SocialCrawl"
+                  title="Pulse de captación"
+                />
+
+                <div class="rl-insight-grid">
+                  <article class="rl-insight-hero" data-outlook="watch">
+                    <p class="rl-insight-hero__eyebrow">Pipeline</p>
+                    <h2>Estado de oportunidades</h2>
+                    <p>
+                      {{ pulse().open }} abiertas · {{ pulse().contacted }} contactadas ·
+                      {{ pulse().won }} ganadas (win rate {{ pulse().winRate }}%).
+                    </p>
+                    <div class="rl-insight-hero__metrics">
+                      <div>
+                        <span>Abiertas</span>
+                        <strong>{{ pulse().open }}</strong>
+                      </div>
+                      <div>
+                        <span>Críticas</span>
+                        <strong>{{ pulse().critical }}</strong>
+                      </div>
+                      <div>
+                        <span>Alcance</span>
+                        <strong>{{ pulse().points }}</strong>
+                      </div>
+                      <div>
+                        <span>Win rate</span>
+                        <strong>{{ pulse().winRate }}%</strong>
+                      </div>
+                    </div>
+                  </article>
+                  <section class="rl-panel">
+                    <header class="rl-panel__head">
+                      <h2 class="rl-panel__title">Volumen por rival</h2>
+                    </header>
+                    <rl-echart [options]="rivalChart()" style="--rl-echart-height: 260px" />
+                  </section>
+                </div>
+
+                @if (pulse().topCluster; as tc) {
+                  <section class="rl-panel">
+                    <header class="rl-panel__head">
+                      <h2 class="rl-panel__title">Oportunidad dominante</h2>
+                    </header>
+                    <p class="rl-page__lead" style="margin: 0">
+                      <strong>{{ tc.title }}</strong> — {{ tc.count }} menciones ·
+                      {{ tc.points }} pts de alcance. Priorizá pitches en este cluster.
+                    </p>
+                  </section>
+                }
+              </div>
+            </p-tabPanel>
+          </p-tabView>
         }
       </div>
     </ion-content>
@@ -159,6 +254,8 @@ export class CompetitorsPageComponent implements OnInit {
   readonly config = inject(UserConfigStore);
   readonly scan = inject(ScanService);
   readonly history = inject(HistoryStore);
+
+  activeTab = 0;
 
   readonly filters = signal<FeedFilterState>({
     status: 'all',
@@ -182,6 +279,42 @@ export class CompetitorsPageComponent implements OnInit {
   readonly selectedAlert = computed(() => {
     const id = this.selectedId();
     return id ? this.alerts.getById(id) : undefined;
+  });
+
+  readonly pulse = computed(() =>
+    computeListeningPulse({
+      alerts: this.alerts.items(),
+      scope: 'rival',
+      mode: 'capture',
+    }),
+  );
+
+  readonly rivalChart = computed((): EChartOptions => {
+    const rows = this.pulse().rivals.slice(0, 8);
+    if (!rows.length) {
+      return {
+        title: {
+          text: 'Sin rivales en el feed — corré Scanner mock',
+          left: 'center',
+          top: 'middle',
+          textStyle: { color: '#64748b', fontSize: 13 },
+        },
+      };
+    }
+    return {
+      tooltip: { trigger: 'axis' },
+      grid: { left: 100, right: 16, top: 12, bottom: 24 },
+      xAxis: { type: 'value', minInterval: 1 },
+      yAxis: { type: 'category', data: rows.map((r) => r.name).reverse() },
+      series: [
+        {
+          type: 'bar',
+          data: rows.map((r) => r.count).reverse(),
+          itemStyle: { color: '#f59e0b', borderRadius: [0, 6, 6, 0] },
+          barMaxWidth: 16,
+        },
+      ],
+    };
   });
 
   ngOnInit(): void {
@@ -218,29 +351,23 @@ export class CompetitorsPageComponent implements OnInit {
   }
 
   onContact(alertId: string): void {
-    const alert = this.alerts.getById(alertId);
     this.alerts.updateStatus(alertId, 'CONTACTED');
-    if (alert) {
-      this.history.add({
-        kind: 'comp_capture',
-        text: alert.originalComplaint,
-        alertId,
-        label: 'contacted',
-      });
-    }
+    this.history.add({
+      kind: 'comp_capture',
+      text: this.alerts.getById(alertId)?.originalComplaint || '',
+      alertId,
+      label: 'Contactado',
+    });
   }
 
   onWon(alertId: string): void {
-    const alert = this.alerts.getById(alertId);
     this.alerts.updateStatus(alertId, 'WON');
-    if (alert) {
-      this.history.add({
-        kind: 'comp_capture',
-        text: alert.originalComplaint,
-        alertId,
-        label: 'won',
-      });
-    }
+    this.history.add({
+      kind: 'comp_capture',
+      text: this.alerts.getById(alertId)?.originalComplaint || '',
+      alertId,
+      label: 'Ganado',
+    });
   }
 
   copyPitch(text: string): void {
