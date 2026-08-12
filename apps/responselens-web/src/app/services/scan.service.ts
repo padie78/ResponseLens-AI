@@ -58,7 +58,7 @@ export class ScanService {
     this._scanning.set(true);
     this._lastStatus.set(
       kind === 'own'
-        ? `Escaneando “${cfg.company.companyName}” (SocialCrawl + HN/news)…`
+        ? `Escaneando “${cfg.company.companyName}” (SocialCrawl async + HN/news)…`
         : 'Escaneando rivales…',
     );
 
@@ -113,13 +113,15 @@ export class ScanService {
       const scKeyMissing = scErrs.some((e) =>
         /SOCIALCRAWL_API_KEY missing|key solo en servidor|socialcrawl_proxy_failed/i.test(e),
       );
-      const scTimeout = scErrs.some((e) => /timed out|socialcrawl_timeout|Task timed out/i.test(e));
+      const scTimeout = scErrs.some((e) =>
+        /timed out|socialcrawl_timeout|socialcrawl_job_timeout|Task timed out/i.test(e),
+      );
       const scLine = !scCreds
         ? 'SC OFF (falta AppSync — npm run sync:env)'
         : scKeyMissing
-          ? 'SC ERROR (key falta en Lambda — patch-socialcrawl-env.sh o Deploy Infrastructure)'
+          ? 'SC ERROR (key falta en Lambda — Deploy Infrastructure)'
           : scTimeout
-            ? 'SC TIMEOUT (AppSync 30s — lookback 3d en Config)'
+            ? 'SC TIMEOUT (worker >100s — SocialCrawl lento o cola)'
             : sc > 0
             ? `SC ${sc}${withMeta ? ` · meta ${withMeta}` : ''}`
             : scErrs.length

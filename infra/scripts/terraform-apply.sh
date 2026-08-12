@@ -14,6 +14,7 @@ echo "=== Lambdas ==="
 terraform output appsync_api_function_name || true
 terraform output competitor_scan_function_name || true
 terraform output mention_webhook_function_name || true
+terraform output socialcrawl_worker_function_name || true
 
 echo ""
 echo "=== Frontend ==="

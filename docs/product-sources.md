@@ -16,7 +16,7 @@ Sin keys de capa B, el producto sigue vivo con A + C.
 
 - Endpoint: `GET https://www.socialcrawl.dev/v1/search/everywhere`
 - Auth: header `x-api-key` **solo en Lambda** (`SOCIALCRAWL_API_KEY` ← Terraform `socialcrawl_api_key`).
-- El SPA **nunca** guarda ni envía la key: usa `Mutation.searchSocialMentions` (AppSync → Lambda).
+- El SPA **nunca** guarda ni envía la key: `startSocialCrawlSearch` encola un job (SQS) y espera `onSocialCrawlResult` (WebSocket). El worker Lambda (timeout 120s) llama a SocialCrawl — fuera del tope de 30s de AppSync.
 - Preferencias locales (lookback / sources CSV) sí pueden vivir en Empresa.
 - Cron: `competitor_scan` usa la misma env var.
 - **Nunca** inyectar la API key en prompts LLM.

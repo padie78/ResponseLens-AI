@@ -1,4 +1,6 @@
 import type { AppSyncResolverHandler } from 'aws-lambda';
+import { randomUUID } from 'crypto';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import {
   analyzeReply,
   analyzeRivalReport,
@@ -11,6 +13,8 @@ import {
 import { searchSocialCrawlEverywhere } from './socialcrawl';
 
 type Args = Record<string, unknown>;
+
+const sqs = new SQSClient({});
 
 function fieldName(event: { info?: { fieldName?: string }; fieldName?: string }): string {
   return event.info?.fieldName || event.fieldName || '';
@@ -50,6 +54,43 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
       return updateCompetitorAlert.execute(
         args.input as Parameters<typeof updateCompetitorAlert.execute>[0],
       );
+
+    case 'startSocialCrawlSearch': {
+      const input = (args.input || {}) as {
+        query?: string;
+        lookbackDays?: number;
+        sources?: string;
+        jobId?: string;
+      };
+      const query = String(input.query || '')
+        .replace(/["']/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 512);
+      if (!query) {
+        throw new Error('empty_query');
+      }
+      const queueUrl = process.env.SOCIALCRAWL_JOB_QUEUE_URL || '';
+      if (!queueUrl) {
+        throw new Error('SOCIALCRAWL_JOB_QUEUE_URL missing on server');
+      }
+      const jobId = String(input.jobId || randomUUID())
+        .replace(/[^a-zA-Z0-9_-]/g, '')
+        .slice(0, 64);
+      await sqs.send(
+        new SendMessageCommand({
+          QueueUrl: queueUrl,
+          MessageBody: JSON.stringify({
+            jobId,
+            query,
+            lookbackDays:
+              input.lookbackDays ?? (Number(process.env.SOCIALCRAWL_LOOKBACK_DAYS) || 3),
+            sources: input.sources || process.env.SOCIALCRAWL_SOURCES || '',
+          }),
+        }),
+      );
+      return { jobId, status: 'QUEUED' };
+    }
 
     case 'searchSocialMentions': {
       const input = (args.input || {}) as {

@@ -28,6 +28,7 @@
     "@angular/platform-browser-dynamic": "^19.2.0",
     "@angular/router": "^19.2.0",
     "@aws-sdk/client-dynamodb": "^3.679.0",
+    "@aws-sdk/client-sqs": "^3.1108.0",
     "@aws-sdk/lib-dynamodb": "^3.679.0",
     "@ionic/angular": "^8.5.0",
     "@primeng/themes": "^19.1.4",

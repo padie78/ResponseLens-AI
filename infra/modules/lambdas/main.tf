@@ -42,6 +42,7 @@ resource "aws_lambda_function" "appsync_api" {
       SOCIALCRAWL_LOOKBACK_DAYS    = tostring(var.socialcrawl_lookback_days)
       SOCIALCRAWL_SOURCES          = var.socialcrawl_sources
       SOCIALCRAWL_FETCH_TIMEOUT_MS = "25000"
+      SOCIALCRAWL_JOB_QUEUE_URL    = var.socialcrawl_jobs_queue_url
     }
   }
 
@@ -141,4 +142,48 @@ resource "aws_lambda_permission" "competitor_scan_events" {
   function_name = aws_lambda_function.competitor_scan.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.competitor_scan.arn
+}
+
+resource "aws_lambda_function" "socialcrawl_worker" {
+  function_name    = "${var.name_prefix}-socialcrawl-worker"
+  role             = aws_iam_role.lambda_exec.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.bootstrap.output_path
+  source_code_hash = data.archive_file.bootstrap.output_base64sha256
+  timeout          = 120
+  memory_size      = 1024
+  architectures    = ["arm64"]
+
+  environment {
+    variables = {
+      LOG_LEVEL                    = "INFO"
+      APPSYNC_GRAPHQL_URL          = "https://placeholder-will-be-patched"
+      APPSYNC_API_KEY              = "placeholder-will-be-patched"
+      SOCIALCRAWL_API_KEY          = var.socialcrawl_api_key
+      SOCIALCRAWL_LOOKBACK_DAYS    = tostring(var.socialcrawl_lookback_days)
+      SOCIALCRAWL_SOURCES          = var.socialcrawl_sources
+      SOCIALCRAWL_FETCH_TIMEOUT_MS = "110000"
+    }
+  }
+
+  # CI patea APPSYNC_* reales post-deploy; no pisarlos en apply de infra.
+  lifecycle {
+    ignore_changes = [environment]
+  }
+}
+
+resource "aws_cloudwatch_log_group" "socialcrawl_worker" {
+  name              = "/aws/lambda/${aws_lambda_function.socialcrawl_worker.function_name}"
+  retention_in_days = 14
+}
+
+resource "aws_lambda_event_source_mapping" "socialcrawl_jobs" {
+  event_source_arn        = var.socialcrawl_jobs_queue_arn
+  function_name           = aws_lambda_function.socialcrawl_worker.arn
+  batch_size              = 1
+  function_response_types = ["ReportBatchItemFailures"]
+  scaling_config {
+    maximum_concurrency = 2
+  }
 }

@@ -49,6 +49,9 @@ jobs:
           - path: ingestion/mention_webhook
             artifact: mention-webhook
             tf_output: mention_webhook_function_name
+          - path: ingestion/socialcrawl_worker
+            artifact: socialcrawl-worker
+            tf_output: socialcrawl_worker_function_name
 
     steps:
       - uses: actions/checkout@v4
@@ -93,6 +96,9 @@ jobs:
             patch_appsync: true
           - artifact: mention-webhook
             tf_output: mention_webhook_function_name
+            patch_appsync: true
+          - artifact: socialcrawl-worker
+            tf_output: socialcrawl_worker_function_name
             patch_appsync: true
 
     steps:

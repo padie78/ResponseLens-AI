@@ -148,16 +148,34 @@ resource "aws_appsync_resolver" "publish_competitor_alert" {
   VTPL
 }
 
+resource "aws_appsync_resolver" "publish_socialcrawl_result" {
+  api_id      = aws_appsync_graphql_api.this.id
+  type        = "Mutation"
+  field       = "publishSocialCrawlResult"
+  data_source = aws_appsync_datasource.none.name
+
+  request_template  = <<-VTPL
+    {
+      "version": "2018-05-29",
+      "payload": $util.toJson($ctx.args.input)
+    }
+  VTPL
+  response_template = <<-VTPL
+    $util.toJson($ctx.result)
+  VTPL
+}
+
 locals {
   lambda_resolvers = {
-    "Query.getUserConfig"            = { type = "Query", field = "getUserConfig" }
-    "Query.listCompetitorAlerts"     = { type = "Query", field = "listCompetitorAlerts" }
-    "Mutation.analyzeReply"          = { type = "Mutation", field = "analyzeReply" }
-    "Mutation.analyzeRivalReport"    = { type = "Mutation", field = "analyzeRivalReport" }
-    "Mutation.saveUserConfig"        = { type = "Mutation", field = "saveUserConfig" }
-    "Mutation.upsertCompetitorAlert" = { type = "Mutation", field = "upsertCompetitorAlert" }
-    "Mutation.updateCompetitorAlert" = { type = "Mutation", field = "updateCompetitorAlert" }
-    "Mutation.searchSocialMentions"  = { type = "Mutation", field = "searchSocialMentions" }
+    "Query.getUserConfig"             = { type = "Query", field = "getUserConfig" }
+    "Query.listCompetitorAlerts"      = { type = "Query", field = "listCompetitorAlerts" }
+    "Mutation.analyzeReply"           = { type = "Mutation", field = "analyzeReply" }
+    "Mutation.analyzeRivalReport"     = { type = "Mutation", field = "analyzeRivalReport" }
+    "Mutation.saveUserConfig"         = { type = "Mutation", field = "saveUserConfig" }
+    "Mutation.upsertCompetitorAlert"  = { type = "Mutation", field = "upsertCompetitorAlert" }
+    "Mutation.updateCompetitorAlert"  = { type = "Mutation", field = "updateCompetitorAlert" }
+    "Mutation.searchSocialMentions"   = { type = "Mutation", field = "searchSocialMentions" }
+    "Mutation.startSocialCrawlSearch" = { type = "Mutation", field = "startSocialCrawlSearch" }
   }
 }
 

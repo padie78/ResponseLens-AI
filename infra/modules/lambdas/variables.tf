@@ -83,3 +83,13 @@ variable "inbound_webhook_secret" {
   sensitive   = true
   description = "Shared secret for POST /v1/webhooks/mentions (X-ResponseLens-Secret)."
 }
+
+variable "socialcrawl_jobs_queue_url" {
+  type        = string
+  description = "SQS URL for async SocialCrawl jobs started from AppSync."
+}
+
+variable "socialcrawl_jobs_queue_arn" {
+  type        = string
+  description = "SQS ARN for socialcrawl_worker event source mapping."
+}

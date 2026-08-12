@@ -37,6 +37,14 @@ output "mention_webhook_function_name" {
   value = module.lambdas.mention_webhook_function_name
 }
 
+output "socialcrawl_worker_function_name" {
+  value = module.lambdas.socialcrawl_worker_function_name
+}
+
+output "socialcrawl_jobs_queue_url" {
+  value = module.queues.socialcrawl_jobs_queue_url
+}
+
 output "mentions_webhook_url" {
   value       = module.http_api.mentions_webhook_url
   description = "POST inbound mentions (Mention/Zapier/Meltwater). Header X-ResponseLens-Secret."

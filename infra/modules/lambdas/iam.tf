@@ -42,6 +42,19 @@ data "aws_iam_policy_document" "lambda_policy" {
       "${var.table_arn}/index/*",
     ]
   }
+
+  statement {
+    sid    = "SocialCrawlJobsQueue"
+    effect = "Allow"
+    actions = [
+      "sqs:SendMessage",
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:ChangeMessageVisibility",
+    ]
+    resources = [var.socialcrawl_jobs_queue_arn]
+  }
 }
 
 resource "aws_iam_role_policy" "lambda_exec" {

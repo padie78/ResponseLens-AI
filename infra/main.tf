@@ -31,21 +31,23 @@ module "lambdas" {
   source      = "./modules/lambdas"
   name_prefix = local.name_prefix
 
-  table_name                = module.database.table_name
-  table_arn                 = module.database.table_arn
-  openai_api_key            = var.openai_api_key
-  openai_model              = var.openai_model
-  llm_provider              = var.llm_provider
-  gemini_api_key            = var.gemini_api_key
-  competitor_scan_schedule  = var.competitor_scan_schedule
-  reddit_client_id          = var.reddit_client_id
-  reddit_client_secret      = var.reddit_client_secret
-  reddit_user_agent         = var.reddit_user_agent
-  newsapi_api_key           = var.newsapi_api_key
-  socialcrawl_api_key       = var.socialcrawl_api_key
-  socialcrawl_lookback_days = var.socialcrawl_lookback_days
-  socialcrawl_sources       = var.socialcrawl_sources
-  inbound_webhook_secret    = local.inbound_webhook_secret
+  table_name                 = module.database.table_name
+  table_arn                  = module.database.table_arn
+  openai_api_key             = var.openai_api_key
+  openai_model               = var.openai_model
+  llm_provider               = var.llm_provider
+  gemini_api_key             = var.gemini_api_key
+  competitor_scan_schedule   = var.competitor_scan_schedule
+  reddit_client_id           = var.reddit_client_id
+  reddit_client_secret       = var.reddit_client_secret
+  reddit_user_agent          = var.reddit_user_agent
+  newsapi_api_key            = var.newsapi_api_key
+  socialcrawl_api_key        = var.socialcrawl_api_key
+  socialcrawl_lookback_days  = var.socialcrawl_lookback_days
+  socialcrawl_sources        = var.socialcrawl_sources
+  inbound_webhook_secret     = local.inbound_webhook_secret
+  socialcrawl_jobs_queue_url = module.queues.socialcrawl_jobs_queue_url
+  socialcrawl_jobs_queue_arn = module.queues.socialcrawl_jobs_queue_arn
 }
 
 module "frontend_hosting" {

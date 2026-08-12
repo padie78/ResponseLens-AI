@@ -267,10 +267,24 @@ type Mutation {
   updateCompetitorAlert(input: UpdateCompetitorAlertInput!): CompetitorAlert! @aws_api_key @aws_cognito_user_pools
 
   """
-  Proxy server-side a SocialCrawl. La API key vive solo en Lambda (Terraform).
-  El SPA NO debe enviar ni almacenar la key.
+  Legacy sync (tope AppSync 30s). Preferí startSocialCrawlSearch.
   """
   searchSocialMentions(input: SearchSocialMentionsInput!): SearchSocialMentionsResult!
+    @aws_api_key
+    @aws_cognito_user_pools
+
+  """
+  Encola búsqueda SocialCrawl (SQS). El SPA se suscribe a onSocialCrawlResult(jobId).
+  La API key vive solo en el worker Lambda — nunca en el SPA.
+  """
+  startSocialCrawlSearch(input: StartSocialCrawlSearchInput!): StartSocialCrawlSearchResult!
+    @aws_api_key
+    @aws_cognito_user_pools
+
+  """
+  Publicada por socialcrawl_worker. Data source NONE — dispara onSocialCrawlResult.
+  """
+  publishSocialCrawlResult(input: PublishSocialCrawlResultInput!): SocialCrawlJobResult!
     @aws_api_key
     @aws_cognito_user_pools
 }
@@ -294,9 +308,53 @@ type SearchSocialMentionsResult {
   planIntent: String
 }
 
+input StartSocialCrawlSearchInput {
+  query: String!
+  lookbackDays: Int
+  sources: String
+  """Generado por el SPA para suscribirse antes de encolar."""
+  jobId: ID
+}
+
+type StartSocialCrawlSearchResult {
+  jobId: ID!
+  status: String!
+}
+
+input PublishSocialCrawlResultInput {
+  jobId: ID!
+  query: String!
+  ok: Boolean!
+  error: String
+  mentionsJson: AWSJSON!
+  rawCount: Int!
+  creditsUsed: Int
+  creditsRemaining: Int
+  coverage: Float
+  planIntent: String
+}
+
+type SocialCrawlJobResult {
+  jobId: ID!
+  query: String!
+  ok: Boolean!
+  error: String
+  mentionsJson: AWSJSON!
+  rawCount: Int!
+  creditsUsed: Int
+  creditsRemaining: Int
+  coverage: Float
+  planIntent: String
+}
+
 type Subscription {
   onNewCompetitorAlert(userId: ID!): CompetitorAlert
     @aws_subscribe(mutations: ["publishCompetitorAlert"])
+    @aws_api_key
+    @aws_cognito_user_pools
+
+  onSocialCrawlResult(jobId: ID!): SocialCrawlJobResult
+    @aws_subscribe(mutations: ["publishSocialCrawlResult"])
     @aws_api_key
     @aws_cognito_user_pools
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Inyecta SOCIALCRAWL_API_KEY en las Lambdas (appsync-api + competitor-scan).
+# Inyecta SOCIALCRAWL_API_KEY en las Lambdas (appsync-api, competitor-scan, socialcrawl-worker).
 # Uso:
 #   export SOCIALCRAWL_API_KEY=sc_…
 #   ./scripts/patch-socialcrawl-env.sh
@@ -51,13 +51,16 @@ patch_fn() {
 if command -v terraform >/dev/null && [[ -d "$ROOT/infra/.terraform" ]]; then
   FN_API="$(cd "$ROOT/infra" && terraform output -raw appsync_api_function_name 2>/dev/null || echo "${PREFIX}-appsync-api")"
   FN_SCAN="$(cd "$ROOT/infra" && terraform output -raw competitor_scan_function_name 2>/dev/null || echo "${PREFIX}-competitor-scan")"
+  FN_WORKER="$(cd "$ROOT/infra" && terraform output -raw socialcrawl_worker_function_name 2>/dev/null || echo "${PREFIX}-socialcrawl-worker")"
 else
   FN_API="${PREFIX}-appsync-api"
   FN_SCAN="${PREFIX}-competitor-scan"
+  FN_WORKER="${PREFIX}-socialcrawl-worker"
 fi
 
 patch_fn "$FN_API"
 patch_fn "$FN_SCAN"
+patch_fn "$FN_WORKER" || true
 
 echo ""
 echo "Verificá (debe decir SET):"
