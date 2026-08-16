@@ -1,5 +1,65 @@
 import type { CompetitorAlert } from '../models/alert.model';
-import type { FeedFilterState } from '../ui/molecules/feed-filters/feed-filters.component';
+import type {
+  FeedFilterState,
+  FeedSortKey,
+} from '../ui/molecules/feed-filters/feed-filters.component';
+
+const SEVERITY_RANK: Record<string, number> = {
+  CRITICAL: 4,
+  HIGH: 3,
+  MEDIUM: 2,
+  LOW: 1,
+};
+
+function alertScore(a: CompetitorAlert): number {
+  const ai = a._aiScore;
+  if (typeof ai === 'number' && Number.isFinite(ai)) return ai;
+  const fr = a.frustrationScore;
+  if (typeof fr === 'number' && Number.isFinite(fr)) return fr;
+  return 0;
+}
+
+function alertTime(a: CompetitorAlert): number {
+  const t = Date.parse(a.detectedAt);
+  return Number.isFinite(t) ? t : 0;
+}
+
+function alertSeverity(a: CompetitorAlert): number {
+  return SEVERITY_RANK[String(a.severity || '').toUpperCase()] ?? 0;
+}
+
+function alertChannel(a: CompetitorAlert): string {
+  return String(a.channel || a._source || '').toLowerCase();
+}
+
+export function sortAlerts(
+  alerts: CompetitorAlert[],
+  sort: FeedSortKey = 'time_desc',
+): CompetitorAlert[] {
+  const out = [...alerts];
+  out.sort((a, b) => {
+    switch (sort) {
+      case 'time_asc':
+        return alertTime(a) - alertTime(b);
+      case 'score_desc':
+        return alertScore(b) - alertScore(a) || alertTime(b) - alertTime(a);
+      case 'score_asc':
+        return alertScore(a) - alertScore(b) || alertTime(b) - alertTime(a);
+      case 'severity_desc':
+        return alertSeverity(b) - alertSeverity(a) || alertTime(b) - alertTime(a);
+      case 'severity_asc':
+        return alertSeverity(a) - alertSeverity(b) || alertTime(b) - alertTime(a);
+      case 'channel_asc': {
+        const cmp = alertChannel(a).localeCompare(alertChannel(b), 'es');
+        return cmp || alertTime(b) - alertTime(a);
+      }
+      case 'time_desc':
+      default:
+        return alertTime(b) - alertTime(a);
+    }
+  });
+  return out;
+}
 
 export function filterAlerts(
   alerts: CompetitorAlert[],
@@ -8,9 +68,13 @@ export function filterAlerts(
   const q = filters.q.trim().toLowerCase();
   const now = Date.now();
 
-  return alerts.filter((a) => {
+  const filtered = alerts.filter((a) => {
     if (filters.status !== 'all' && a.status !== filters.status) return false;
     if (filters.severity !== 'all' && a.severity !== filters.severity) return false;
+    if (filters.kind && filters.kind !== 'all') {
+      const kind = String(a._mentionKind || '').toLowerCase();
+      if (kind !== filters.kind) return false;
+    }
     if (filters.platform !== 'all') {
       const ch = (a.channel || a._source || '').toLowerCase();
       if (ch !== filters.platform && !ch.includes(filters.platform)) return false;
@@ -49,4 +113,6 @@ export function filterAlerts(
 
     return true;
   });
+
+  return sortAlerts(filtered, filters.sort ?? 'time_desc');
 }

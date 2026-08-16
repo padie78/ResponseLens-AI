@@ -140,12 +140,12 @@ export function computeListeningPulse({
   if (!list.length) {
     headlines.push(
       mode === 'capture'
-        ? 'Sin oportunidades todavía. Corré un scan (o Scanner mock) para poblar el feed.'
-        : 'Sin menciones propias todavía. Corré un scan (o Scanner mock) para ver salud de marca.',
+        ? 'Sin oportunidades todavía. Corré un scan para poblar el feed.'
+        : 'Sin menciones propias todavía. Corré un scan para ver salud de marca.',
     );
   } else {
     headlines.push(
-      `${list.length} señal(es) activas · ${withSc.length} con SocialCrawl (${scCoverage}% cobertura meta).`,
+      `${list.length} señal(es) activas · ${withSc.length} con métricas (${scCoverage}% cobertura).`,
     );
     if (points > 0) {
       headlines.push(

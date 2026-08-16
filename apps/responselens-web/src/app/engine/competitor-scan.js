@@ -17,6 +17,11 @@ import { mentionDedupeKeys, extractYouTubeVideoId } from './mention-dedupe.js';
 import { hasNewsApi, hasRedditOAuth, hasYouTubeApi } from './scan-credentials.js';
 import { analyzeBrandMention, sentimentToStorage, computeMentionScore } from './mention-intelligence.js';
 import { fetchSocialCrawlMentions, hasSocialCrawlServer as hasSocialCrawl } from './socialcrawl-client.js';
+import {
+  isReplyableContent,
+  normalizeContentKind,
+  resolveContentKind,
+} from './content-kind.js';
 
 const NEGATIVE_HINT =
   /\b(scam|outage|broken|terrible|horrible|awful|refund|downtime|fail(ure|ed|ing)?|bug|crash|estafa|falla|ca[ií]da|basura|caro|slow|unreliable|worst|hate|sucks|lawsuit|demanda|crisis|polémica|polemica|investigat|multa|breach|filtración|filtracion|complaint|queja|estaf|fraude|boycott)\b/i;
@@ -33,8 +38,9 @@ function applyScMetaToOpp(opp, scMeta) {
   if (!opp || !scMeta) return;
   opp._scMeta = scMeta;
   const brandScope = opp._brandScope === 'own' ? 'own' : 'rival';
-  const mentionKind =
-    opp._mentionKind === 'media' || opp._actionable === false ? 'media' : 'comment';
+  const mentionKind = normalizeContentKind(opp._mentionKind, opp.channel);
+  opp._mentionKind = mentionKind;
+  opp._actionable = isReplyableContent(mentionKind, scMeta);
   const pack = computeMentionScore({
     text: opp.originalComplaint,
     brandScope,
@@ -112,16 +118,14 @@ function textMentionsBrand(text, brand) {
 }
 
 /**
- * comment = hilo/queja respondible · media = video/noticia (solo monitoreo).
- * @returns {'comment' | 'media'}
+ * Tipo de pieza (post, video, noticia, issue…) según canal SocialCrawl.
+ * @returns {string}
  */
-export function resolveOwnMentionKind({ flags = {}, channel = '', sourceUrl = '', text = '' } = {}) {
-  if (flags.youtube || flags.news) return 'media';
-  const ch = String(channel || '').toLowerCase();
-  if (ch === 'youtube' || ch === 'news') return 'media';
-  if (extractYouTubeVideoId(sourceUrl) || extractYouTubeVideoId(text)) return 'media';
-  if (flags.socialcrawl && (ch === 'web' || ch === 'news' || ch === 'youtube')) return 'media';
-  return 'comment';
+export function resolveOwnMentionKind({ flags = {}, channel = '', sourceUrl = '', text = '', scMeta = null } = {}) {
+  void flags;
+  void sourceUrl;
+  void text;
+  return resolveContentKind(channel, scMeta);
 }
 
 function looksNegative(text) {
@@ -875,6 +879,15 @@ export async function runCompetitorScan({
           .filter(Boolean)
           .join(' · ');
       }
+      if (intel.sales_intelligence?.gancho_comercial_ia) {
+        opp.salesPitch = intel.sales_intelligence.gancho_comercial_ia;
+      }
+      if (intel.analisis_metrico) {
+        opp._conquest = {
+          analisis_metrico: intel.analisis_metrico,
+          sales_intelligence: intel.sales_intelligence,
+        };
+      }
       if (typeof intel._rl?.aiScore === 'number') {
         opp._aiScore = intel._rl.aiScore;
         opp._aiScoreBand = intel._rl.aiScoreBand;
@@ -1048,9 +1061,9 @@ export async function runCompetitorScan({
         // vacío → client usa SOCIALCRAWL_EVERYWHERE_SOURCES (HN + news + todos)
         sources: '',
       });
-      if (sc.error) errors.push(`SocialCrawl/${name}: ${sc.error}`);
+      if (sc.error) errors.push(`Escucha/${name}: ${sc.error}`);
       else if (!sc.mentions?.length) {
-        errors.push(`SocialCrawl/${name}: 0 resultados (raw=${sc.rawCount ?? 0})`);
+        errors.push(`Escucha/${name}: 0 resultados (raw=${sc.rawCount ?? 0})`);
       }
       for (const m of sc.mentions || []) {
         if (
@@ -1076,7 +1089,7 @@ export async function runCompetitorScan({
         const failed = sc.sourcesFailed ? Object.keys(sc.sourcesFailed).length : 0;
         if (failed || cov) {
           errors.push(
-            `SocialCrawl/${name}:${cov}${failed ? ` · ${failed} fuentes fallidas` : ''}${
+            `Escucha/${name}:${cov}${failed ? ` · ${failed} fuentes fallidas` : ''}${
               sc.planIntent ? ` · intent=${sc.planIntent}` : ''
             }`,
           );
@@ -1189,8 +1202,8 @@ export async function runOwnBrandScan({
         applyScMetaToOpp(existing, partial._scMeta);
         if (flags.socialcrawl) {
           existing._source = 'socialcrawl';
-          if (!/SocialCrawl/i.test(String(existing.notes || ''))) {
-            existing.notes = [existing.notes, 'SocialCrawl (multi-plataforma)']
+          if (!/Escucha multi/i.test(String(existing.notes || ''))) {
+            existing.notes = [existing.notes, 'Escucha multi-plataforma']
               .filter(Boolean)
               .join(' · ');
           }
@@ -1224,6 +1237,7 @@ export async function runOwnBrandScan({
       channel: partial.channel || opp.channel,
       sourceUrl: partial.sourceUrl || opp.sourceUrl,
       text: partial.complaint,
+      scMeta: partial._scMeta || null,
     });
     const intel = analyzeBrandMention({
       text: partial.complaint,
@@ -1244,6 +1258,12 @@ export async function runOwnBrandScan({
       intel.analisis_comentario_recibido?.analisis_estrategico?.resumen_insight ||
       intel._rl?.analysisSummary ||
       '';
+    opp._insight = intel._rl?.insightParts || {
+      tipo: intel.analisis_comentario_recibido?.analisis_estrategico?.tipo || '',
+      lectura: intel.analisis_comentario_recibido?.analisis_estrategico?.lectura || '',
+      accion: intel.analisis_comentario_recibido?.analisis_estrategico?.accion || '',
+      tip: intel.analisis_comentario_recibido?.analisis_estrategico?.tip || '',
+    };
     if (intel.analisis_comentario_recibido?.respuesta_sugerida_publica) {
       opp.salesPitch = intel.analisis_comentario_recibido.respuesta_sugerida_publica;
     }
@@ -1282,24 +1302,24 @@ export async function runOwnBrandScan({
       channel: opp.channel || partial.channel,
       sourceUrl: partial.sourceUrl || opp.sourceUrl,
       text: partial.complaint,
+      scMeta: opp._scMeta || partial._scMeta || null,
     });
     opp._mentionKind = mentionKind;
-    opp._actionable = mentionKind === 'comment';
+    opp._actionable = isReplyableContent(mentionKind, opp._scMeta);
 
     const srcNote =
       flags.page
         ? 'Detectado en página abierta'
         : flags.socialcrawl
-          ? 'SocialCrawl (multi-plataforma)'
+          ? 'Escucha multi-plataforma'
           : flags.hn
             ? 'Mención de tu marca en Hacker News'
             : flags.news
-              ? 'Artículo / noticia sobre tu marca (monitoreo)'
+              ? 'Noticia / artículo sobre tu marca'
               : flags.youtube
-                ? 'Video en YouTube (monitoreo, no es un comentario)'
+                ? 'Video sobre tu marca'
                 : 'Mención de tu marca en Reddit';
-    const kindNote =
-      mentionKind === 'media' ? 'Tipo: mención / media (sin respuesta en hilo)' : 'Tipo: comentario accionable';
+    const kindNote = `Tipo: ${mentionKind}`;
     const finalSent = String(opp._sentiment || 'NEUTRAL').toUpperCase();
     const sentNote =
       finalSent === 'POSITIVE'
@@ -1345,10 +1365,10 @@ export async function runOwnBrandScan({
       lookbackDays: Number(credentials.socialcrawl?.lookbackDays) || 7,
       sources: '',
     });
-    if (sc.error) errors.push(`SocialCrawl: ${sc.error}`);
+    if (sc.error) errors.push(`Escucha: ${sc.error}`);
     else if (!sc.mentions?.length) {
       errors.push(
-        `SocialCrawl: 0 resultados para "${ownName}" (raw=${sc.rawCount ?? 0}, lookback=${Number(credentials.socialcrawl?.lookbackDays) || 7}d)`,
+        `Escucha: 0 resultados para "${ownName}" (raw=${sc.rawCount ?? 0}, lookback=${Number(credentials.socialcrawl?.lookbackDays) || 7}d)`,
       );
     }
     for (const m of sc.mentions || []) {
@@ -1373,14 +1393,14 @@ export async function runOwnBrandScan({
       const credits =
         sc.creditsRemaining != null ? ` · créditos restantes ${sc.creditsRemaining}` : '';
       errors.push(
-        `SocialCrawl OK: ${withMeta}/${sc.mentions.length} con meta${cov}${
+        `Escucha OK: ${withMeta}/${sc.mentions.length} con métricas${cov}${
           failed ? ` · ${failed} fuentes fallidas` : ''
         }${sc.planIntent ? ` · intent=${sc.planIntent}` : ''}${credits}`,
       );
     }
   }     else {
     errors.push(
-      'SocialCrawl off — key solo en servidor (Terraform socialcrawl_api_key + AppSync sync:env).',
+      'Escucha off — key solo en servidor (Terraform + AppSync sync:env).',
     );
   }
 

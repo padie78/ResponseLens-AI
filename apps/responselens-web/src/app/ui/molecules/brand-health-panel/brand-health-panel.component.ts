@@ -1,7 +1,6 @@
 import { Component, ViewEncapsulation, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
-import { TagModule } from 'primeng/tag';
 import {
   computeOwnBrandHealth,
   topEntries,
@@ -20,57 +19,85 @@ export type BrandHealthVariant = 'strip' | 'dashboard';
   standalone: true,
   selector: 'rl-brand-health-panel',
   encapsulation: ViewEncapsulation.None,
-  imports: [RouterLink, ButtonModule, TagModule, EchartComponent],
+  imports: [RouterLink, ButtonModule, EchartComponent],
   template: `
-    <section class="rl-brand-health" [class.rl-brand-health--strip]="variant() === 'strip'" [attr.data-band]="health().healthBand">
-      <header class="rl-brand-health__head">
-        <div class="rl-brand-health__identity">
-          <span class="rl-brand-health__avatar">{{ avatar() }}</span>
-          <div>
-            <div class="rl-brand-health__title-row">
-              <h2 class="rl-brand-health__name">{{ companyName() || 'Tu marca' }}</h2>
-              <p-tag [value]="health().healthLabel" [severity]="healthSeverity()" />
-            </div>
-            @if (aliases().length) {
-              <p class="rl-brand-health__aliases">{{ aliases().join(' · ') }}</p>
-            } @else {
-              <p class="rl-brand-health__aliases">Monitoreo · últimos {{ health().days }} días</p>
-            }
+    <section
+      class="rl-brand-health"
+      [class.rl-brand-health--strip]="variant() === 'strip'"
+      [attr.data-band]="health().healthBand"
+    >
+      @if (variant() === 'strip') {
+        <div class="rl-summary-bar">
+          <div class="rl-summary-bar__who">
+            <strong>{{ companyName() || 'Tu marca' }}</strong>
+            <span>{{ health().healthLabel }} · {{ health().days }} días</span>
           </div>
+          <dl class="rl-summary-bar__metrics">
+            <div>
+              <dt>Menciones</dt>
+              <dd>{{ health().total }}</dd>
+            </div>
+            <div>
+              <dt>Abiertas</dt>
+              <dd>{{ health().open }}</dd>
+            </div>
+            <div>
+              <dt>Críticas</dt>
+              <dd>{{ health().criticalOpen }}</dd>
+            </div>
+            <div>
+              <dt>Score</dt>
+              <dd>{{ health().avgScore || '—' }}</dd>
+            </div>
+          </dl>
         </div>
-        <div class="rl-brand-health__actions">
-          <a routerLink="/app/settings" class="rl-brand-health__cfg">Editar empresa</a>
+      } @else {
+        <header class="rl-brand-health__head">
+          <div class="rl-brand-health__identity">
+            <div>
+              <div class="rl-brand-health__title-row">
+                <h2 class="rl-brand-health__name">{{ companyName() || 'Tu marca' }}</h2>
+                <span class="rl-brand-health__status">{{ health().healthLabel }}</span>
+              </div>
+              @if (aliases().length) {
+                <p class="rl-brand-health__aliases">{{ aliases().join(' · ') }}</p>
+              } @else {
+                <p class="rl-brand-health__aliases">Monitoreo · últimos {{ health().days }} días</p>
+              }
+            </div>
+          </div>
+          <div class="rl-brand-health__actions">
+            <a routerLink="/app/settings" class="rl-brand-health__cfg">Editar empresa</a>
+          </div>
+        </header>
+
+        <div class="rl-brand-health__kpis">
+          <article class="rl-brand-health__kpi">
+            <span>Menciones</span>
+            <strong>{{ health().total }}</strong>
+          </article>
+          <article class="rl-brand-health__kpi">
+            <span>Abiertas</span>
+            <strong>{{ health().open }}</strong>
+          </article>
+          <article class="rl-brand-health__kpi">
+            <span>Críticas</span>
+            <strong>{{ health().criticalOpen }}</strong>
+          </article>
+          <article class="rl-brand-health__kpi">
+            <span>Score medio</span>
+            <strong>{{ health().avgScore || '—' }}</strong>
+          </article>
+          <article class="rl-brand-health__kpi">
+            <span>Negativas</span>
+            <strong>{{ health().negPct }}%</strong>
+          </article>
+          <article class="rl-brand-health__kpi">
+            <span>Respuestas</span>
+            <strong>{{ health().repliesInWindow }}</strong>
+          </article>
         </div>
-      </header>
 
-      <div class="rl-brand-health__kpis">
-        <article class="rl-brand-health__kpi">
-          <span>Menciones</span>
-          <strong>{{ health().total }}</strong>
-        </article>
-        <article class="rl-brand-health__kpi">
-          <span>Abiertas</span>
-          <strong>{{ health().open }}</strong>
-        </article>
-        <article class="rl-brand-health__kpi rl-brand-health__kpi--warn">
-          <span>Críticas</span>
-          <strong>{{ health().criticalOpen }}</strong>
-        </article>
-        <article class="rl-brand-health__kpi">
-          <span>Score medio</span>
-          <strong>{{ health().avgScore || '—' }}</strong>
-        </article>
-        <article class="rl-brand-health__kpi">
-          <span>Negativas</span>
-          <strong>{{ health().negPct }}%</strong>
-        </article>
-        <article class="rl-brand-health__kpi">
-          <span>Respuestas</span>
-          <strong>{{ health().repliesInWindow }}</strong>
-        </article>
-      </div>
-
-      @if (variant() === 'dashboard') {
         <div class="rl-brand-health__charts">
           <div class="rl-brand-health__chart">
             <h3>Sentimiento</h3>
@@ -85,9 +112,6 @@ export type BrandHealthVariant = 'strip' | 'dashboard';
             <rl-echart [options]="severityOptions()" style="--rl-echart-height: 220px" />
           </div>
         </div>
-        <p class="rl-brand-health__foot">
-          Descriptivo: qué pasó. Predictivo y Prescriptivo están en las otras pestañas.
-        </p>
       }
     </section>
   `,
@@ -107,19 +131,6 @@ export class BrandHealthPanelComponent {
       days: this.days(),
     }),
   );
-
-  avatar(): string {
-    const n = this.companyName().trim();
-    return n ? n.charAt(0).toUpperCase() : 'M';
-  }
-
-  healthSeverity(): 'success' | 'warn' | 'danger' | 'info' | 'secondary' {
-    const b = this.health().healthBand;
-    if (b === 'strong') return 'success';
-    if (b === 'watch') return 'warn';
-    if (b === 'critical') return 'danger';
-    return 'info';
-  }
 
   readonly sentimentOptions = computed((): EChartOptions => {
     const s = this.health().sentiment;

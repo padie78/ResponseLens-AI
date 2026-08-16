@@ -1,5 +1,6 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { IonApp, IonRouterOutlet } from '@ionic/angular/standalone';
+import { UiPreferencesService } from './core/preferences/ui-preferences.service';
 
 @Component({
   selector: 'rl-root',
@@ -11,4 +12,11 @@ import { IonApp, IonRouterOutlet } from '@ionic/angular/standalone';
     </ion-app>
   `,
 })
-export class AppComponent {}
+export class AppComponent {
+  /** Apply persisted theme/locale before first paint of authenticated UI. */
+  private readonly prefs = inject(UiPreferencesService);
+
+  constructor() {
+    void this.prefs;
+  }
+}

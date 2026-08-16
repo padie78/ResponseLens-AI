@@ -69,8 +69,8 @@ export class ScanService {
     if (!hasSocialCrawlServer()) {
       this._lastStatus.set(
         opts.mock
-          ? 'Scanner mock necesita AppSync (mismo pipeline SQS). Corré npm run sync:env.'
-          : 'SocialCrawl off: falta AppSync (npm run sync:env).',
+          ? 'Scan demo necesita AppSync. Corré npm run sync:env.'
+          : 'Escucha off: falta AppSync (npm run sync:env).',
       );
       return;
     }
@@ -80,11 +80,11 @@ export class ScanService {
     this._lastStatus.set(
       opts.mock
         ? kind === 'own'
-          ? `Mock SocialCrawl via SQS “${cfg.company.companyName}”…`
-          : 'Mock SocialCrawl via SQS (rivales)…'
+          ? `Scan demo “${cfg.company.companyName}”…`
+          : 'Scan demo (rivales)…'
         : kind === 'own'
-          ? `SocialCrawl “${cfg.company.companyName}”…`
-          : 'SocialCrawl rivales…',
+          ? `Escaneando “${cfg.company.companyName}”…`
+          : 'Escaneando rivales…',
     );
 
     try {
@@ -137,6 +137,9 @@ export class ScanService {
       } else if (alerts.length) {
         await this.alertsStore.upsertMany(alerts);
       }
+      if (alerts.length) {
+        this.alertsStore.recordScanBatch(alerts, opts.mock ? 'demo' : 'scan');
+      }
 
       const cloudErr = this.alertsStore.cloudError();
       const found = alerts.length;
@@ -155,18 +158,18 @@ export class ScanService {
       );
 
       const scLine = opts.mock
-        ? `SC MOCK ${sc}${withMeta ? ` · meta ${withMeta}` : ''}`
+        ? `Demo ${sc}${withMeta ? ` · con métricas ${withMeta}` : ''}`
         : scKeyMissing
-          ? 'SC ERROR (key falta en Lambda)'
+          ? 'Escucha: falta key en servidor'
           : scCredits
-            ? 'SC SIN CRÉDITOS'
+            ? 'Escucha: sin créditos'
             : scTimeout
-              ? 'SC TIMEOUT'
+              ? 'Escucha: timeout'
               : sc > 0
-                ? `SC ${sc}${withMeta ? ` · meta ${withMeta}` : ''}`
+                ? `Escucha ${sc}${withMeta ? ` · métricas ${withMeta}` : ''}`
                 : scErrs.length
-                  ? 'SC 0 (error)'
-                  : 'SC 0 (sin menciones)';
+                  ? 'Escucha 0 (error)'
+                  : 'Escucha 0 (sin menciones)';
 
       const parts = [
         found > 0 ? `${found} mención(es)` : '0 menciones',

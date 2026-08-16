@@ -19,6 +19,7 @@ import { UserConfigStore } from '../../stores/user-config.store';
 import { filterAlerts } from '../../utils/alert-filters';
 import {
   AlertCardComponent,
+  DEFAULT_FEED_FILTERS,
   EchartComponent,
   FeedFiltersComponent,
   ListeningPulseComponent,
@@ -62,14 +63,14 @@ import {
               (onClick)="runScan()"
             />
             <p-button
-              label="Scanner mock"
+              label="Scan demo"
               icon="pi pi-box"
               severity="help"
               [outlined]="true"
               size="small"
               [disabled]="scan.scanning() || config.competitors().length === 0"
               (onClick)="runScanMock()"
-              title="SocialCrawl simulado — no gasta créditos"
+              title="Scan de prueba — no gasta créditos"
             />
             <p-button
               label="Refrescar"
@@ -82,7 +83,7 @@ import {
             <p-button
               label="Ejemplos"
               severity="secondary"
-              [text]="true"
+              [outlined]="true"
               size="small"
               (onClick)="seed()"
             />
@@ -126,7 +127,7 @@ import {
                         style="margin-top: 1rem"
                         (click)="runScanMock()"
                       >
-                        Scanner mock
+                        Scan demo
                       </button>
                     </div>
                   } @else {
@@ -137,9 +138,10 @@ import {
                           [showCapture]="true"
                           [companyName]="config.companyName()"
                           [selected]="selectedId() === item.alertId"
-                          (select)="selectedId.set($event)"
+                          (select)="toggleSelect($event)"
                           (dismiss)="onDismiss($event)"
                           (contact)="onContact($event)"
+                          (publishReply)="onPublishReply($event)"
                           (won)="onWon($event)"
                         />
                       }
@@ -150,6 +152,12 @@ import {
                 @if (selectedAlert(); as sel) {
                   <aside class="rl-workspace">
                     <h2 class="rl-workspace__title">Pipeline — {{ sel.competitorName }}</h2>
+                    @if (sel._conquest?.sales_intelligence?.resumen_incidente; as resumen) {
+                      <p class="rl-workspace__preview">{{ resumen }}</p>
+                    }
+                    @if (sel._conquest?.sales_intelligence?.score_conversion_estimado; as conv) {
+                      <p class="rl-own__muted">Captación {{ conv }}</p>
+                    }
                     @if (sel.salesPitch) {
                       <p class="rl-workspace__preview">{{ sel.salesPitch }}</p>
                       <p-button
@@ -191,7 +199,7 @@ import {
                   [alerts]="alerts.items()"
                   scope="rival"
                   mode="capture"
-                  eyebrow="Competencia · SocialCrawl"
+                  eyebrow="Competencia · listening"
                   title="Pulse de captación"
                 />
 
@@ -257,15 +265,7 @@ export class CompetitorsPageComponent implements OnInit {
 
   activeTab = 0;
 
-  readonly filters = signal<FeedFilterState>({
-    status: 'all',
-    date: 'all',
-    platform: 'all',
-    severity: 'all',
-    sentiment: 'all',
-    rival: 'all',
-    q: '',
-  });
+  readonly filters = signal<FeedFilterState>({ ...DEFAULT_FEED_FILTERS });
   readonly selectedId = signal<string | null>(null);
 
   readonly rivalNames = computed(() =>
@@ -294,7 +294,7 @@ export class CompetitorsPageComponent implements OnInit {
     if (!rows.length) {
       return {
         title: {
-          text: 'Sin rivales en el feed — corré Scanner mock',
+          text: 'Sin rivales en el feed — corré un scan',
           left: 'center',
           top: 'middle',
           textStyle: { color: '#64748b', fontSize: 13 },
@@ -327,6 +327,10 @@ export class CompetitorsPageComponent implements OnInit {
     this.filters.set(f);
   }
 
+  toggleSelect(id: string): void {
+    this.selectedId.update((cur) => (cur === id ? null : id));
+  }
+
   refresh(): void {
     this.alerts.load();
     this.config.load();
@@ -357,6 +361,17 @@ export class CompetitorsPageComponent implements OnInit {
       text: this.alerts.getById(alertId)?.originalComplaint || '',
       alertId,
       label: 'Contactado',
+    });
+  }
+
+  onPublishReply(evt: { alertId: string; body: string }): void {
+    const posted = this.alerts.publishMockReply(evt.alertId, evt.body);
+    if (!posted) return;
+    this.history.add({
+      kind: 'comp_capture',
+      text: evt.body,
+      alertId: evt.alertId,
+      label: `Enviado en ${posted._mockPost?.platformLabel || 'plataforma'} (demo)`,
     });
   }
 

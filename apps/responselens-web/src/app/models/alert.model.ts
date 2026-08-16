@@ -1,7 +1,18 @@
 export type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type AlertWorkflowStatus = 'NEW' | 'CONTACTED' | 'SNOOZED' | 'DISMISSED' | 'WON';
 export type BrandScope = 'own' | 'rival';
-export type MentionKind = 'comment' | 'media';
+export type MentionKind =
+  | 'comment'
+  | 'post'
+  | 'video'
+  | 'news'
+  | 'issue'
+  | 'market'
+  | 'pin'
+  | 'professional'
+  | 'thread'
+  | 'web'
+  | 'media';
 export type SentimentLabel = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL' | 'MIXED' | string;
 
 export interface ReplyOption {
@@ -19,6 +30,19 @@ export interface SocialCrawlTopComment {
   author: string | null;
   url: string | null;
   date: string | null;
+  /** Respuesta de marca simulada (demo, no sale a la red real). */
+  kind?: 'inbound' | 'brand_mock';
+}
+
+/** Publicación outbound simulada en la plataforma de origen. */
+export interface MockOutboundPost {
+  demo: true;
+  platformKey: string;
+  platformLabel: string;
+  body: string;
+  postedAt: string;
+  author: string;
+  sourceUrl: string;
 }
 
 export interface SocialCrawlMeta {
@@ -39,6 +63,26 @@ export interface SocialCrawlMeta {
   transcript?: string | null;
   planIntent?: string | null;
   candidateId?: string | null;
+  /** Autor de la pieza (post/video), no del comentario top. */
+  author?: string | null;
+  publishedAt?: string | null;
+  /** Dominio de la URL (noticias). */
+  domain?: string | null;
+}
+
+export interface ConquestIntel {
+  analisis_metrico: {
+    sentimiento: 'positivo' | 'neutral' | 'negativo';
+    score_sentimiento: number;
+    categoria_operativa: string;
+    etiquetas: string[];
+    alerta_reputacional_critica: boolean;
+  };
+  sales_intelligence: {
+    resumen_incidente: string;
+    gancho_comercial_ia: string;
+    score_conversion_estimado: 'alto' | 'medio' | 'bajo';
+  };
 }
 
 /** Raw opportunity shape returned by the scan engine. */
@@ -55,11 +99,18 @@ export interface ScanOpportunity {
   detectedAt: string;
   status?: AlertWorkflowStatus;
   notes?: string;
+  _conquest?: ConquestIntel;
   _brandScope?: BrandScope;
   _sentiment?: SentimentLabel;
   _mentionKind?: MentionKind;
   _actionable?: boolean;
   _analysisSummary?: string;
+  _insight?: {
+    tipo?: string;
+    lectura?: string;
+    accion?: string;
+    tip?: string;
+  };
   _intel?: unknown;
   _source?: string;
   _scMeta?: SocialCrawlMeta;
@@ -104,7 +155,15 @@ export interface CompetitorAlert {
   _aiScoreLabel?: string;
   _aiScoreDrivers?: string[];
   _aiScoreKind?: 'risk' | 'opportunity' | string;
+  _insight?: {
+    tipo?: string;
+    lectura?: string;
+    accion?: string;
+    tip?: string;
+  };
+  _conquest?: ConquestIntel;
   replyOptions?: ReplyOption[];
+  _mockPost?: MockOutboundPost;
 }
 
 export function createAlertId(): string {
@@ -122,10 +181,13 @@ export function packAlertMeta(alert: Partial<CompetitorAlert>): Record<string, u
   if (alert._aiScoreKind) meta['_aiScoreKind'] = alert._aiScoreKind;
   if (alert._mentionKind) meta['_mentionKind'] = alert._mentionKind;
   if (alert._analysisSummary) meta['_analysisSummary'] = alert._analysisSummary;
+  if (alert._insight) meta['_insight'] = alert._insight;
   if (alert._intel != null) meta['_intel'] = alert._intel;
   if (alert._source) meta['_source'] = alert._source;
   if (alert._actionable != null) meta['_actionable'] = alert._actionable;
   if (alert.replyOptions) meta['replyOptions'] = alert.replyOptions;
+  if (alert._conquest) meta['_conquest'] = alert._conquest;
+  if (alert._mockPost) meta['_mockPost'] = alert._mockPost;
   if (alert.metaJson && typeof alert.metaJson === 'object') {
     Object.assign(meta, alert.metaJson);
   }
@@ -166,10 +228,14 @@ export function unpackAlertMeta(
     _mentionKind: (meta['_mentionKind'] as MentionKind | undefined) ?? alert._mentionKind,
     _analysisSummary:
       (meta['_analysisSummary'] as string | undefined) ?? alert._analysisSummary,
+    _insight:
+      (meta['_insight'] as CompetitorAlert['_insight'] | undefined) ?? alert._insight,
     _intel: meta['_intel'] ?? alert._intel,
     _source: (meta['_source'] as string | undefined) ?? alert._source,
     _actionable: (meta['_actionable'] as boolean | undefined) ?? alert._actionable,
     replyOptions: (meta['replyOptions'] as ReplyOption[] | undefined) ?? alert.replyOptions,
+    _conquest: (meta['_conquest'] as ConquestIntel | undefined) ?? alert._conquest,
+    _mockPost: (meta['_mockPost'] as MockOutboundPost | undefined) ?? alert._mockPost,
     _brandScope: alert.brandScope,
   };
 }
@@ -202,6 +268,7 @@ export function mapOpportunityToAlert(opp: ScanOpportunity, userId: string): Com
     _mentionKind: opp._mentionKind,
     _actionable: opp._actionable,
     _analysisSummary: opp._analysisSummary,
+    _insight: opp._insight,
     _intel: opp._intel,
     _source: opp._source,
     ...(opp._scMeta ? { _scMeta: opp._scMeta } : {}),
@@ -210,6 +277,7 @@ export function mapOpportunityToAlert(opp: ScanOpportunity, userId: string): Com
     _aiScoreLabel: opp._aiScoreLabel,
     _aiScoreDrivers: opp._aiScoreDrivers,
     _aiScoreKind: opp._aiScoreKind,
+    _conquest: opp._conquest,
     replyOptions: opp.replyOptions,
   };
   base.metaJson = packAlertMeta(base);

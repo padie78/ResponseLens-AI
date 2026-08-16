@@ -1,0 +1,115 @@
+/* Shared action-chip language (recommended “Solution-first / sugerido” tab). */
+
+%rl-btn-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 2.35rem;
+  padding: var(--rl-btn-pad-y) var(--rl-btn-pad-x);
+  border-radius: var(--rl-btn-radius);
+  border: 1px solid var(--rl-btn-border) !important;
+  background: var(--rl-btn-bg) !important;
+  color: var(--rl-btn-fg) !important;
+  font-family: var(--rl-font-body);
+  font-size: var(--rl-btn-fs);
+  font-weight: var(--rl-btn-fw);
+  line-height: 1.2;
+  box-shadow: none !important;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+%rl-btn-chip-hover {
+  color: var(--rl-btn-hover-fg) !important;
+  border-color: var(--rl-btn-hover-border) !important;
+  background: var(--rl-btn-hover-bg) !important;
+}
+
+%rl-btn-chip-active {
+  color: var(--rl-btn-active-fg) !important;
+  border-color: var(--rl-btn-active-border) !important;
+  background: var(--rl-btn-active-bg) !important;
+}
+
+button.p-button,
+.p-button {
+  @extend %rl-btn-chip;
+}
+
+button.p-button:not(:disabled):hover,
+.p-button:not(:disabled):hover,
+.p-button:not(.p-disabled):hover {
+  @extend %rl-btn-chip-hover;
+}
+
+.p-button:not(.p-button-outlined):not(.p-button-text):not(.p-button-link),
+.p-button.p-button-primary:not(.p-button-outlined):not(.p-button-text) {
+  @extend %rl-btn-chip-active;
+}
+
+.p-button.p-button-outlined,
+.p-button.p-button-text,
+.p-button.p-button-secondary,
+.p-button.p-button-help,
+.p-button.p-button-success,
+.p-button.p-button-info,
+.p-button.p-button-warn,
+.p-button.p-button-danger {
+  background: var(--rl-btn-bg) !important;
+  border: 1px solid var(--rl-btn-border) !important;
+  color: var(--rl-btn-fg) !important;
+}
+
+.p-button.p-button-outlined:not(:disabled):hover,
+.p-button.p-button-text:not(:disabled):hover,
+.p-button.p-button-secondary:not(:disabled):hover,
+.p-button.p-button-help:not(:disabled):hover,
+.p-button.p-button-success:not(:disabled):hover {
+  @extend %rl-btn-chip-hover;
+}
+
+.p-button.p-button-sm,
+.p-button.p-button-small {
+  min-height: 2.35rem;
+  font-size: var(--rl-btn-fs);
+  padding: var(--rl-btn-pad-y) var(--rl-btn-pad-x);
+}
+
+.p-button:disabled,
+.p-button.p-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.p-button .p-button-icon,
+.p-button .pi {
+  font-size: 0.85rem;
+}
+
+.rl-pitch-tab,
+.rl-alert__btn,
+.rl-alert__text-btn,
+.rl-settings__ghost,
+.rl-analysis-modal__tool,
+.rl-notify__action {
+  @extend %rl-btn-chip;
+}
+
+.rl-pitch-tab:hover,
+.rl-alert__btn:hover,
+.rl-alert__text-btn:hover,
+.rl-settings__ghost:hover,
+.rl-analysis-modal__tool:hover,
+.rl-notify__action:hover {
+  @extend %rl-btn-chip-hover;
+}
+
+.rl-pitch-tab.is-active,
+.rl-alert__btn--primary,
+.rl-analysis-modal__tool--accent {
+  @extend %rl-btn-chip-active;
+}

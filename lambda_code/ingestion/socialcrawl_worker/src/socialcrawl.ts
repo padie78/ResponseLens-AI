@@ -21,9 +21,14 @@ export type SocialCrawlMeta = {
   sources?: string[];
   clusterId?: string | null;
   clusterTitle?: string | null;
+  clusterScore?: number | null;
   thumbnailUrl?: string | null;
+  transcript?: string | null;
   planIntent?: string | null;
   candidateId?: string | null;
+  author?: string | null;
+  publishedAt?: string | null;
+  domain?: string | null;
 };
 
 export type SocialCrawlMention = {
@@ -116,7 +121,51 @@ function extractEngagement(item: Record<string, unknown>): {
   return { points, numComments };
 }
 
-function mapItem(item: Record<string, unknown>, planIntent: string | null): SocialCrawlMention | null {
+function extractMedia(item: Record<string, unknown>): { thumbnailUrl: string | null; transcript: string | null } {
+  let thumbnailUrl: string | null = null;
+  let transcript: string | null = null;
+  const sourceItems = Array.isArray(item.source_items) ? item.source_items : [];
+  for (const si of sourceItems) {
+    const rec = si as {
+      media?: { thumbnail_url?: string };
+      metadata?: { thumbnail_url?: string; transcript?: unknown };
+    };
+    const thumb = rec.media?.thumbnail_url || rec.metadata?.thumbnail_url;
+    if (thumb && !thumbnailUrl) thumbnailUrl = String(thumb);
+    const tr = rec.metadata?.transcript;
+    if (tr && !transcript) {
+      transcript = typeof tr === 'string' ? tr.slice(0, 2000) : JSON.stringify(tr).slice(0, 2000);
+    }
+  }
+  return { thumbnailUrl, transcript };
+}
+
+function extractAuthor(item: Record<string, unknown>): string | null {
+  const direct = item.author ?? item.username ?? item.user;
+  if (direct != null && String(direct).trim()) return String(direct).trim().slice(0, 80);
+  const sourceItems = Array.isArray(item.source_items) ? item.source_items : [];
+  for (const si of sourceItems) {
+    const rec = si as { author?: unknown; metadata?: { author?: unknown } };
+    const a = rec.author ?? rec.metadata?.author;
+    if (a != null && String(a).trim()) return String(a).trim().slice(0, 80);
+  }
+  return null;
+}
+
+function extractDomain(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    return host || null;
+  } catch {
+    return null;
+  }
+}
+
+function mapItem(
+  item: Record<string, unknown>,
+  planIntent: string | null,
+  clustersById: Record<string, { title?: string; score?: number }> = {},
+): SocialCrawlMention | null {
   const platform = normalizePlatform(String(item.source || item.platform || 'web'));
   const title = String(item.title || item.headline || '').trim();
   const body = String(item.text || item.snippet || item.description || item.content || '').trim();
@@ -134,11 +183,14 @@ function mapItem(item: Record<string, unknown>, planIntent: string | null): Soci
   }
 
   const engagement = extractEngagement(item);
+  const media = extractMedia(item);
   const sources = Array.isArray(item.sources)
     ? item.sources.map(String)
     : item.source
       ? [String(item.source)]
       : [];
+  const clusterId = item.cluster_id != null ? String(item.cluster_id) : null;
+  const cluster = clusterId ? clustersById[clusterId] : undefined;
 
   return {
     id: `sc_${platform}_${candidateId}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120),
@@ -154,11 +206,16 @@ function mapItem(item: Record<string, unknown>, planIntent: string | null): Soci
       engagement,
       topComments,
       sources,
-      clusterId: item.cluster_id != null ? String(item.cluster_id) : null,
-      clusterTitle: null,
-      thumbnailUrl: null,
+      clusterId,
+      clusterTitle: cluster?.title ? String(cluster.title) : null,
+      clusterScore: typeof cluster?.score === 'number' ? cluster.score : null,
+      thumbnailUrl: media.thumbnailUrl,
+      transcript: media.transcript,
       planIntent,
       candidateId,
+      author: extractAuthor(item),
+      publishedAt: detectedAt,
+      domain: extractDomain(sourceUrl),
     },
   };
 }
@@ -306,8 +363,17 @@ export async function searchSocialCrawlEverywhere(opts: {
   const plan = data.plan as { intent?: string } | undefined;
   const planIntent = plan?.intent ? String(plan.intent) : null;
   const items = Array.isArray(data.items) ? (data.items as Record<string, unknown>[]) : [];
+  const clustersById: Record<string, { title?: string; score?: number }> = {};
+  const clusters = Array.isArray(data.clusters) ? data.clusters : [];
+  for (const c of clusters) {
+    if (!c || typeof c !== 'object') continue;
+    const rec = c as { cluster_id?: string; id?: string; title?: string; score?: number };
+    const id = String(rec.cluster_id || rec.id || '');
+    if (!id) continue;
+    clustersById[id] = { title: rec.title, score: rec.score };
+  }
   const mentions = items
-    .map((item) => mapItem(item, planIntent))
+    .map((item) => mapItem(item, planIntent, clustersById))
     .filter((m): m is SocialCrawlMention => Boolean(m));
 
   return {

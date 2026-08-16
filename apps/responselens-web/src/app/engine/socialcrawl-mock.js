@@ -165,6 +165,7 @@ export function buildMockEverywhereEnvelope(query) {
       source_items: [
         {
           engagement: { points: 1200, num_comments: 88 },
+          media: { thumbnail_url: 'https://i.ytimg.com/vi/rlMockStrp1/hqdefault.jpg' },
           metadata: {
             top_comments: [
               {
@@ -323,6 +324,51 @@ export function buildMockEverywhereEnvelope(query) {
       cluster_id: 'c_mock_billing',
       source_items: [{ engagement: { points: 89, num_comments: 21 }, metadata: { top_comments: [] } }],
     },
+    {
+      candidate_id: `mock_pin_${brand}_12`,
+      source: 'pinterest',
+      title: `${brand} checkout flow — saved pin`,
+      text: `Moodboard: ${brand} onboarding vs the outage screenshots going around.`,
+      url: `https://www.pinterest.com/pin/mock_${encodeURIComponent(brand)}`,
+      published_at: iso(240),
+      final_score: 38.4,
+      rerank_score: 54,
+      sources: ['pinterest'],
+      cluster_id: 'c_mock_outage',
+      source_items: [{ engagement: { points: 64, num_comments: 4 }, metadata: { top_comments: [] } }],
+    },
+    {
+      candidate_id: `mock_ru_${brand}_13`,
+      source: 'rumble',
+      title: `${brand} status page vs reality — clip`,
+      text: `Walkthrough of the ${brand} EU checkout failure. Status still green.`,
+      url: `https://rumble.com/v/mock-${encodeURIComponent(brand)}`,
+      published_at: iso(310),
+      final_score: 42.6,
+      rerank_score: 57,
+      sources: ['rumble'],
+      cluster_id: 'c_mock_outage',
+      source_items: [
+        {
+          engagement: { points: 410, num_comments: 19 },
+          media: { thumbnail_url: null },
+          metadata: { top_comments: [], transcript: 'Status page green. Checkout still failing in EU.' },
+        },
+      ],
+    },
+    {
+      candidate_id: `mock_pm_${brand}_14`,
+      source: 'polymarket',
+      title: `Will ${brand} restore EU checkout before Friday?`,
+      text: `Prediction market on ${brand} incident recovery. Volume spiking with merchant complaints.`,
+      url: `https://polymarket.com/event/mock-${encodeURIComponent(brand)}-outage`,
+      published_at: iso(55),
+      final_score: 36.0,
+      rerank_score: 51,
+      sources: ['polymarket'],
+      cluster_id: 'c_mock_outage',
+      source_items: [{ engagement: { points: 2200, num_comments: null }, metadata: { top_comments: [] } }],
+    },
   ];
 
   return {
@@ -359,6 +405,9 @@ export function buildMockEverywhereEnvelope(query) {
         instagram: [items[8]],
         linkedin: [items[9]],
         threads: [items[10]],
+        pinterest: [items[11]],
+        rumble: [items[12]],
+        polymarket: [items[13]],
       },
       clusters: [
         {
@@ -417,13 +466,12 @@ export function buildMockEverywhereEnvelope(query) {
         'instagram',
         'linkedin',
         'threads',
+        'pinterest',
+        'rumble',
+        'polymarket',
       ],
-      sources_failed: {
-        pinterest: 'mock: empty upstream',
-        rumble: 'mock: pruned low_affinity',
-        polymarket: 'mock: pruned low_affinity',
-      },
-      coverage: 11 / 14,
+      sources_failed: {},
+      coverage: 1,
       partial_failure: false,
     },
   };
@@ -468,6 +516,16 @@ function mapMockItem(item, planIntent, clustersById = {}) {
     }
   }
 
+  let thumbnailUrl = null;
+  let transcript = null;
+  for (const si of item.source_items || []) {
+    const thumb = si?.media?.thumbnail_url || si?.metadata?.thumbnail_url;
+    if (thumb && !thumbnailUrl) thumbnailUrl = String(thumb);
+    const tr = si?.metadata?.transcript;
+    if (tr && !transcript) {
+      transcript = typeof tr === 'string' ? tr : JSON.stringify(tr).slice(0, 2000);
+    }
+  }
   const candidateId = String(item.candidate_id || item.id || Math.random().toString(36).slice(2, 9));
   const clusterId = item.cluster_id != null ? String(item.cluster_id) : null;
   const cluster = clusterId ? clustersById[clusterId] : null;
@@ -489,9 +547,19 @@ function mapMockItem(item, planIntent, clustersById = {}) {
       clusterId,
       clusterTitle: cluster?.title ? String(cluster.title) : null,
       clusterScore: typeof cluster?.score === 'number' ? cluster.score : null,
-      thumbnailUrl: null,
+      thumbnailUrl,
+      transcript,
       planIntent,
       candidateId,
+      author: topComments[0]?.author || null,
+      publishedAt: item.published_at || new Date().toISOString(),
+      domain: (() => {
+        try {
+          return new URL(String(item.url || '')).hostname.replace(/^www\./, '') || null;
+        } catch {
+          return null;
+        }
+      })(),
       mock: true,
     },
   };

@@ -27,15 +27,68 @@ export const APP_ROUTES: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./pages/shell/shell.page').then((m) => m.ShellPageComponent),
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'own' },
+      { path: '', pathMatch: 'full', redirectTo: 'overview' },
+      {
+        path: 'overview',
+        loadComponent: () =>
+          import('./pages/overview/overview.page').then((m) => m.OverviewPageComponent),
+      },
       {
         path: 'own',
         loadComponent: () => import('./pages/own/own.page').then((m) => m.OwnPageComponent),
       },
       {
+        path: 'own/audit',
+        loadComponent: () =>
+          import('./pages/own/own-audit.page').then((m) => m.OwnAuditPageComponent),
+      },
+      {
         path: 'competitors',
         loadComponent: () =>
           import('./pages/competitors/competitors.page').then((m) => m.CompetitorsPageComponent),
+      },
+      {
+        path: 'rivals/ads',
+        loadComponent: () =>
+          import('./pages/rivals/rivals-ads.page').then((m) => m.RivalsAdsPageComponent),
+      },
+      {
+        path: 'rivals/talent',
+        loadComponent: () =>
+          import('./pages/rivals/rivals-talent.page').then((m) => m.RivalsTalentPageComponent),
+      },
+      {
+        path: 'rivals/visibility',
+        loadComponent: () =>
+          import('./pages/rivals/rivals-visibility.page').then((m) => m.RivalsVisibilityPageComponent),
+      },
+      {
+        path: 'rivals/battlecards',
+        loadComponent: () =>
+          import('./pages/rivals/rivals-battlecards.page').then((m) => m.RivalsBattlecardsPageComponent),
+      },
+      {
+        path: 'discovery',
+        loadComponent: () =>
+          import('./pages/coming-soon/coming-soon.page').then((m) => m.ComingSoonPageComponent),
+        data: {
+          title: 'Feed global de comentarios',
+          lead: 'Conversación de industria más allá de tu marca y rivales.',
+        },
+      },
+      {
+        path: 'trends',
+        loadComponent: () =>
+          import('./pages/coming-soon/coming-soon.page').then((m) => m.ComingSoonPageComponent),
+        data: {
+          title: 'Tendencias del mercado',
+          lead: 'Keywords y temas emergentes de la categoría.',
+        },
+      },
+      {
+        path: 'alerts',
+        loadComponent: () =>
+          import('./pages/alerts/alerts.page').then((m) => m.AlertsPageComponent),
       },
       {
         path: 'stats',

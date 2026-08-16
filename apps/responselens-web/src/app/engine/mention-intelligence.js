@@ -1,4 +1,10 @@
 import { scoreFrustration } from './competitor-opportunity.js';
+import { analyzeConquestMention } from './conquest-nlp.js';
+import {
+  contentKindLabel,
+  isReplyableContent,
+  normalizeContentKind,
+} from './content-kind.js';
 
 /**
  * Motor de inteligencia de menciones (reputación / captación).
@@ -140,8 +146,15 @@ function categoryFromText(text, sentiment) {
 }
 
 /**
- * Mini-análisis legible (varias frases) por ítem.
+ * Mini-análisis estructurado (legible para humanos).
  * No repite el sentimiento: eso ya va en el badge superior de la card.
+ * @returns {{
+ *   tipo: string,
+ *   lectura: string,
+ *   accion: string,
+ *   tip: string,
+ *   text: string,
+ * }}
  */
 function buildAnalysisSummary({
   text,
@@ -151,101 +164,144 @@ function buildAnalysisSummary({
   plataforma,
   mentionKind,
   esCompetencia,
+  hasComments = false,
 }) {
   const plat = plataforma || 'web';
-  const raw = String(text || '').replace(/\s+/g, ' ').trim();
-  const snip = raw.slice(0, 140);
-  const snipSuffix = raw.length > 140 ? '…' : '';
-  const angle = angleFromText(raw);
+  const lectura = angleFromText(text);
+  /** @type {{ tipo: string, lectura: string, accion: string, tip: string }} */
+  let parts;
 
   if (esCompetencia) {
-    return (
-      `Lectura: aparece fricción atribuible a ${brand} en ${plat}, con foco en «${categoria}». ` +
-      `${angle} ` +
-      `Para captación conviene contrastar el dolor del usuario con tu propuesta de valor, sin fingir ser el rival en el hilo. ` +
-      `Fragmento: “${snip}${snipSuffix}”`
-    );
-  }
-
-  if (mentionKind === 'media') {
+    parts = {
+      tipo: `Oportunidad en ${plat}`,
+      lectura: `Hay fricción atribuible a ${brand}, con foco en «${categoria}». ${lectura}`,
+      accion:
+        'Contrastá el dolor del usuario con tu propuesta de valor. No finjas ser el rival en el hilo.',
+      tip: '',
+    };
+  } else if (mentionKind === 'video') {
+    parts = {
+      tipo: `Video en ${plat}`,
+      lectura: `Pieza audiovisual sobre ${brand}. ${lectura}`,
+      accion: hasComments
+        ? 'Revisá comentarios destacados y respondé en el hilo del video si hay queja accionable.'
+        : 'Seguí alcance y comentarios. No es un post de texto: el riesgo está en la narrativa del video.',
+      tip: '',
+    };
+  } else if (mentionKind === 'news') {
+    parts = {
+      tipo: `Noticia en ${plat}`,
+      lectura: `Cobertura periodística o síntesis web sobre ${brand}. ${lectura}`,
+      accion: 'Registrá en reputación. Un statement público solo si el tema escala.',
+      tip: '',
+    };
+  } else if (mentionKind === 'issue') {
+    parts = {
+      tipo: `Issue en ${plat}`,
+      lectura,
+      accion: 'Respondé en el ticket con contexto técnico. No uses tono de community manager.',
+      tip: '',
+    };
+  } else if (mentionKind === 'market') {
+    parts = {
+      tipo: `Señal de mercado`,
+      lectura: `Contrato o predicción que menciona a ${brand}. ${lectura}`,
+      accion: 'Monitoreo. No hay hilo de cliente para responder.',
+      tip: '',
+    };
+  } else if (mentionKind === 'pin' || mentionKind === 'professional' || mentionKind === 'web') {
+    parts = {
+      tipo: `${contentKindLabel(mentionKind)} en ${plat}`,
+      lectura: `Pieza sobre ${brand}. ${lectura}`,
+      accion: 'Seguí la pieza y comentarios si aparecen. La respuesta en hilo no siempre está disponible.',
+      tip: '',
+    };
+  } else if (mentionKind === 'media') {
     if (sentimiento === 'positivo') {
-      return (
-        `Se trata de cobertura o contenido audiovisual sobre ${brand} en ${plat}, no de un comentario en un hilo. ` +
-        `Tema dominante: ${categoria}. ${angle} ` +
-        `La lectura es favorable o al menos constructiva: sirve para reputación y awareness, no para inyectar una respuesta pública. ` +
-        `Recomendación: registrar alcance/contexto, compartir internamente si suma, y solo actuar si el video deriva en crisis en comentarios. ` +
-        `Referencia: “${snip}${snipSuffix}”`
-      );
+      parts = {
+        tipo: `Cobertura favorable en ${plat}`,
+        lectura: `Contenido audiovisual o noticia sobre ${brand}. ${lectura}`,
+        accion:
+          'Registrá alcance y compartí internamente si suma. No hace falta responder en el hilo.',
+        tip: 'Actuá solo si el video deriva en crisis en comentarios.',
+      };
+    } else if (sentimiento === 'negativo' || sentimiento === 'critico') {
+      parts = {
+        tipo: `Cobertura crítica en ${plat}`,
+        lectura: `Pieza media sobre ${brand}. ${lectura}`,
+        accion:
+          sentimiento === 'critico'
+            ? 'Escala a reputación/legal si hay acusaciones graves y prepará postura pública.'
+            : 'Seguí la pieza, revisá comentarios destacados y decidí si hace falta un statement oficial.',
+        tip: 'No es un comentario respondible en composer: el riesgo está en la narrativa.',
+      };
+    } else {
+      parts = {
+        tipo: `Mención informativa en ${plat}`,
+        lectura: `Cobertura o video sobre ${brand}. ${lectura}`,
+        accion: 'Archivá para el informe de reputación. No redactes respuesta de hilo.',
+        tip: '',
+      };
     }
-    if (sentimiento === 'negativo' || sentimiento === 'critico') {
-      return (
-        `Contenido de tipo media (${plat}) que menciona a ${brand} con carga crítica. Tema: ${categoria}. ${angle} ` +
-        `No es un comentario respondible en composer: el riesgo está en la narrativa del video/noticia y en los comentarios que pueda generar. ` +
-        (sentimiento === 'critico'
-          ? `Prioridad alta: escalar a reputación/legal si hay acusaciones graves, y preparar postura pública. `
-          : `Seguí la pieza, revisá comentarios destacados y decidí si hace falta un statement o aclaración en canal oficial. `) +
-        `Referencia: “${snip}${snipSuffix}”`
-      );
-    }
-    return (
-      `Mención informativa / cobertura sobre ${brand} en ${plat} (video, vlog o noticia). Tema: ${categoria}. ${angle} ` +
-      `No hay pedido explícito al brand ni una queja dirigida: el valor es de monitoreo de vida digital (quién habla, en qué contexto). ` +
-      `Acción sugerida: archivar para el informe de reputación, no redactar respuesta de hilo. Si el contenido es un evento o conferencia, anotá speakers y mensaje asociado. ` +
-      `Referencia: “${snip}${snipSuffix}”`
-    );
+  } else if (sentimiento === 'positivo') {
+    parts = {
+      tipo: `Comentario favorable en ${plat}`,
+      lectura,
+      accion: 'Agradecé en breve, en el tono de la plataforma. Evitá sobre-prometer.',
+      tip: 'Si pide algo concreto, derivá a soporte o DM.',
+    };
+  } else if (sentimiento === 'critico') {
+    parts = {
+      tipo: `Alto riesgo en ${plat}`,
+      lectura,
+      accion:
+        'No publiques respuesta automática. Pasá a moderación humana y definí si la respuesta es privada, pública o jurídica.',
+      tip: 'Documentá evidencia antes de actuar.',
+    };
+  } else if (sentimiento === 'negativo') {
+    parts = {
+      tipo: `Queja accionable en ${plat}`,
+      lectura,
+      accion:
+        'Respondé con empatía, validá el problema y ofrecé un canal privado (DM/soporte) para resolver sin pelear en público.',
+      tip: 'Si el tema se repite (precio, bugs, soporte), sumalo al playbook de defensa.',
+    };
+  } else {
+    parts = {
+      tipo: `Mención en ${plat}`,
+      lectura,
+      accion: 'Observá si el hilo se amplifica. Respondé solo si aportás claridad útil.',
+      tip: '',
+    };
   }
 
-  if (sentimiento === 'positivo') {
-    return (
-      `Comentario accionable favorable a ${brand} en ${plat}. Tema: ${categoria}. ${angle} ` +
-      `Oportunidad de reforzar relación: un agradecimiento breve en el tono de la plataforma suele bastar. ` +
-      `Evitar sobre-prometer; si el usuario pide algo concreto, derivar a soporte o DM. ` +
-      `Fragmento: “${snip}${snipSuffix}”`
-    );
-  }
-  if (sentimiento === 'critico') {
-    return (
-      `Señal de alto riesgo sobre ${brand} en ${plat}. Tema: ${categoria}. ${angle} ` +
-      `Puede involucrar lenguaje agresivo, amenaza o marco legal. No publiques una respuesta automática. ` +
-      `Pasá el caso a moderación humana, documentá evidencia y definí si la respuesta es privada, pública o jurídica. ` +
-      `Fragmento: “${snip}${snipSuffix}”`
-    );
-  }
-  if (sentimiento === 'negativo') {
-    return (
-      `Queja o fricción accionable hacia ${brand} en ${plat}. Tema: ${categoria}. ${angle} ` +
-      `Conviene responder con empatía, validar el problema y ofrecer un canal privado (DM/soporte) para resolver sin pelear en público. ` +
-      `Si el tema se repite (precio, bugs, soporte), sumalo al playbook de defensa de marca. ` +
-      `Fragmento: “${snip}${snipSuffix}”`
-    );
-  }
-  return (
-    `Mención de ${brand} en ${plat} sin carga emocional clara. Tema: ${categoria}. ${angle} ` +
-    `Puede ser consulta, contexto o comentario lateral. Observá si otros usuarios amplifican el hilo. ` +
-    `Respondé solo si aportás claridad útil; si no, dejalo en monitoreo. ` +
-    `Fragmento: “${snip}${snipSuffix}”`
-  );
+  const textOut = [parts.tipo, parts.lectura, parts.accion, parts.tip].filter(Boolean).join(' ');
+
+  return {
+    ...parts,
+    text: textOut,
+  };
 }
 
 function angleFromText(text) {
   const t = String(text || '');
   if (EVENT_RE.test(t)) {
-    return 'El texto apunta a un evento, entrevista o cobertura de actualidad.';
+    return 'Apunta a un evento, entrevista o cobertura de actualidad.';
   }
   if (/\b(precio|caro|billing|fee|tarifa|refund|cobr)\b/i.test(t)) {
-    return 'Hay indicios de tensión por precio, cobro o reembolsos.';
+    return 'Hay tensión por precio, cobro o reembolsos.';
   }
-  if (/\b(soporte|support|ticket|no\s+responde)\b/i.test(t)) {
-    return 'El eje parece ser experiencia de soporte o demora en la atención.';
+  if (/\b(soporte|support|ticket|no\s+responde|offline|live\s+chat|waiting)\b/i.test(t)) {
+    return 'El problema parece ser soporte lento o atención demorada.';
   }
   if (/\b(outage|falla|bug|crash|api|timeout)\b/i.test(t)) {
-    return 'Se menciona confiabilidad o fallas de producto/servicio.';
+    return 'Se menciona una falla de producto o servicio.';
   }
   if (/\b(estafa|fraude|scam)\b/i.test(t)) {
     return 'Aparecen acusaciones de confianza o posible fraude.';
   }
   if (/\b(hiring|empleo|job|career)\b/i.test(t)) {
-    return 'El contexto se acerca a talento, empleo o hiring.';
+    return 'El contexto se acerca a talento o empleo.';
   }
   return 'No hay un solo dolor dominante; la lectura es contextual.';
 }
@@ -266,11 +322,13 @@ export function analyzeBrandMention(input) {
   const text = String(input.text || '').trim();
   const brandScope = input.brandScope === 'rival' ? 'rival' : 'own';
   const esCompetencia = brandScope === 'rival';
-  const mentionKind = input.mentionKind === 'media' ? 'media' : 'comment';
+  const mentionKind = normalizeContentKind(input.mentionKind, input.channel);
   const plataforma = detectPlatform(input.channel, input.sourceUrl);
   const sentimiento = text ? classifySentiment(text) : 'neutral';
   const critico = sentimiento === 'critico' || LEGAL_RE.test(text) || SAFETY_RE.test(text);
   const requiereModeracion = critico;
+  const hasComments = Array.isArray(input.scMeta?.topComments) && input.scMeta.topComments.length > 0;
+  const replyable = isReplyableContent(mentionKind, input.scMeta);
 
   const systemContext =
     typeof input.systemContext === 'string'
@@ -283,7 +341,7 @@ export function analyzeBrandMention(input) {
     'nuestra marca';
 
   let respuesta = null;
-  if (text && !esCompetencia && !requiereModeracion && mentionKind === 'comment') {
+  if (text && !esCompetencia && !requiereModeracion && replyable) {
     respuesta = craftPublicReply({
       text,
       plataforma,
@@ -301,6 +359,7 @@ export function analyzeBrandMention(input) {
         plataforma,
         mentionKind,
         esCompetencia,
+        hasComments,
       })
     : null;
 
@@ -314,8 +373,23 @@ export function analyzeBrandMention(input) {
     scMeta: input.scMeta || null,
   });
 
+  const conquest =
+    esCompetencia && text
+      ? analyzeConquestMention({
+          text,
+          competitorName: input.competitorName,
+          companyName: input.companyName,
+        })
+      : null;
+
+  if (conquest && !respuesta && esCompetencia) {
+    respuesta = conquest.sales_intelligence.gancho_comercial_ia;
+  }
+
   return {
     metadatos_personalizados: { ...systemContext },
+    analisis_metrico: conquest?.analisis_metrico || null,
+    sales_intelligence: conquest?.sales_intelligence || null,
     analisis_comentario_recibido: {
       plataforma_detectada: plataforma,
       sentimiento,
@@ -327,7 +401,11 @@ export function analyzeBrandMention(input) {
       score_drivers: scorePack.drivers,
       analisis_estrategico: {
         categoria_queja_o_elogio: categoria,
-        resumen_insight: insight,
+        resumen_insight: insight?.text || null,
+        tipo: insight?.tipo || null,
+        lectura: insight?.lectura || null,
+        accion: insight?.accion || null,
+        tip: insight?.tip || null,
       },
       respuesta_sugerida_publica: respuesta,
     },
@@ -336,11 +414,20 @@ export function analyzeBrandMention(input) {
       channel: plataforma || input.channel || null,
       mentionKind,
       sentimentStorage: storageSentiment,
-      analysisSummary: insight,
+      analysisSummary: insight?.text || null,
+      insightParts: insight
+        ? {
+            tipo: insight.tipo,
+            lectura: insight.lectura,
+            accion: insight.accion,
+            tip: insight.tip,
+          }
+        : null,
       aiScore: scorePack.score,
       aiScoreBand: scorePack.band,
       aiScoreLabel: scorePack.label,
       aiScoreDrivers: scorePack.drivers,
+      conquest,
     },
     error: text ? null : 'empty_text',
   };
@@ -367,7 +454,7 @@ export function analyzeBrandMention(input) {
 export function computeMentionScore(input = {}) {
   const text = String(input.text || '');
   const brandScope = input.brandScope === 'rival' ? 'rival' : 'own';
-  const mentionKind = input.mentionKind === 'media' ? 'media' : 'comment';
+  const mentionKind = normalizeContentKind(input.mentionKind);
   const sentimiento = String(input.sentimiento || classifySentiment(text)).toLowerCase();
   const fr =
     typeof input.frustrationScore === 'number' && Number.isFinite(input.frustrationScore)
@@ -427,18 +514,18 @@ export function computeMentionScore(input = {}) {
       score += reachPts;
       drivers.push(
         comments
-          ? `Alcance SocialCrawl (${points || 0} pts · ${comments} cmts)`
-          : `Alcance SocialCrawl (${points} pts)`,
+          ? `Alcance en redes (${points || 0} pts · ${comments} comentarios)`
+          : `Alcance en redes (${points} pts)`,
       );
     }
     const finalScore = typeof sc.finalScore === 'number' ? sc.finalScore : null;
     const rerank = typeof sc.rerankScore === 'number' ? sc.rerankScore : null;
     if (finalScore != null && finalScore >= 55) {
       score += Math.min(10, Math.round((finalScore - 50) / 5));
-      drivers.push(`Ranking SocialCrawl ${Math.round(finalScore)}`);
+      drivers.push(`Relevancia ${Math.round(finalScore)}`);
     } else if (rerank != null && rerank >= 70) {
       score += 6;
-      drivers.push(`Rerank SocialCrawl ${Math.round(rerank)}`);
+      drivers.push(`Relevancia ${Math.round(rerank)}`);
     }
     const nComments = Array.isArray(sc.topComments) ? sc.topComments.length : 0;
     if (nComments >= 3) {
@@ -451,9 +538,16 @@ export function computeMentionScore(input = {}) {
     }
   }
 
-  if (mentionKind === 'media') {
+  if (
+    mentionKind === 'news' ||
+    mentionKind === 'market' ||
+    mentionKind === 'pin' ||
+    mentionKind === 'professional' ||
+    mentionKind === 'web' ||
+    mentionKind === 'media'
+  ) {
     score = Math.round(score * (brandScope === 'rival' ? 0.62 : 0.55));
-    drivers.push('Mención en medio (menos accionable)');
+    drivers.push('Pieza de cobertura (menos hilo accionable)');
   }
 
   score = Math.max(1, Math.min(100, Math.round(score)));
@@ -497,15 +591,10 @@ export function ensureItemIntel(alert, opts = {}) {
     return alert;
   }
 
-  const mentionKind =
-    alert._mentionKind === 'media' || alert._actionable === false
-      ? 'media'
-      : alert._source === 'youtube' ||
-          alert._source === 'news' ||
-          alert.channel === 'youtube' ||
-          alert.channel === 'news'
-        ? 'media'
-        : 'comment';
+  const mentionKind = normalizeContentKind(
+    alert._mentionKind,
+    alert.channel || alert._source,
+  );
 
   const hasSummary =
     String(alert._analysisSummary || alert._intel?.analisis_estrategico?.resumen_insight || '').trim()
@@ -513,12 +602,36 @@ export function ensureItemIntel(alert, opts = {}) {
     !/^Sentimiento\s+/i.test(
       String(alert._analysisSummary || alert._intel?.analisis_estrategico?.resumen_insight || ''),
     );
+  const hasStructuredInsight = Boolean(
+    alert._intel?.analisis_estrategico?.accion || alert._insight?.accion,
+  );
   const hasSent = Boolean(alert._sentiment);
   const hasScore = typeof alert._aiScore === 'number' && alert._aiScore > 0;
 
-  if (hasSummary && hasSent && alert._intel && hasScore) {
-    alert._mentionKind = alert._mentionKind || mentionKind;
-    alert._actionable = alert._actionable ?? mentionKind === 'comment';
+  if (hasSummary && hasStructuredInsight && hasSent && alert._intel && hasScore) {
+    alert._mentionKind = mentionKind;
+    alert._actionable = isReplyableContent(mentionKind, alert._scMeta);
+    if (!alert._insight && alert._intel?.analisis_estrategico) {
+      const ae = alert._intel.analisis_estrategico;
+      alert._insight = {
+        tipo: ae.tipo || '',
+        lectura: ae.lectura || '',
+        accion: ae.accion || '',
+        tip: ae.tip || '',
+      };
+    }
+    const scopeEarly = alert._brandScope || alert.brandScope;
+    if (scopeEarly === 'rival' && !alert._conquest) {
+      const conquest = analyzeConquestMention({
+        text,
+        competitorName: alert.competitorName,
+        companyName: opts.companyName,
+      });
+      alert._conquest = conquest;
+      if (!alert.salesPitch && conquest.sales_intelligence?.gancho_comercial_ia) {
+        alert.salesPitch = conquest.sales_intelligence.gancho_comercial_ia;
+      }
+    }
     return alert;
   }
 
@@ -535,8 +648,8 @@ export function ensureItemIntel(alert, opts = {}) {
       scMeta: alert._scMeta || null,
     });
     applyScoreToAlert(alert, scorePack);
-    alert._mentionKind = alert._mentionKind || mentionKind;
-    alert._actionable = alert._actionable ?? mentionKind === 'comment';
+    alert._mentionKind = mentionKind;
+    alert._actionable = isReplyableContent(mentionKind, alert._scMeta);
     if (alert._intel && typeof alert._intel === 'object') {
       alert._intel.score_ia = scorePack.score;
       alert._intel.score_banda = scorePack.band;
@@ -551,7 +664,8 @@ export function ensureItemIntel(alert, opts = {}) {
     channel: alert.channel || alert._source,
     sourceUrl: alert.sourceUrl,
     brandScope,
-    companyName: opts.companyName || alert.competitorName,
+    companyName: opts.companyName,
+    competitorName: brandScope === 'rival' ? alert.competitorName : undefined,
     mentionKind,
     frustrationScore: alert.frustrationScore,
     scMeta: alert._scMeta || null,
@@ -563,8 +677,14 @@ export function ensureItemIntel(alert, opts = {}) {
   alert._sentiment = sentimentToStorage(block?.sentimiento) || alert._sentiment || 'NEUTRAL';
   alert._analysisSummary =
     block?.analisis_estrategico?.resumen_insight || intel._rl?.analysisSummary || '';
+  alert._insight = intel._rl?.insightParts || {
+    tipo: block?.analisis_estrategico?.tipo || '',
+    lectura: block?.analisis_estrategico?.lectura || '',
+    accion: block?.analisis_estrategico?.accion || '',
+    tip: block?.analisis_estrategico?.tip || '',
+  };
   alert._mentionKind = mentionKind;
-  alert._actionable = mentionKind === 'comment';
+  alert._actionable = isReplyableContent(mentionKind, alert._scMeta);
   applyScoreToAlert(alert, {
     score: intel._rl?.aiScore ?? block?.score_ia ?? 0,
     band: intel._rl?.aiScoreBand ?? block?.score_banda ?? 'medium',
@@ -572,6 +692,15 @@ export function ensureItemIntel(alert, opts = {}) {
     drivers: intel._rl?.aiScoreDrivers ?? block?.score_drivers ?? [],
     kind: brandScope === 'rival' ? 'opportunity' : 'risk',
   });
+  if (brandScope === 'rival' && intel.sales_intelligence) {
+    alert._conquest = {
+      analisis_metrico: intel.analisis_metrico,
+      sales_intelligence: intel.sales_intelligence,
+    };
+    if (intel.sales_intelligence.gancho_comercial_ia) {
+      alert.salesPitch = intel.sales_intelligence.gancho_comercial_ia;
+    }
+  }
   return alert;
 }
 

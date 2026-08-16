@@ -19,6 +19,10 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: 17px;
+}
+
 html,
 body {
   height: 100%;
@@ -28,7 +32,7 @@ body {
   margin: 0;
   font-family: var(--rl-font-body);
   font-size: var(--rl-fs-md);
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--rl-text-primary);
   background: var(--rl-bg-base);
   -webkit-font-smoothing: antialiased;
@@ -41,11 +45,32 @@ ion-content {
 
 /* PrimeNG denser controls in our dark shell */
 .p-dropdown,
-.p-inputtext,
-.p-button {
+.p-inputtext {
   font-family: var(--rl-font-body);
 }
 
-.rl-page .p-button.p-button-sm {
-  font-size: 0.8rem;
+.rl-page .p-dropdown,
+.rl-page .p-select,
+.rl-page .p-inputtext,
+.rl-filters .p-dropdown,
+.rl-filters .p-select,
+.rl-filters .p-inputtext {
+  background: var(--rl-bg-base) !important;
+  color: var(--rl-text-primary);
 }
+
+.rl-page .p-tabs,
+.rl-page .p-tabview,
+.rl-page .p-tablist,
+.rl-page .p-tablist-content,
+.rl-page .p-tablist-tab-list,
+.rl-page .p-tabpanels,
+.rl-page .p-tabpanel,
+.rl-page .p-tabview .p-tabview-nav,
+.rl-page .p-tabview .p-tabview-panels,
+.rl-page .p-tabview .p-tabview-nav li .p-tabview-nav-link,
+.rl-page .p-tablist-tab-list > .p-tab {
+  background: var(--rl-bg-base) !important;
+  background-color: var(--rl-bg-base) !important;
+}
+

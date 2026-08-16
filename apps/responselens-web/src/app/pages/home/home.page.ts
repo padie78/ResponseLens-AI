@@ -20,7 +20,7 @@ import { AuthService } from '../../core/auth/auth.service';
         </header>
         <section class="rl-auth-gate__card" style="display: grid; gap: 0.75rem">
           @if (auth.isAuthenticated()) {
-            <a class="rl-auth-gate__submit" routerLink="/app/own" style="text-align: center; text-decoration: none"
+            <a class="rl-auth-gate__submit" routerLink="/app/overview" style="text-align: center; text-decoration: none"
               >Ir al panel</a
             >
           } @else {

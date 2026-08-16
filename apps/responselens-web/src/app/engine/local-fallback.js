@@ -80,54 +80,54 @@ function copyForLang(lang, brand, cautious) {
   if (lang === 'en') {
     return {
       formal: {
-        label: 'Formal corporate',
+        label: 'Formal',
         body: cautious
           ? `Thank you for your message. At ${brand} we take this seriously. A specialist will contact you privately to review it confidentially.`
           : `We're sorry about the experience you described. At ${brand} we're reviewing the case to give you an accurate answer. Could you share your order or account ID?`,
         rationale: cautious
-          ? 'Recommended when legal/privacy risk is present: cautious and moves to private.'
-          : 'Institutional and careful tone.',
+          ? 'Best when legal/privacy risk is present: careful and moves to private.'
+          : 'Calm, institutional tone.',
       },
       empath: {
-        label: 'Empathetic',
+        label: 'Friendly',
         body: cautious
           ? `We understand how frustrating this must be. We want to help carefully: we'll reach out privately so sensitive details stay protected.`
           : `We're really sorry you went through this. We're here to help — tell us a bit more and we'll prioritize it.`,
-        rationale: 'Validates emotion and opens dialogue; usually best in public.',
+        rationale: 'Acknowledges feelings and opens the conversation; usually best in public.',
       },
       tech: {
-        label: 'Technical / resolutive',
+        label: 'Solution-first',
         body: cautious
           ? `We've logged your report. Per protocol, next steps are internal validation and a private follow-up. We'll avoid public technical details until scope is confirmed.`
           : `Got it. Next steps: 1) confirm the symptom, 2) check service/logs, 3) share a concrete plan in this thread or via DM as soon as we have it.`,
-        rationale: 'Actionable when the issue looks technical/operational.',
+        rationale: 'Best when the issue looks technical or operational.',
       },
     };
   }
 
   return {
     formal: {
-      label: 'Formal-Corporativa',
+      label: 'Formal',
       body: cautious
         ? `Gracias por tu mensaje. En ${brand} tomamos muy en serio este tipo de situaciones. Un especialista te contactará por canal privado para revisarlo con la debida confidencialidad.`
-        : `Lamentamos la experiencia descrita. En ${brand} estamos revisando el caso para darte una respuesta precisa. ¿Puedes compartir el número de pedido o cuenta asociada?`,
+        : `Lamentamos la experiencia descrita. En ${brand} estamos revisando el caso para darte una respuesta precisa. ¿Podés compartir el número de pedido o cuenta asociada?`,
       rationale: cautious
-        ? 'Recomendada si hay riesgo legal/privacidad: prudente y deriva a privado.'
-        : 'Tono institucional y prudente.',
+        ? 'Mejor si hay riesgo legal o de privacidad: prudente y pasa a privado.'
+        : 'Tono calmo e institucional.',
     },
     empath: {
-      label: 'Empática-Cercana',
+      label: 'Cercana',
       body: cautious
         ? `Entendemos lo frustrante que debe ser esto. Queremos ayudarte con cuidado: te escribimos por privado para no exponer datos sensibles y resolverlo juntos.`
-        : `Sentimos mucho que hayas pasado por esto. Estamos aquí para ayudarte: cuéntanos un poco más del problema y lo priorizamos.`,
-      rationale: 'Valida emoción y abre diálogo; suele funcionar mejor en público.',
+        : `Sentimos mucho que hayas pasado por esto. Estamos acá para ayudarte: contanos un poco más del problema y lo priorizamos.`,
+      rationale: 'Valida la emoción y abre el diálogo; suele funcionar mejor en público.',
     },
     tech: {
-      label: 'Resolutiva-Técnica',
+      label: 'Con solución',
       body: cautious
         ? `Hemos registrado tu reporte. Por protocolo, el siguiente paso es validación interna y contacto privado. Evitaremos detalles técnicos en público hasta confirmar el alcance.`
         : `Recibido. Pasos: 1) confirmar el síntoma, 2) revisar logs/estado del servicio, 3) devolverte un plan concreto en este hilo o por DM en cuanto lo tengamos.`,
-      rationale: 'Enfoque accionable cuando el problema es técnico/operativo.',
+      rationale: 'Mejor cuando el problema es técnico u operativo.',
     },
   };
 }

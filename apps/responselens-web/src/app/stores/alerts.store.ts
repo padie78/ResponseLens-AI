@@ -14,9 +14,25 @@ import {
   type CompetitorAlert,
 } from '../models/alert.model';
 import { UserConfigStore } from './user-config.store';
+import { applyMockPublish } from '../utils/mock-publish';
 
 /** Cache local opcional (offline / bootstrap); fuente de verdad = Dynamo vía AppSync. */
 const storageKey = (userId: string) => `rl_web_alerts_${userId}`;
+
+export type ScanArrivalSource = 'scan' | 'push' | 'demo';
+
+export interface ScanArrival {
+  id: string;
+  alertId: string;
+  brandScope: BrandScope;
+  title: string;
+  snippet: string;
+  channel: string;
+  competitorName: string;
+  arrivedAt: string;
+  source: ScanArrivalSource;
+  read: boolean;
+}
 
 @Injectable({ providedIn: 'root' })
 export class AlertsStore {
@@ -26,16 +42,30 @@ export class AlertsStore {
   private readonly _items = signal<CompetitorAlert[]>([]);
   private readonly _loading = signal(false);
   private readonly _cloudError = signal<string | null>(null);
+  private readonly _arrivals = signal<ScanArrival[]>([]);
+  private readonly _liveToast = signal<ScanArrival | null>(null);
 
   readonly loading = this._loading.asReadonly();
   readonly items = this._items.asReadonly();
   readonly cloudError = this._cloudError.asReadonly();
+  readonly arrivals = this._arrivals.asReadonly();
+  readonly liveToast = this._liveToast.asReadonly();
 
   readonly ownAlerts = computed(() =>
     this._items().filter((a) => a.brandScope === 'own' && a.status !== 'DISMISSED'),
   );
   readonly rivalAlerts = computed(() =>
     this._items().filter((a) => a.brandScope === 'rival' && a.status !== 'DISMISSED'),
+  );
+
+  readonly newOwnCount = computed(
+    () => this.ownAlerts().filter((a) => a.status === 'NEW').length,
+  );
+  readonly newRivalCount = computed(
+    () => this.rivalAlerts().filter((a) => a.status === 'NEW').length,
+  );
+  readonly unreadArrivalCount = computed(
+    () => this._arrivals().filter((a) => !a.read).length,
   );
 
   load(): void {
@@ -68,6 +98,71 @@ export class AlertsStore {
 
   reset(): void {
     this._items.set([]);
+    this._arrivals.set([]);
+    this._liveToast.set(null);
+  }
+
+  /** Merge remoto sin re-list (push AppSync). */
+  applyIncoming(alert: CompetitorAlert, source: ScanArrivalSource = 'push'): void {
+    if (!alert?.alertId) return;
+    const existing = this._items().find((a) => a.alertId === alert.alertId);
+    const { merged } = mergeAlertLists(this._items(), [alert], {
+      limit: Math.max(200, this._items().length + 1),
+    });
+    this.setItems(merged as CompetitorAlert[]);
+    if (!existing || existing.detectedAt !== alert.detectedAt) {
+      this.pushArrival(alert, source, { toast: source === 'push' });
+    }
+  }
+
+  /** Tras un scan local: registra ítems en el inbox. */
+  recordScanBatch(alerts: CompetitorAlert[], source: ScanArrivalSource = 'scan'): void {
+    if (!alerts.length) return;
+    const batch = alerts.slice(0, 12);
+    for (const alert of batch) {
+      this.pushArrival(alert, source, { toast: false });
+    }
+    const latest = this._arrivals()[0] ?? null;
+    if (latest) this._liveToast.set(latest);
+  }
+
+  markArrivalsRead(): void {
+    this._arrivals.update((list) => list.map((a) => ({ ...a, read: true })));
+  }
+
+  markArrivalRead(id: string): void {
+    this._arrivals.update((list) =>
+      list.map((a) => (a.id === id ? { ...a, read: true } : a)),
+    );
+  }
+
+  dismissLiveToast(): void {
+    this._liveToast.set(null);
+  }
+
+  private pushArrival(
+    alert: CompetitorAlert,
+    source: ScanArrivalSource,
+    opts: { toast: boolean },
+  ): void {
+    const snippet = String(alert.originalComplaint || '').trim();
+    const arrival: ScanArrival = {
+      id: `${alert.alertId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      alertId: alert.alertId,
+      brandScope: alert.brandScope === 'own' ? 'own' : 'rival',
+      title:
+        alert.brandScope === 'own'
+          ? 'Nueva mención propia'
+          : 'Nueva señal de competencia',
+      snippet: snippet.length > 120 ? `${snippet.slice(0, 117)}…` : snippet,
+      channel: String(alert.channel || 'web'),
+      competitorName: String(alert.competitorName || ''),
+      arrivedAt: new Date().toISOString(),
+      source,
+      read: false,
+    };
+    this._arrivals.update((list) => [arrival, ...list].slice(0, 40));
+    if (opts.toast) this._liveToast.set(arrival);
   }
 
   private readLocal(userId: string): CompetitorAlert[] {
@@ -151,11 +246,22 @@ export class AlertsStore {
     }
   }
 
+  publishMockReply(alertId: string, body: string): CompetitorAlert | null {
+    const alert = this.getById(alertId);
+    if (!alert) return null;
+    const brand =
+      alert.brandScope === 'own'
+        ? this.configStore.companyName() || alert.competitorName
+        : this.configStore.companyName() || 'Tu marca';
+    const next = applyMockPublish(alert, body, brand);
+    this.updateAlert(alertId, next);
+    return next;
+  }
+
   getById(alertId: string): CompetitorAlert | undefined {
     return this._items().find((a) => a.alertId === alertId);
   }
 
-  /** Menciones de ejemplo para ver el feed (como demos del plugin). */
   seedExamples(): void {
     const userId = this.auth.userId();
     if (!userId) return;
@@ -241,7 +347,9 @@ export class AlertsStore {
       },
     ];
 
-    void this.upsertMany(samples);
+    void this.upsertMany(samples).then(() => {
+      this.recordScanBatch(samples, 'demo');
+    });
   }
 
   async clearScope(scope: BrandScope): Promise<void> {

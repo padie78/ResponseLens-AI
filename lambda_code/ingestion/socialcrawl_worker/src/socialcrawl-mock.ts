@@ -75,7 +75,8 @@ type RawItem = Record<string, unknown> & {
   cluster_id?: string;
   source_items?: Array<{
     engagement?: { points?: number | null; num_comments?: number | null };
-    metadata?: { top_comments?: SocialCrawlTopComment[] };
+    media?: { thumbnail_url?: string | null };
+    metadata?: { top_comments?: SocialCrawlTopComment[]; transcript?: unknown; thumbnail_url?: string };
   }>;
 };
 
@@ -120,6 +121,17 @@ function mapItem(
     }
   }
 
+  let thumbnailUrl: string | null = null;
+  let transcript: string | null = null;
+  for (const si of item.source_items || []) {
+    const thumb = si.media?.thumbnail_url || si.metadata?.thumbnail_url;
+    if (thumb && !thumbnailUrl) thumbnailUrl = String(thumb);
+    const tr = si.metadata?.transcript;
+    if (tr && !transcript) {
+      transcript = typeof tr === 'string' ? tr.slice(0, 2000) : JSON.stringify(tr).slice(0, 2000);
+    }
+  }
+
   const candidateId = String(
     item.candidate_id || item.url || Math.random().toString(36).slice(2, 9),
   );
@@ -142,7 +154,8 @@ function mapItem(
       clusterId,
       clusterTitle: cluster?.title ?? null,
       clusterScore: cluster?.score ?? null,
-      thumbnailUrl: null,
+      thumbnailUrl,
+      transcript,
       planIntent,
       candidateId,
       mock: true,
@@ -327,6 +340,50 @@ function buildItems(brand: string, now: number): RawItem[] {
       cluster_id: 'c_mock_billing',
       source_items: [{ engagement: { points: 89, num_comments: 21 }, metadata: { top_comments: [] } }],
     },
+    {
+      candidate_id: `mock_pin_${brand}_12`,
+      source: 'pinterest',
+      title: `${brand} checkout flow — saved pin`,
+      text: `Moodboard: ${brand} onboarding vs the outage screenshots going around.`,
+      url: `https://www.pinterest.com/pin/mock_${encodeURIComponent(brand)}`,
+      published_at: iso(240),
+      final_score: 38.4,
+      rerank_score: 54,
+      sources: ['pinterest'],
+      cluster_id: 'c_mock_outage',
+      source_items: [{ engagement: { points: 64, num_comments: 4 }, metadata: { top_comments: [] } }],
+    },
+    {
+      candidate_id: `mock_ru_${brand}_13`,
+      source: 'rumble',
+      title: `${brand} status page vs reality — clip`,
+      text: `Walkthrough of the ${brand} EU checkout failure. Status still green.`,
+      url: `https://rumble.com/v/mock-${encodeURIComponent(brand)}`,
+      published_at: iso(310),
+      final_score: 42.6,
+      rerank_score: 57,
+      sources: ['rumble'],
+      cluster_id: 'c_mock_outage',
+      source_items: [
+        {
+          engagement: { points: 410, num_comments: 19 },
+          metadata: { top_comments: [], transcript: 'Status page green. Checkout still failing in EU.' },
+        },
+      ],
+    },
+    {
+      candidate_id: `mock_pm_${brand}_14`,
+      source: 'polymarket',
+      title: `Will ${brand} restore EU checkout before Friday?`,
+      text: `Prediction market on ${brand} incident recovery. Volume spiking with merchant complaints.`,
+      url: `https://polymarket.com/event/mock-${encodeURIComponent(brand)}-outage`,
+      published_at: iso(55),
+      final_score: 36.0,
+      rerank_score: 51,
+      sources: ['polymarket'],
+      cluster_id: 'c_mock_outage',
+      source_items: [{ engagement: { points: 2200, num_comments: null }, metadata: { top_comments: [] } }],
+    },
   ];
 }
 
@@ -358,7 +415,7 @@ export async function searchSocialCrawlMock(query: string): Promise<SocialCrawlS
     rawCount: items.length,
     creditsUsed: 0,
     creditsRemaining: 100,
-    coverage: 11 / 14,
+    coverage: 1,
     sourcesSucceeded: [
       'hackernews',
       'reddit',
@@ -371,12 +428,11 @@ export async function searchSocialCrawlMock(query: string): Promise<SocialCrawlS
       'instagram',
       'linkedin',
       'threads',
+      'pinterest',
+      'rumble',
+      'polymarket',
     ],
-    sourcesFailed: {
-      pinterest: 'mock: empty upstream',
-      rumble: 'mock: pruned low_affinity',
-      polymarket: 'mock: pruned low_affinity',
-    },
+    sourcesFailed: {},
     planIntent,
   };
 }

@@ -4,6 +4,7 @@
  */
 
 import { primaryTheme, themeHookSentence } from './theme-rules.js';
+import { analyzeConquestMention } from './conquest-nlp.js';
 
 const FRUSTRATION_RE =
   /\b(falla|fall[oó]|ca[ií]da|outage|downtime|estafa|me\s+cambio|no\s+funciona|terrible|awful|scam|refund|horrible|pésim|basura|cobraron|chargeback|broken|crash|lawsuit|demanda)\b/i;
@@ -226,7 +227,7 @@ export function craftSalesPitchVariants({
       label: 'Suave',
       recommended: true,
       themeId: theme.id,
-      rationale: `Empático · tema ${theme.id}: mejor para comentarios públicos.`,
+      rationale: 'Tono empático: mejor para comentarios públicos.',
       body:
         `Lamento lo que estás pasando con ${rival}. ` +
         `Si en algún momento explorás alternativas, en ${brand} nos enfocamos en ${offer} — ${hook}. ` +
@@ -237,7 +238,7 @@ export function craftSalesPitchVariants({
       label: 'Directo',
       recommended: false,
       themeId: theme.id,
-      rationale: 'Clara propuesta de valor; útil en foros donde piden alternativas.',
+      rationale: 'Va al grano: útil cuando piden alternativas.',
       body:
         `Vi tu comentario sobre ${rival} ("${snippet}${snippet.length >= 90 ? '…' : ''}"). ` +
         `Si buscás ${offer} ${hook}, en ${brand} resolvemos justo ese tipo de ${themeLabel}. ` +
@@ -248,7 +249,7 @@ export function craftSalesPitchVariants({
       label: 'Técnico',
       recommended: false,
       themeId: theme.id,
-      rationale: 'Enfocado en estabilidad/soporte; bueno para audiencias HN / devops.',
+      rationale: 'Habla de estabilidad y soporte: bueno para perfiles técnicos.',
       body:
         `Si el dolor con ${rival} es ${themeLabel}, en ${brand} priorizamos operación predecible y respuesta humana. ` +
         `Ofrecemos ${offer} (${hook}). Si querés, te paso un checklist de migración corta.${link ? ` ${link}` : ''}`,
@@ -295,6 +296,12 @@ export function buildOpportunity({
     complaint,
   });
   const themeId = salesPitches[0]?.themeId || primaryTheme(complaint || '', 'es').id;
+  const conquest = analyzeConquestMention({
+    text: complaint,
+    competitorName: competitor.name,
+    companyName: company?.companyName,
+  });
+  const gancho = conquest.sales_intelligence.gancho_comercial_ia;
 
   return {
     alertId:
@@ -309,8 +316,11 @@ export function buildOpportunity({
     severity: severityFromScore(frustrationScore),
     frustrationScore,
     themeId,
-    salesPitches,
-    salesPitch: salesPitches.find((p) => p.recommended)?.body || salesPitches[0].body,
+    salesPitches: salesPitches.map((p, i) =>
+      i === 0 ? { ...p, body: gancho, recommended: true } : p,
+    ),
+    salesPitch: gancho,
+    _conquest: conquest,
     detectedAt: detectedAt || new Date().toISOString(),
     status: 'NEW',
     _demo: Boolean(demo),

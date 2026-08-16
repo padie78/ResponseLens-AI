@@ -3,6 +3,7 @@
  * Misma auth que SocialCrawl (API key / Cognito en Amplify).
  */
 
+import { generateClient } from 'aws-amplify/api';
 import { environment } from '../../environments/environment';
 import {
   packAlertMeta,
@@ -182,6 +183,65 @@ function fromCloudAlert(row) {
     _brandScope: brandScope,
   };
   return unpackAlertMeta(/** @type {CompetitorAlert} */ (base), row.metaJson);
+}
+
+/**
+ * Escucha alertas nuevas publicadas por el backend (cron / upsert remoto).
+ * @param {string} userId
+ * @param {(alert: import('../models/alert.model').CompetitorAlert) => void} onAlert
+ * @returns {{ unsubscribe: () => void }}
+ */
+export function subscribeOnNewCompetitorAlert(userId, onAlert) {
+  if (!hasAlertsCloud() || !userId || typeof onAlert !== 'function') {
+    return { unsubscribe() {} };
+  }
+
+  const client = generateClient();
+  /** @type {{ unsubscribe: () => void } | null} */
+  let sub = null;
+
+  try {
+    const observable = client.graphql({
+      query: `
+        subscription OnNewCompetitorAlert($userId: ID!) {
+          onNewCompetitorAlert(userId: $userId) {
+            ${ALERT_FIELDS}
+          }
+        }
+      `,
+      variables: { userId },
+      authMode: 'apiKey',
+    });
+
+    if (observable && typeof observable.subscribe === 'function') {
+      sub = observable.subscribe({
+        next: (msg) => {
+          const row = msg?.data?.onNewCompetitorAlert;
+          if (!row) return;
+          try {
+            onAlert(fromCloudAlert(row));
+          } catch {
+            /* ignore malformed */
+          }
+        },
+        error: () => {
+          /* caller may reload periodically */
+        },
+      });
+    }
+  } catch {
+    /* no-op */
+  }
+
+  return {
+    unsubscribe() {
+      try {
+        sub?.unsubscribe();
+      } catch {
+        /* ignore */
+      }
+    },
+  };
 }
 
 /**

@@ -3,8 +3,19 @@ import { FormsModule } from '@angular/forms';
 import { DropdownModule } from 'primeng/dropdown';
 import { InputTextModule } from 'primeng/inputtext';
 import { PLATFORM_FILTER_OPTIONS } from '../../../engine/platforms.js';
+import { CONTENT_KIND_FILTER_OPTIONS } from '../../../engine/content-kind.js';
 
 export type FeedMode = 'own' | 'comp';
+
+/** Sort keys consumed by `filterAlerts` / `sortAlerts`. */
+export type FeedSortKey =
+  | 'time_desc'
+  | 'time_asc'
+  | 'score_desc'
+  | 'score_asc'
+  | 'severity_desc'
+  | 'severity_asc'
+  | 'channel_asc';
 
 export interface FeedFilterState {
   status: string;
@@ -14,6 +25,8 @@ export interface FeedFilterState {
   sentiment: string;
   rival: string;
   q: string;
+  sort: FeedSortKey;
+  kind: string;
 }
 
 export const DEFAULT_FEED_FILTERS: FeedFilterState = {
@@ -24,6 +37,8 @@ export const DEFAULT_FEED_FILTERS: FeedFilterState = {
   sentiment: 'all',
   rival: 'all',
   q: '',
+  sort: 'time_desc',
+  kind: 'all',
 };
 
 interface Opt {
@@ -39,17 +54,32 @@ interface Opt {
   template: `
     <div class="rl-filters">
       <label class="rl-filters__field">
-        <span>Estado</span>
+        <span>Ordenar</span>
         <p-dropdown
-          [options]="statusOpts"
+          [options]="sortOpts"
           optionLabel="label"
           optionValue="value"
-          [ngModel]="state().status"
-          (ngModelChange)="patch({ status: $event })"
+          [ngModel]="state().sort"
+          (ngModelChange)="patch({ sort: $event })"
           styleClass="rl-filters__dd"
           [appendTo]="'body'"
         />
       </label>
+
+      @if (!hideStatus()) {
+        <label class="rl-filters__field">
+          <span>Estado</span>
+          <p-dropdown
+            [options]="statusOpts"
+            optionLabel="label"
+            optionValue="value"
+            [ngModel]="state().status"
+            (ngModelChange)="patch({ status: $event })"
+            styleClass="rl-filters__dd"
+            [appendTo]="'body'"
+          />
+        </label>
+      }
 
       <label class="rl-filters__field">
         <span>Fecha</span>
@@ -59,6 +89,19 @@ interface Opt {
           optionValue="value"
           [ngModel]="state().date"
           (ngModelChange)="patch({ date: $event })"
+          styleClass="rl-filters__dd"
+          [appendTo]="'body'"
+        />
+      </label>
+
+      <label class="rl-filters__field">
+        <span>Tipo</span>
+        <p-dropdown
+          [options]="kindOpts"
+          optionLabel="label"
+          optionValue="value"
+          [ngModel]="state().kind"
+          (ngModelChange)="patch({ kind: $event })"
           styleClass="rl-filters__dd"
           [appendTo]="'body'"
         />
@@ -139,9 +182,20 @@ interface Opt {
 export class FeedFiltersComponent {
   readonly mode = input.required<FeedMode>();
   readonly rivals = input<string[]>([]);
+  readonly hideStatus = input(false);
   readonly filterChange = output<FeedFilterState>();
 
   readonly state = signal<FeedFilterState>({ ...DEFAULT_FEED_FILTERS });
+
+  readonly sortOpts: Opt[] = [
+    { label: 'Más recientes', value: 'time_desc' },
+    { label: 'Más antiguas', value: 'time_asc' },
+    { label: 'Score · mayor', value: 'score_desc' },
+    { label: 'Score · menor', value: 'score_asc' },
+    { label: 'Severidad · mayor', value: 'severity_desc' },
+    { label: 'Severidad · menor', value: 'severity_asc' },
+    { label: 'Canal A–Z', value: 'channel_asc' },
+  ];
 
   readonly statusOpts: Opt[] = [
     { label: 'Todos', value: 'all' },
@@ -149,6 +203,7 @@ export class FeedFiltersComponent {
     { label: 'Contactado', value: 'CONTACTED' },
     { label: 'Ganado', value: 'WON' },
     { label: 'Pospuesto', value: 'SNOOZED' },
+    { label: 'Descartado', value: 'DISMISSED' },
   ];
 
   readonly dateOpts: Opt[] = [
@@ -173,6 +228,10 @@ export class FeedFiltersComponent {
     { label: 'Neutro', value: 'NEUTRAL' },
     { label: 'Mixto', value: 'MIXED' },
   ];
+
+  readonly kindOpts: Opt[] = (CONTENT_KIND_FILTER_OPTIONS as Array<{ id: string; label: string }>).map(
+    (p) => ({ label: p.label, value: p.id }),
+  );
 
   readonly platformOpts: Opt[] = [
     { label: 'Todas', value: 'all' },

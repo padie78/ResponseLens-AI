@@ -1,58 +1,147 @@
 :root,
 .rl-dark {
-  --rl-bg-void: #07090b;
-  --rl-bg-base: #0b0d0f;
-  --rl-bg-panel: #131619;
-  --rl-bg-elevated: #1a1e22;
-  --rl-bg-overlay: rgba(7, 9, 11, 0.88);
-  --rl-nav-surface: #131619;
+  /* Surfaces — navy ladder (statsGames DNA) */
+  --rl-bg-void: #05070d;
+  --rl-bg-base: #090d18;
+  --rl-bg-panel: #121a2c;
+  --rl-bg-elevated: #1a2438;
+  --rl-bg-overlay: rgba(5, 7, 13, 0.92);
+  --rl-nav-surface: #0c1220;
+  --rl-topbar-bg: rgba(8, 12, 22, 0.86);
 
-  --rl-chrome-bg-rgb: 11, 13, 15;
+  --rl-chrome-bg-rgb: 8, 12, 22;
+  --rl-hover-fill: rgba(255, 255, 255, 0.05);
+  --rl-active-fill: rgba(200, 155, 60, 0.14);
+  --rl-active-ring: rgba(200, 155, 60, 0.42);
 
-  --rl-accent: #2dd4bf;
-  --rl-accent-rgb: 45, 212, 191;
-  --rl-accent-hover: #5eead4;
-  --rl-accent-own: #38bdf8;
-  --rl-accent-comp: #f59e0b;
-  --rl-accent-danger: #f43f5e;
-  --rl-accent-ok: #34d399;
+  /* Brand gold + telemetry cyan */
+  --rl-accent: #c89b3c;
+  --rl-accent-rgb: 200, 155, 60;
+  --rl-accent-hover: #f0d060;
+  --rl-accent-own: #3de0f5;
+  --rl-accent-comp: #f0d060;
+  --rl-accent-danger: #ff4d9a;
+  --rl-accent-ok: #6bcb8a;
+  --rl-accent-cyan: #3de0f5;
 
-  --rl-text-primary: #e7eaee;
-  --rl-text-secondary: #9aa3ad;
-  --rl-text-muted: #69727c;
-  --rl-text-inverse: #0b0d0f;
+  --rl-text-primary: #f2f5fb;
+  --rl-text-secondary: #a8b2c6;
+  --rl-text-muted: #738095;
+  --rl-text-inverse: #1a1408;
 
   --rl-border-subtle: rgba(255, 255, 255, 0.08);
-  --rl-border-strong: rgba(255, 255, 255, 0.16);
-  --rl-border-accent: rgba(45, 212, 191, 0.45);
+  --rl-border-strong: rgba(255, 255, 255, 0.14);
+  --rl-border-accent: rgba(200, 155, 60, 0.5);
+  --rl-border-gold: rgba(240, 208, 96, 0.45);
 
-  --rl-font-body: 'Figtree', 'Segoe UI', sans-serif;
-  --rl-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --rl-font-display: 'Space Grotesk', 'DM Sans', system-ui, sans-serif;
+  --rl-font-body: 'DM Sans', 'Segoe UI', system-ui, sans-serif;
+  --rl-font-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace;
 
-  --rl-fs-sm: 0.8125rem;
-  --rl-fs-md: 0.9375rem;
-  --rl-fs-lg: 1.125rem;
-  --rl-fs-xl: 1.5rem;
-  --rl-fs-hero: 2rem;
+  --rl-fs-xs: 0.8125rem;
+  --rl-fs-sm: 0.9375rem;
+  --rl-fs-md: 1.0625rem;
+  --rl-fs-lg: 1.1875rem;
+  --rl-fs-xl: 1.625rem;
+  --rl-fs-2xl: 2rem;
+  --rl-fs-hero: 2.5rem;
+
+  --rl-tracking-display: -0.02em;
+  --rl-tracking-tight: -0.025em;
+  --rl-tracking-label: 0.02em;
 
   --rl-space-1: 0.25rem;
   --rl-space-2: 0.5rem;
   --rl-space-3: 0.75rem;
   --rl-space-4: 1rem;
-  --rl-space-5: 1.5rem;
-  --rl-space-6: 2rem;
+  --rl-space-5: 1.35rem;
+  --rl-space-6: 1.85rem;
+  --rl-space-7: 2.25rem;
 
-  --rl-radius-sm: 6px;
-  --rl-radius-md: 10px;
-  --rl-radius-lg: 14px;
+  --rl-radius-sm: 8px;
+  --rl-radius-md: 12px;
+  --rl-radius-lg: 16px;
 
-  --rl-shadow-chrome: 0 8px 28px rgba(0, 0, 0, 0.35);
+  /* Action chips — same language as recommended pitch tab */
+  --rl-btn-radius: 8px;
+  --rl-btn-pad-y: 0.42rem;
+  --rl-btn-pad-x: 0.78rem;
+  --rl-btn-fs: 0.8rem;
+  --rl-btn-fw: 600;
+  --rl-btn-bg: var(--rl-bg-elevated);
+  --rl-btn-fg: var(--rl-text-secondary);
+  --rl-btn-border: var(--rl-border-strong);
+  --rl-btn-hover-fg: var(--rl-text-primary);
+  --rl-btn-hover-bg: color-mix(in srgb, var(--rl-accent-own) 8%, var(--rl-bg-elevated));
+  --rl-btn-hover-border: color-mix(in srgb, var(--rl-accent-own) 45%, var(--rl-border-strong));
+  --rl-btn-active-fg: var(--rl-text-primary);
+  --rl-btn-active-bg: color-mix(in srgb, var(--rl-accent-own) 16%, var(--rl-bg-elevated));
+  --rl-btn-active-border: color-mix(in srgb, var(--rl-accent-own) 75%, transparent);
+
+  --rl-shadow-chrome: 0 10px 28px rgba(0, 0, 0, 0.28);
+  --rl-shadow-menu: 0 14px 40px rgba(0, 0, 0, 0.42);
+  --rl-glow-gold: 0 0 24px rgba(240, 208, 96, 0.28);
+
+  --rl-wash-a: rgba(200, 155, 60, 0.07);
+  --rl-wash-b: rgba(61, 224, 245, 0.06);
+  --rl-gradient-cta: linear-gradient(135deg, #fff1b8 0%, #f0d060 38%, #c89b3c 78%, #a67c2a 100%);
+  --rl-gradient-mark: linear-gradient(145deg, #f0d060, #c89b3c 55%, #0ea5e9);
 
   --ion-font-family: var(--rl-font-body);
   --ion-background-color: var(--rl-bg-base);
   --ion-text-color: var(--rl-text-primary);
-  --ion-color-primary: #2dd4bf;
-  --ion-color-primary-contrast: #0b0d0f;
-  --ion-color-primary-shade: #28bca9;
-  --ion-color-primary-tint: #42d8c5;
+  --ion-color-primary: #c89b3c;
+  --ion-color-primary-contrast: #1a1408;
+  --ion-color-primary-shade: #b08935;
+  --ion-color-primary-tint: #cea550;
+}
+
+.rl-light {
+  --rl-bg-void: #e8ecf4;
+  --rl-bg-base: #eef1f7;
+  --rl-bg-panel: #ffffff;
+  --rl-bg-elevated: #f5f7fb;
+  --rl-bg-overlay: rgba(238, 241, 247, 0.94);
+  --rl-nav-surface: #f8f9fc;
+  --rl-topbar-bg: rgba(248, 249, 252, 0.9);
+
+  --rl-chrome-bg-rgb: 238, 241, 247;
+  --rl-hover-fill: rgba(15, 23, 42, 0.05);
+  --rl-active-fill: rgba(200, 155, 60, 0.14);
+  --rl-active-ring: rgba(168, 124, 42, 0.35);
+
+  --rl-accent: #a67c2a;
+  --rl-accent-rgb: 166, 124, 42;
+  --rl-accent-hover: #c89b3c;
+  --rl-accent-own: #0891b2;
+  --rl-accent-comp: #b45309;
+  --rl-accent-danger: #e11d48;
+  --rl-accent-ok: #059669;
+  --rl-accent-cyan: #0891b2;
+
+  --rl-text-primary: #0f172a;
+  --rl-text-secondary: #475569;
+  --rl-text-muted: #64748b;
+  --rl-text-inverse: #f8fafc;
+
+  --rl-border-subtle: rgba(15, 23, 42, 0.09);
+  --rl-border-strong: rgba(15, 23, 42, 0.16);
+  --rl-border-accent: rgba(166, 124, 42, 0.4);
+  --rl-border-gold: rgba(200, 155, 60, 0.4);
+
+  --rl-shadow-chrome: 0 8px 28px rgba(15, 23, 42, 0.08);
+  --rl-shadow-menu: 0 14px 40px rgba(15, 23, 42, 0.14);
+  --rl-glow-gold: 0 0 18px rgba(200, 155, 60, 0.18);
+
+  --rl-wash-a: rgba(166, 124, 42, 0.06);
+  --rl-wash-b: rgba(8, 145, 178, 0.05);
+  --rl-gradient-cta: linear-gradient(135deg, #fff1b8 0%, #f0d060 40%, #c89b3c 100%);
+  --rl-gradient-mark: linear-gradient(145deg, #f0d060, #c89b3c 60%, #0891b2);
+
+  --ion-background-color: var(--rl-bg-base);
+  --ion-text-color: var(--rl-text-primary);
+  --ion-color-primary: #a67c2a;
+  --ion-color-primary-contrast: #f8fafc;
+  --ion-color-primary-shade: #916c25;
+  --ion-color-primary-tint: #af8940;
 }

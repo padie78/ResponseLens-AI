@@ -129,20 +129,20 @@ import { hasSocialCrawlServer } from '../../engine/socialcrawl-client.js';
             <summary class="rl-disclosure__summary">
               APIs y credenciales
               @if (scServerReady()) {
-                <span class="rl-badge rl-badge--sent-pos">SocialCrawl server</span>
+                <span class="rl-badge rl-badge--sent-pos">Escucha lista</span>
               } @else {
-                <span class="rl-badge rl-badge--sent-neu">SC vía Terraform</span>
+                <span class="rl-badge rl-badge--sent-neu">Escucha vía Terraform</span>
               }
             </summary>
             <p class="rl-settings__empty">
-              La API key de SocialCrawl <strong>no se configura aquí</strong>: vive en el servidor
+              La API key del motor de escucha <strong>no se configura aquí</strong>: vive en el servidor
               (<code>socialcrawl_api_key</code> en Terraform → Lambda). El SPA solo llama AppSync.
             </p>
 
-            <h3 class="rl-settings__subh">SocialCrawl (preferencias)</h3>
+            <h3 class="rl-settings__subh">Escucha (preferencias)</h3>
             <label class="rl-settings__label">
               Fuentes (CSV opcional — el escaneo usa todas: HN, news, reddit, YT, X, …)
-              <input class="rl-settings__input" formControlName="socialcrawlSources" placeholder="vacío = todas las de SocialCrawl" />
+              <input class="rl-settings__input" formControlName="socialcrawlSources" placeholder="vacío = todas las fuentes" />
             </label>
             <label class="rl-settings__label">
               Lookback (días)
@@ -377,8 +377,8 @@ export class SettingsPageComponent implements OnInit {
     this.scServerReady.set(hasSocialCrawlServer());
     this.savedNotice.set(
       hasSocialCrawlServer()
-        ? 'Guardado. SocialCrawl usa la key del servidor (AppSync OK).'
-        : 'Guardado. SocialCrawl requiere Terraform socialcrawl_api_key + sync:env.',
+        ? 'Guardado. Escucha usa la key del servidor (AppSync OK).'
+        : 'Guardado. Escucha requiere Terraform socialcrawl_api_key + sync:env.',
     );
     setTimeout(() => this.savedNotice.set(''), 6000);
   }

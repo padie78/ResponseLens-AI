@@ -213,6 +213,53 @@ export function platformDisplayLabel(keyOrAlert, i18n = {}) {
 }
 
 /**
+ * Clase PrimeIcons para el logo de la plataforma.
+ * @param {string | object | null | undefined} keyOrAlert
+ * @returns {string} p.ej. "pi-reddit"
+ */
+export function platformIconClass(keyOrAlert) {
+  const key =
+    keyOrAlert && typeof keyOrAlert === 'object'
+      ? resolvePlatformKey(keyOrAlert)
+      : String(keyOrAlert || '')
+          .toLowerCase()
+          .trim();
+  const id = CHANNEL_ALIASES[key] || key;
+  /** @type {Record<string, string>} */
+  const map = {
+    reddit: 'pi-reddit',
+    instagram: 'pi-instagram',
+    facebook: 'pi-facebook',
+    youtube: 'pi-youtube',
+    x: 'pi-twitter',
+    twitter: 'pi-twitter',
+    linkedin: 'pi-linkedin',
+    github: 'pi-github',
+    tiktok: 'pi-tiktok',
+    amazon: 'pi-amazon',
+    discord: 'pi-discord',
+    pinterest: 'pi-pinterest',
+    threads: 'pi-instagram',
+    hackernews: 'pi-comments',
+    news: 'pi-globe',
+    web: 'pi-globe',
+    page: 'pi-globe',
+    bluesky: 'pi-globe',
+    glassdoor: 'pi-building',
+    g2: 'pi-briefcase',
+    capterra: 'pi-briefcase',
+    producthunt: 'pi-shop',
+    indeed: 'pi-briefcase',
+    trustpilot: 'pi-star',
+    ebay: 'pi-shopping-cart',
+    rumble: 'pi-video',
+    polymarket: 'pi-chart-line',
+    manual: 'pi-pencil',
+  };
+  return map[id] || 'pi-globe';
+}
+
+/**
  * Rellena un <select> de filtro de plataforma (conserva selección).
  * @param {HTMLSelectElement | null} selectEl
  * @param {{ allLabel?: string, newsLabel?: string, pageLabel?: string, manualLabel?: string }} [labels]

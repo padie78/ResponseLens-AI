@@ -65,7 +65,7 @@ export function detectThemes(text, lang = 'es') {
   if (!hit.length) {
     hit.push({
       id: 'general',
-      label: lang === 'en' ? 'General dissatisfaction' : 'Insatisfacción general',
+      label: lang === 'en' ? 'No clear theme' : 'Sin tema claro',
     });
   }
   return hit;

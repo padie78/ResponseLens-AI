@@ -15,17 +15,17 @@ configureAmplify(environment);
 const RlAura = definePreset(Aura, {
   semantic: {
     primary: {
-      50: '{teal.50}',
-      100: '{teal.100}',
-      200: '{teal.200}',
-      300: '{teal.300}',
-      400: '{teal.400}',
-      500: '{teal.500}',
-      600: '{teal.600}',
-      700: '{teal.700}',
-      800: '{teal.800}',
-      900: '{teal.900}',
-      950: '{teal.950}',
+      50: '{yellow.50}',
+      100: '{yellow.100}',
+      200: '{yellow.200}',
+      300: '{yellow.300}',
+      400: '{yellow.400}',
+      500: '{yellow.500}',
+      600: '{yellow.600}',
+      700: '{yellow.700}',
+      800: '{yellow.800}',
+      900: '{yellow.900}',
+      950: '{yellow.950}',
     },
   },
 });
