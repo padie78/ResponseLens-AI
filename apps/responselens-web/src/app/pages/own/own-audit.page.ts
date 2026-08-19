@@ -4,6 +4,8 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
 import { ButtonModule } from 'primeng/button';
 import { computeBrandAudit } from '../../engine/own-brand-insights.js';
+import { buildOwnStackIntel } from '../../engine/own-stack-intel.js';
+import { dataBadgeKind, dataBadgeLabel } from '../../engine/data-badge.js';
 import { ScanService } from '../../services/scan.service';
 import { AlertsStore } from '../../stores/alerts.store';
 import { HistoryStore } from '../../stores/history.store';
@@ -13,6 +15,7 @@ import {
   EchartComponent,
   ListeningPulseComponent,
   ScanBlockerComponent,
+  ListeningStatusComponent,
   type EChartOptions,
 } from '../../ui';
 
@@ -30,6 +33,7 @@ type AuditView = 'overview' | 'stats' | 'themes';
     BrandHealthPanelComponent,
     ListeningPulseComponent,
     ScanBlockerComponent,
+    ListeningStatusComponent,
     EchartComponent,
   ],
   template: `
@@ -47,11 +51,12 @@ type AuditView = 'overview' | 'stats' | 'themes';
           </div>
           <div class="rl-own__actions">
             <p-button
-              label="Escanear"
+              label="Forzar ahora"
               icon="pi pi-search"
               size="small"
-              [disabled]="scan.scanning() || !config.hasCompany()"
+              [disabled]="scan.scanning() || !config.hasCompany() || scan.manualQuotaExhausted()"
               (onClick)="runScan()"
+              title="Adelanta la pasada diaria. No es tiempo real."
             />
             <p-button
               label="Scan demo"
@@ -61,7 +66,7 @@ type AuditView = 'overview' | 'stats' | 'themes';
               size="small"
               [disabled]="scan.scanning() || !config.hasCompany()"
               (onClick)="runScanMock()"
-              title="Scan de prueba — no gasta créditos"
+              title="Scan de prueba — 0 créditos, no cuenta en el tope diario"
             />
             <p-button
               label="Refrescar"
@@ -73,13 +78,14 @@ type AuditView = 'overview' | 'stats' | 'themes';
           </div>
         </header>
 
-        @if (scan.lastStatus() && !scan.scanning()) {
-          <p class="rl-page__status">{{ scan.lastStatus() }}</p>
-        }
+        <rl-listening-status />
 
         @if (!config.hasCompany()) {
           <div class="rl-own__empty">
-            <p>Configurá tu empresa en <a routerLink="/app/settings">Empresa</a> para ver la auditoría.</p>
+            <p>
+              Falta el nombre público de tu marca.
+              Cargalo en <a routerLink="/app/settings" [queryParams]="{ tab: 'empresa' }">Config → Empresa</a> para ver la auditoría.
+            </p>
           </div>
         } @else if (view() === 'overview') {
           <div class="rl-own__section">
@@ -148,6 +154,57 @@ type AuditView = 'overview' | 'stats' | 'themes';
               @if (audit().health.criticalOpen > 0) {
                 <p class="rl-own__section-lead">
                   <a routerLink="/app/own" [queryParams]="{ inbox: 'urgent' }">Abrir urgentes en la bandeja</a>
+                </p>
+              }
+            </section>
+
+            <section class="rl-panel">
+              <header class="rl-panel__head">
+                <h2 class="rl-panel__title">
+                  GA4 / Search Console
+                  <span class="rl-data-badge" [class]="'rl-data-badge--' + stackBadgeKind()">{{ stackBadge() }}</span>
+                </h2>
+              </header>
+              <p class="rl-own__section-lead">{{ stack().disclaimer }}</p>
+              @if (stack().connected) {
+                <dl class="rl-ad-card__facts">
+                  <div>
+                    <dt>Sesiones 7d</dt>
+                    <dd>{{ stack().sessions7d | number }}</dd>
+                  </div>
+                  <div>
+                    <dt>GA4</dt>
+                    <dd>{{ stack().ga4PropertyId || '—' }}</dd>
+                  </div>
+                  <div>
+                    <dt>GSC</dt>
+                    <dd>{{ stack().searchConsoleSiteUrl || '—' }}</dd>
+                  </div>
+                </dl>
+                <ul class="rl-talent-bars">
+                  @for (p of stack().topPages; track p.path) {
+                    <li>
+                      <div class="rl-talent-bars__lab">
+                        <strong>{{ p.title }}</strong>
+                        <span>{{ p.clicks | number }}</span>
+                      </div>
+                      <p class="rl-vis-path">{{ p.path }}</p>
+                    </li>
+                  }
+                </ul>
+                <div class="rl-vis-queries">
+                  @for (q of stack().queries; track q.query) {
+                    <div class="rl-vis-queries__row">
+                      <strong>{{ q.query }}</strong>
+                      <span>pos. {{ q.position }}</span>
+                      <span>{{ q.clicks }} clicks</span>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <p>
+                  Cargá property y sitio en
+                  <a routerLink="/app/settings" [queryParams]="{ tab: 'avanzado' }">Config → Avanzado</a>.
                 </p>
               }
             </section>
@@ -372,6 +429,23 @@ export class OwnAuditPageComponent implements OnInit {
       companyName: this.config.companyName() || 'tu marca',
     }),
   );
+
+  readonly stack = computed(() => {
+    const c = this.config.config()?.company;
+    return buildOwnStackIntel({
+      companyName: this.config.companyName(),
+      ga4PropertyId: c?.ga4PropertyId,
+      searchConsoleSiteUrl: c?.searchConsoleSiteUrl,
+    });
+  });
+
+  stackBadgeKind(): string {
+    return dataBadgeKind(this.stack().source);
+  }
+
+  stackBadge(): string {
+    return dataBadgeLabel(this.stack().source);
+  }
 
   readonly sentimentChart = computed((): EChartOptions => {
     const s = this.audit().sentimentSeries;

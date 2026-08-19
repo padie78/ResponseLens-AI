@@ -16,7 +16,7 @@ import { buildOpportunity, scoreFrustration } from './competitor-opportunity.js'
 import { mentionDedupeKeys, extractYouTubeVideoId } from './mention-dedupe.js';
 import { hasNewsApi, hasRedditOAuth, hasYouTubeApi } from './scan-credentials.js';
 import { analyzeBrandMention, sentimentToStorage, computeMentionScore } from './mention-intelligence.js';
-import { fetchSocialCrawlMentions, hasSocialCrawlServer as hasSocialCrawl } from './socialcrawl-client.js';
+import { SCAN_MAX_RIVALS } from './listening-policy.js';
 import {
   isReplyableContent,
   normalizeContentKind,
@@ -146,19 +146,16 @@ export function classifySentiment(text) {
   return 'NEUTRAL';
 }
 
-/** Nombres + aliases a consultar (máx 3 para no saturar APIs). */
+/**
+ * Query names for a competitor: primary name + aliases (products, sub-brands).
+ * Aliases let clients track specific products/services without a full rival entry.
+ */
 export function scanQueryNames(competitor) {
   const primary = normalizeCompetitorNameForScan(competitor?.name || '');
-  if (!primary) return [];
-  const aliases = (competitor?.aliases || [])
+  const extras = (competitor?.aliases || [])
     .map((a) => normalizeCompetitorNameForScan(a))
-    .filter((a) => a && a.toLowerCase() !== primary.toLowerCase());
-  const uniq = [primary];
-  for (const a of aliases) {
-    if (!uniq.some((u) => u.toLowerCase() === a.toLowerCase())) uniq.push(a);
-    if (uniq.length >= 3) break;
-  }
-  return uniq;
+    .filter((a) => a && a !== primary);
+  return primary ? [primary, ...extras] : extras;
 }
 
 /**
@@ -768,7 +765,10 @@ export async function runCompetitorScan({
   sources = null,
   credentials = null,
 } = {}) {
-  const list = Array.isArray(competitors) && competitors.length ? competitors : [];
+  const list = (Array.isArray(competitors) && competitors.length ? competitors : []).slice(
+    0,
+    SCAN_MAX_RIVALS,
+  );
   const opportunities = [];
   const errors = [];
   const scannedNames = [];
@@ -1053,7 +1053,7 @@ export async function runCompetitorScan({
 
   if (hasSocialCrawl(credentials) && list.length) {
     stats.socialcrawl = 0;
-    for (const competitor of list.slice(0, 5)) {
+    for (const competitor of list.slice(0, SCAN_MAX_RIVALS)) {
       const name = String(competitor.name || competitor || '').trim();
       if (!name) continue;
       const sc = await fetchSocialCrawlMentions(credentials, name, {

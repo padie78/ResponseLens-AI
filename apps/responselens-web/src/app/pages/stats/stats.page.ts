@@ -1,4 +1,5 @@
 import { Component, OnInit, ViewEncapsulation, computed, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
 import { TagModule } from 'primeng/tag';
 import type { EChartOptions } from '../../ui/atoms/echart/echart.component';
@@ -6,12 +7,17 @@ import { EchartComponent } from '../../ui/atoms/echart/echart.component';
 import { AlertsStore } from '../../stores/alerts.store';
 import { HistoryStore } from '../../stores/history.store';
 import { computeAnalytics, topEntries } from '../../engine/ops-stats.js';
+import { buildOwnStackIntel } from '../../engine/own-stack-intel.js';
+import { buildOwnAdsIntel } from '../../engine/own-ads-intel.js';
+import { buildAdsCrossNarrative } from '../../engine/ads-cross-narrative.js';
+import { dataBadgeKind, dataBadgeLabel } from '../../engine/data-badge.js';
+import { UserConfigStore } from '../../stores/user-config.store';
 
 @Component({
   standalone: true,
   selector: 'rl-stats-page',
   encapsulation: ViewEncapsulation.None,
-  imports: [IonContent, EchartComponent, TagModule],
+  imports: [IonContent, EchartComponent, TagModule, RouterLink],
   template: `
     <ion-content>
       <div class="rl-page">
@@ -51,6 +57,53 @@ import { computeAnalytics, topEntries } from '../../engine/ops-stats.js';
             </strong>
           </article>
         </div>
+
+        <section class="rl-panel" style="margin-bottom: 1.25rem">
+          <header class="rl-panel__head">
+            <h2 class="rl-panel__title">
+              GA4 / Search Console
+              <span class="rl-data-badge" [class]="'rl-data-badge--' + stackBadgeKind()">{{ stackBadge() }}</span>
+            </h2>
+          </header>
+          <p class="rl-page__lead">{{ stack().disclaimer }}</p>
+          @if (stack().connected) {
+            <p>Sesiones 7d: <strong>{{ stack().sessions7d }}</strong></p>
+            @for (q of stackQueries(); track q.query) {
+              <p>{{ q.query }} · pos. {{ q.position }} · {{ q.clicks }} clicks</p>
+            }
+          } @else {
+            <p>
+              Configurá IDs en
+              <a routerLink="/app/settings" [queryParams]="{ tab: 'avanzado' }">Config → Avanzado</a>.
+            </p>
+          }
+        </section>
+
+        <section class="rl-panel" style="margin-bottom: 1.25rem">
+          <header class="rl-panel__head">
+            <h2 class="rl-panel__title">
+              Campañas × Menciones
+              <span class="rl-data-badge" [class]="'rl-data-badge--' + adsBadgeKind()">{{ adsBadge() }}</span>
+            </h2>
+          </header>
+          @if (crossNarrative().available) {
+            <p class="rl-page__lead">{{ crossNarrative().narrative }}</p>
+            @for (c of crossNarrative().correlations; track c.campaignName) {
+              <p>
+                <strong>{{ c.campaignName }}</strong> ({{ c.platform }})
+                · {{ c.mentionsInWindow }} menciones · tendencia {{ c.direction }}
+                · gasto {{ c.spendBand }}
+              </p>
+            }
+            <p class="rl-page__disclaimer" style="margin-top: .5rem; font-size: .8rem; opacity: .6">Correlación, no causalidad.</p>
+          } @else {
+            <p class="rl-page__lead">{{ crossNarrative().narrative }}</p>
+            <p>
+              Configurá tus IDs de ads en
+              <a routerLink="/app/settings" [queryParams]="{ tab: 'integraciones' }">Config → Integraciones</a>.
+            </p>
+          }
+        </section>
 
         <div class="rl-stats-grid">
           <section class="rl-panel">
@@ -95,6 +148,51 @@ import { computeAnalytics, topEntries } from '../../engine/ops-stats.js';
 export class StatsPageComponent implements OnInit {
   private readonly alertsStore = inject(AlertsStore);
   private readonly historyStore = inject(HistoryStore);
+  private readonly config = inject(UserConfigStore);
+
+  readonly stack = computed(() => {
+    const c = this.config.config()?.company;
+    return buildOwnStackIntel({
+      companyName: this.config.companyName(),
+      ga4PropertyId: c?.ga4PropertyId,
+      searchConsoleSiteUrl: c?.searchConsoleSiteUrl,
+    });
+  });
+
+  stackBadgeKind(): string {
+    return dataBadgeKind(this.stack().source);
+  }
+
+  stackBadge(): string {
+    return dataBadgeLabel(this.stack().source);
+  }
+
+  readonly stackQueries = computed(() => this.stack().queries.slice(0, 4));
+
+  readonly adsIntel = computed(() => {
+    const c = this.config.config()?.company;
+    return buildOwnAdsIntel({
+      companyName: this.config.companyName(),
+      metaAdsAccountId: c?.metaAdsAccountId,
+      googleAdsCustomerId: c?.googleAdsCustomerId,
+    });
+  });
+
+  readonly crossNarrative = computed(() =>
+    buildAdsCrossNarrative({
+      adsIntel: this.adsIntel(),
+      alerts: this.alertsStore.items(),
+      windowDays: 7,
+    }),
+  );
+
+  adsBadgeKind(): string {
+    return dataBadgeKind(this.adsIntel().source);
+  }
+
+  adsBadge(): string {
+    return dataBadgeLabel(this.adsIntel().source);
+  }
 
   readonly analytics = computed(() =>
     computeAnalytics({
@@ -222,5 +320,6 @@ export class StatsPageComponent implements OnInit {
   ngOnInit(): void {
     this.alertsStore.load();
     this.historyStore.load();
+    this.config.load();
   }
 }

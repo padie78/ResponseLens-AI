@@ -1,9 +1,9 @@
-import { Component, OnInit, ViewEncapsulation, computed, inject } from '@angular/core';
+import { Component, OnInit, ViewEncapsulation, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
 import { ButtonModule } from 'primeng/button';
-import { TagModule } from 'primeng/tag';
 import { buildRivalSurfaceIntel } from '../../engine/rival-surface-intel.js';
+import { dataBadgeKind, dataBadgeLabel } from '../../engine/data-badge.js';
 import { ScanService } from '../../services/scan.service';
 import { AlertsStore } from '../../stores/alerts.store';
 import { UserConfigStore } from '../../stores/user-config.store';
@@ -13,25 +13,27 @@ import { ScanBlockerComponent } from '../../ui';
   standalone: true,
   selector: 'rl-rivals-ads-page',
   encapsulation: ViewEncapsulation.None,
-  imports: [IonContent, RouterLink, ButtonModule, TagModule, ScanBlockerComponent],
+  imports: [IonContent, RouterLink, ButtonModule, ScanBlockerComponent],
   template: `
     <ion-content>
       <rl-scan-blocker [active]="scan.scanning()" [message]="scan.lastStatus()" />
-      <div class="rl-page rl-intel">
-        <div class="rl-page__toolbar">
-          <div>
+      <div class="rl-page rl-intel rl-ads">
+        <header class="rl-own__header">
+          <div class="rl-own__intro">
             <h1 class="rl-page__title">Radar de anuncios</h1>
             <p class="rl-page__lead">
-              Creatividades y campañas de rivales (demo). No es el Ads Library en vivo.
+              Cómo se promocionan tus rivales en Meta Ad Library: copy, CTA y fechas.
+              <span class="rl-data-badge" [class]="'rl-data-badge--' + badgeKind()">{{ badgeLabel() }}</span>
             </p>
           </div>
-          <div class="rl-page__toolbar-actions">
+          <div class="rl-own__actions">
             <p-button
-              label="Escanear rivales"
+              label="Forzar ahora"
               icon="pi pi-search"
               size="small"
-              [disabled]="scan.scanning() || config.competitors().length === 0"
+              [disabled]="scan.scanning() || config.competitors().length === 0 || scan.manualQuotaExhausted()"
               (onClick)="runScan()"
+              title="Adelanta la pasada diaria. No es tiempo real."
             />
             <p-button
               label="Scan demo"
@@ -43,49 +45,111 @@ import { ScanBlockerComponent } from '../../ui';
               (onClick)="runScanMock()"
             />
           </div>
+        </header>
+
+        @if (pack().usedFallback) {
+          <p class="rl-page__status">
+            Sin rivales en config — demo Alpha/Beta.
+            Cargá nombres públicos en <a routerLink="/app/settings" [queryParams]="{ tab: 'rivales' }">Config → Rivales</a>.
+            <a routerLink="/app/settings">Cargar rivales</a>
+          </p>
+        }
+
+        <div class="rl-own__kpis rl-ads__kpis">
+          <div class="rl-own__kpi" data-tone="total">
+            <i class="pi pi-th-large rl-own__kpi-icon" aria-hidden="true"></i>
+            <strong>{{ pack().adRows.length }}</strong>
+            <span>Creatividades</span>
+          </div>
+          <div class="rl-own__kpi" data-tone="pending">
+            <i class="pi pi-users rl-own__kpi-icon" aria-hidden="true"></i>
+            <strong>{{ pack().rivals.length }}</strong>
+            <span>Rivales</span>
+          </div>
+          <div class="rl-own__kpi" data-tone="responded">
+            <i class="pi pi-play rl-own__kpi-icon" aria-hidden="true"></i>
+            <strong>{{ activeCount() }}</strong>
+            <span>Activas</span>
+          </div>
+          <div class="rl-own__kpi" data-tone="snoozed">
+            <i class="pi pi-pause rl-own__kpi-icon" aria-hidden="true"></i>
+            <strong>{{ pausedCount() }}</strong>
+            <span>En pausa</span>
+          </div>
         </div>
 
-        <p class="rl-intel__disclaimer">{{ pack().disclaimer }}</p>
-
-        @if (config.competitors().length === 0) {
-          <div class="rl-panel">
-            <p>Agregá rivales en <a routerLink="/app/settings">Configuración</a>.</p>
+        <div class="rl-ads__filters">
+          <div class="rl-intel__pills" role="group" aria-label="Rival">
+            <button type="button" class="rl-intel__pill" [class.is-active]="rival() === 'all'" (click)="rival.set('all')">
+              Todos
+            </button>
+            @for (r of pack().rivals; track r.name) {
+              <button
+                type="button"
+                class="rl-intel__pill"
+                [class.is-active]="rival() === r.name"
+                (click)="rival.set(r.name)"
+              >
+                {{ r.name }}
+              </button>
+            }
           </div>
-        } @else {
-          <div class="rl-insight-hero__metrics rl-intel__kpis">
-            <div>
-              <span>Creatividades</span>
-              <strong>{{ pack().adRows.length }}</strong>
-            </div>
-            <div>
-              <span>Rivales</span>
-              <strong>{{ pack().rivals.length }}</strong>
-            </div>
-            <div>
-              <span>Activas (demo)</span>
-              <strong>{{ activeCount() }}</strong>
-            </div>
+          <div class="rl-intel__pills" role="group" aria-label="Plataforma">
+            <button type="button" class="rl-intel__pill" [class.is-active]="platform() === 'all'" (click)="platform.set('all')">
+              Todas las redes
+            </button>
+            @for (p of platforms(); track p) {
+              <button
+                type="button"
+                class="rl-intel__pill"
+                [class.is-active]="platform() === p"
+                (click)="platform.set(p)"
+              >
+                {{ p }}
+              </button>
+            }
           </div>
+        </div>
 
-          <section class="rl-panel">
-            <header class="rl-panel__head"><h2 class="rl-panel__title">Campañas</h2></header>
-            <div class="rl-themes-table">
-              @for (row of pack().adRows; track row.id) {
-                <div class="rl-themes-table__row rl-intel__ad">
-                  <div>
-                    <strong>{{ row.rival }}</strong>
-                    <p class="rl-audit-sample">{{ row.headline }}</p>
-                    <p class="rl-audit-sample">{{ row.body }}</p>
-                  </div>
-                  <span>{{ row.platform }}</span>
-                  <span>{{ row.cta }}</span>
-                  <span>{{ row.spendBand }} · {{ row.daysLive }}d</span>
-                  <p-tag [value]="row.status" [severity]="row.status === 'Activo' ? 'success' : 'secondary'" />
+        <div class="rl-ads__grid">
+          @for (row of visible(); track row.id) {
+            <article class="rl-ad-card" [attr.data-platform]="row.platform" [attr.data-status]="row.status">
+              <div class="rl-ad-card__preview" aria-hidden="true">
+                <i class="pi" [class]="platformIcon(row.platform)"></i>
+                <span>{{ row.format }}</span>
+              </div>
+              <div class="rl-ad-card__body">
+                <div class="rl-ad-card__meta">
+                  <strong class="rl-ad-card__rival">{{ row.rival }}</strong>
+                  <span class="rl-ad-card__plat">{{ row.platform }}</span>
+                  <span class="rl-ad-card__status" [class.is-on]="row.status === 'Activo'">{{ row.status }}</span>
                 </div>
-              }
-            </div>
-          </section>
-        }
+                <h2 class="rl-ad-card__headline">{{ row.headline }}</h2>
+                <p class="rl-ad-card__copy">{{ row.body }}</p>
+                <div class="rl-ad-card__cta-row">
+                  <span class="rl-ad-card__cta">{{ row.cta }}</span>
+                  <span class="rl-ad-card__land">{{ host(row.landing) }}</span>
+                </div>
+                <dl class="rl-ad-card__facts">
+                  <div>
+                    <dt>Ángulo</dt>
+                    <dd>{{ row.angle }}</dd>
+                  </div>
+                  <div>
+                    <dt>Desde</dt>
+                    <dd>{{ row.startedAt || (row.daysLive + ' d') }}</dd>
+                  </div>
+                  <div>
+                    <dt>Al aire</dt>
+                    <dd>{{ row.daysLive }} días</dd>
+                  </div>
+                </dl>
+              </div>
+            </article>
+          } @empty {
+            <p class="rl-empty">Nada con ese filtro.</p>
+          }
+        </div>
       </div>
     </ion-content>
   `,
@@ -94,6 +158,8 @@ export class RivalsAdsPageComponent implements OnInit {
   readonly config = inject(UserConfigStore);
   readonly alerts = inject(AlertsStore);
   readonly scan = inject(ScanService);
+  readonly rival = signal('all');
+  readonly platform = signal('all');
 
   readonly pack = computed(() =>
     buildRivalSurfaceIntel({
@@ -103,9 +169,49 @@ export class RivalsAdsPageComponent implements OnInit {
     }),
   );
 
+  badgeKind(): string {
+    return dataBadgeKind(this.pack().adsSource);
+  }
+
+  badgeLabel(): string {
+    return dataBadgeLabel(this.pack().adsSource);
+  }
+
+  readonly platforms = computed(() => [...new Set(this.pack().adRows.map((r) => r.platform))]);
+
+  readonly visible = computed(() => {
+    const rival = this.rival();
+    const platform = this.platform();
+    return this.pack().adRows.filter((r) => {
+      if (rival !== 'all' && r.rival !== rival) return false;
+      if (platform !== 'all' && r.platform !== platform) return false;
+      return true;
+    });
+  });
+
   readonly activeCount = computed(
     () => this.pack().adRows.filter((r) => r.status === 'Activo').length,
   );
+
+  readonly pausedCount = computed(
+    () => this.pack().adRows.filter((r) => r.status !== 'Activo').length,
+  );
+
+  platformIcon(platform: string): string {
+    if (platform === 'Meta') return 'pi-facebook';
+    if (platform === 'Google Ads') return 'pi-google';
+    if (platform === 'YouTube') return 'pi-youtube';
+    if (platform === 'LinkedIn') return 'pi-linkedin';
+    return 'pi-megaphone';
+  }
+
+  host(url: string): string {
+    try {
+      return new URL(url).hostname.replace(/^www\./, '');
+    } catch {
+      return url;
+    }
+  }
 
   ngOnInit(): void {
     this.config.load();

@@ -41,6 +41,13 @@
   line-height: 1.5;
 }
 
+.rl-listening-status {
+  margin: 0 0 0.75rem;
+  color: var(--rl-muted, #64748b);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
 .rl-own__actions {
   display: flex;
   flex-wrap: wrap;
@@ -50,7 +57,7 @@
 
 .rl-own__kpis {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 0.55rem;
   margin: 0 0 1.45rem;
 }

@@ -12,6 +12,8 @@ import { ButtonModule } from 'primeng/button';
 import { TabViewModule } from 'primeng/tabview';
 import { TagModule } from 'primeng/tag';
 import { computeListeningPulse } from '../../engine/listening-insights.js';
+import { crisisRivals, listLeads, loadCrisisThreshold } from '../../engine/ops-queue.js';
+import { buildRivalSurfaceIntel } from '../../engine/rival-surface-intel.js';
 import { ScanService } from '../../services/scan.service';
 import { AlertsStore } from '../../stores/alerts.store';
 import { HistoryStore } from '../../stores/history.store';
@@ -24,6 +26,7 @@ import {
   FeedFiltersComponent,
   ListeningPulseComponent,
   ScanBlockerComponent,
+  ListeningStatusComponent,
   type EChartOptions,
   type FeedFilterState,
 } from '../../ui';
@@ -41,6 +44,7 @@ import {
     AlertCardComponent,
     FeedFiltersComponent,
     ScanBlockerComponent,
+    ListeningStatusComponent,
     ListeningPulseComponent,
     EchartComponent,
   ],
@@ -52,15 +56,16 @@ import {
         <div class="rl-page__toolbar">
           <div>
             <h1 class="rl-page__title">Competencia</h1>
-            <p class="rl-page__lead">Quejas de rivales y oportunidades de captación.</p>
+            <p class="rl-page__lead">Quejas de rivales y oportunidades de captación. Hasta 5 rivales por pasada.</p>
           </div>
           <div class="rl-page__toolbar-actions">
             <p-button
-              label="Escanear rivales"
+              label="Forzar ahora"
               icon="pi pi-search"
               size="small"
-              [disabled]="scan.scanning() || config.competitors().length === 0"
+              [disabled]="scan.scanning() || config.competitors().length === 0 || scan.manualQuotaExhausted()"
               (onClick)="runScan()"
+              title="Adelanta la pasada diaria. No es tiempo real."
             />
             <p-button
               label="Scan demo"
@@ -70,7 +75,7 @@ import {
               size="small"
               [disabled]="scan.scanning() || config.competitors().length === 0"
               (onClick)="runScanMock()"
-              title="Scan de prueba — no gasta créditos"
+              title="Scan de prueba — 0 créditos, no cuenta en el tope diario"
             />
             <p-button
               label="Refrescar"
@@ -90,14 +95,14 @@ import {
           </div>
         </div>
 
-        @if (scan.lastStatus() && !scan.scanning()) {
-          <p class="rl-page__status">{{ scan.lastStatus() }}</p>
-        }
+        <rl-listening-status />
 
         @if (config.competitors().length === 0) {
           <div class="rl-page__panel">
             <p>
-              Agregá rivales en <a routerLink="/app/settings">Config</a> para enfocar el escaneo.
+              Sin rivales no hay radar. Cargá <strong>3 a 5 nombres públicos</strong> en
+              <a routerLink="/app/settings" [queryParams]="{ tab: 'rivales' }">Config → Rivales</a>
+              (el website no se usa como query).
             </p>
           </div>
         } @else {
@@ -105,6 +110,35 @@ import {
             <span>Rivales:</span>
             <strong>{{ rivalNames().join(' · ') }}</strong>
           </div>
+
+          @if (crises().length) {
+            <p class="rl-page__status">
+              Umbral de crisis (≥ {{ threshold() }}/24 h):
+              {{ crisisLabel() }}
+            </p>
+          }
+
+          @if (statusIncidents().length) {
+            <p class="rl-page__status" role="status">
+              Status page: {{ statusIncidentLabel() }} — incidente en la página pública del rival.
+            </p>
+          }
+
+          @if (leads().length) {
+            <section class="rl-panel" style="margin-bottom: 1.25rem">
+              <header class="rl-panel__head"><h2 class="rl-panel__title">Leads (intención de cambio)</h2></header>
+              <div class="rl-vis-queries">
+                @for (a of leads(); track a.alertId) {
+                  <button type="button" class="rl-vis-queries__row rl-lead-row" (click)="selectedId.set(a.alertId); activeTab = 0">
+                    <strong>{{ a.competitorName }}</strong>
+                    <span>{{ a._ops?.assignee || 'sin dueño' }}</span>
+                    <span>{{ a._ops?.crmStage || a.status }}</span>
+                    <span>{{ a._ops?.nextAction || a._ops?.sequence || '—' }}</span>
+                  </button>
+                }
+              </div>
+            </section>
+          }
 
           <p-tabView styleClass="rl-own-tabs" [(activeIndex)]="activeTab">
             <p-tabPanel header="Feed" leftIcon="pi pi-inbox">
@@ -271,6 +305,33 @@ export class CompetitorsPageComponent implements OnInit {
   readonly rivalNames = computed(() =>
     this.config.competitors().map((c) => c.name).filter(Boolean),
   );
+
+  readonly threshold = computed(() => loadCrisisThreshold());
+
+  readonly crises = computed(() => crisisRivals(this.alerts.items(), this.threshold()));
+
+  readonly crisisLabel = computed(() =>
+    this.crises()
+      .map((c) => `${c.name} (${c.count})`)
+      .join(' · '),
+  );
+
+  readonly statusIncidents = computed(
+    () =>
+      buildRivalSurfaceIntel({
+        competitors: this.config.competitors(),
+        alerts: this.alerts.items(),
+        days: 14,
+      }).statusIncidents,
+  );
+
+  readonly statusIncidentLabel = computed(() =>
+    this.statusIncidents()
+      .map((s) => s.rival)
+      .join(' · '),
+  );
+
+  readonly leads = computed(() => listLeads(this.alerts.items()).slice(0, 12));
 
   readonly filtered = computed(() =>
     filterAlerts(this.alerts.rivalAlerts(), this.filters()),

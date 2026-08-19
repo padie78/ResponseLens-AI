@@ -33,8 +33,24 @@ variable "gemini_api_key" {
 }
 
 variable "competitor_scan_schedule" {
-  type    = string
-  default = "rate(15 minutes)"
+  type        = string
+  default     = "cron(0 11 * * ? *)"
+  description = "1×/día (11:00 UTC ≈ 08:00 AR)."
+}
+
+variable "competitor_scan_max_rivals" {
+  type    = number
+  default = 5
+}
+
+variable "socialcrawl_cron_lookback_days" {
+  type    = number
+  default = 2
+}
+
+variable "manual_scan_limit_per_day" {
+  type    = number
+  default = 3
 }
 
 variable "reddit_client_id" {
@@ -68,8 +84,9 @@ variable "socialcrawl_api_key" {
 }
 
 variable "socialcrawl_lookback_days" {
-  type    = number
-  default = 3
+  type        = number
+  default     = 7
+  description = "Lookback scan manual (AppSync/worker)."
 }
 
 variable "socialcrawl_sources" {
@@ -92,4 +109,23 @@ variable "socialcrawl_jobs_queue_url" {
 variable "socialcrawl_jobs_queue_arn" {
   type        = string
   description = "SQS ARN for socialcrawl_worker event source mapping."
+}
+
+variable "external_apis_mock" {
+  type        = string
+  default     = "true"
+  description = "true = mocks para APIs externas (SocialCrawl, Reddit, NewsAPI, intel F2)."
+}
+
+variable "intel_surfaces_schedule" {
+  type        = string
+  default     = "cron(30 11 * * ? *)"
+  description = "F2: 1×/día, 11:30 UTC (después del competitor_scan)."
+}
+
+variable "meta_ad_library_token" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Token Meta Ad Library (opcional). Vacío + mock = ads mock."
 }

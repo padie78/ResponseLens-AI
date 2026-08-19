@@ -3,6 +3,7 @@ import type { AppRuntimeEnvironment } from './environment.types';
 /** Plantilla dev — copiá a environment.ts o usá `npm run sync:env`. */
 export const environment: AppRuntimeEnvironment = {
   production: false,
+  externalApisMock: true,
   appsync: {
     endpoint: '',
     region: 'eu-central-1',

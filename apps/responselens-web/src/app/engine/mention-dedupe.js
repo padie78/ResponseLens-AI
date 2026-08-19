@@ -102,6 +102,34 @@ export function mentionDedupeKey(row) {
   return keys[0] || '';
 }
 
+function fnv1a36(raw) {
+  let h = 2166136261;
+  const s = String(raw || '');
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/**
+ * ID estable alineado al cron (`libs/common` stableAlertId).
+ * @param {{ alertId?: string, sourceUrl?: string, originalComplaint?: string, text?: string, competitorName?: string, _brandScope?: string, brandScope?: string }} input
+ */
+export function stableAlertId(input) {
+  const rawId = String(input?.alertId || '').trim();
+  if (rawId) return rawId.slice(0, 120);
+  const scope = input?._brandScope === 'own' || input?.brandScope === 'own' ? 'own' : 'rival';
+  const rival = String(input?.competitorName || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+    .slice(0, 24);
+  const url = normalizeSourceUrl(input?.sourceUrl || '');
+  if (url) return `sc_${scope}_${rival}_${fnv1a36(url)}`.slice(0, 120);
+  const text = normalizeMentionText(input?.originalComplaint || input?.text || '');
+  return `sc_${scope}_${rival}_${fnv1a36(text || 'empty')}`.slice(0, 120);
+}
+
 /**
  * @template T
  * @param {T[]} rows

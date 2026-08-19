@@ -22,11 +22,14 @@ import { HistoryStore } from '../../stores/history.store';
 import { UserConfigStore } from '../../stores/user-config.store';
 import { filterAlerts } from '../../utils/alert-filters';
 import { isReplyableContent, normalizeContentKind } from '../../engine/content-kind.js';
+import { isAssignedToMe, slaBreached } from '../../engine/ops-queue.js';
+import { AuthService } from '../../core/auth/auth.service';
 import {
   AlertCardComponent,
   DEFAULT_FEED_FILTERS,
   FeedFiltersComponent,
   ScanBlockerComponent,
+  ListeningStatusComponent,
   type FeedFilterState,
 } from '../../ui';
 
@@ -37,7 +40,9 @@ type OwnInboxMode =
   | 'snoozed'
   | 'responded'
   | 'resolved'
-  | 'dismissed';
+  | 'dismissed'
+  | 'sla'
+  | 'mine';
 
 const INBOX_TITLES: Record<OwnInboxMode, { title: string; lead: string }> = {
   all: {
@@ -68,6 +73,14 @@ const INBOX_TITLES: Record<OwnInboxMode, { title: string; lead: string }> = {
     title: 'Descartadas',
     lead: 'Fuera de la cola activa.',
   },
+  sla: {
+    title: 'SLA vencido',
+    lead: 'Abiertas que ya pasaron el plazo (2 h crisis / 8 h altas / 24 h resto).',
+  },
+  mine: {
+    title: 'Cola mía',
+    lead: 'Asignadas a tu usuario (dueño = email o nombre).',
+  },
 };
 
 const INBOX_MODES: OwnInboxMode[] = [
@@ -78,6 +91,8 @@ const INBOX_MODES: OwnInboxMode[] = [
   'responded',
   'resolved',
   'dismissed',
+  'sla',
+  'mine',
 ];
 
 function parseInboxMode(raw: string | null): OwnInboxMode {
@@ -116,6 +131,7 @@ function isClosedAlert(a: CompetitorAlert): boolean {
     AlertCardComponent,
     FeedFiltersComponent,
     ScanBlockerComponent,
+    ListeningStatusComponent,
   ],
   template: `
     <ion-content>
@@ -129,11 +145,12 @@ function isClosedAlert(a: CompetitorAlert): boolean {
           </div>
           <div class="rl-own__actions">
             <p-button
-              label="Escanear"
+              label="Forzar ahora"
               icon="pi pi-search"
               size="small"
-              [disabled]="scan.scanning() || !config.hasCompany()"
+              [disabled]="scan.scanning() || !config.hasCompany() || scan.manualQuotaExhausted()"
               (onClick)="runScan()"
+              title="Adelanta la pasada diaria. No es tiempo real."
             />
             <p-button
               label="Scan demo"
@@ -143,7 +160,7 @@ function isClosedAlert(a: CompetitorAlert): boolean {
               size="small"
               [disabled]="scan.scanning() || !config.hasCompany()"
               (onClick)="runScanMock()"
-              title="Scan de prueba — no gasta créditos"
+              title="Scan de prueba — 0 créditos, no cuenta en el tope diario"
             />
             <p-button
               label="Refrescar"
@@ -155,9 +172,7 @@ function isClosedAlert(a: CompetitorAlert): boolean {
           </div>
         </header>
 
-        @if (scan.lastStatus() && !scan.scanning()) {
-          <p class="rl-page__status">{{ scan.lastStatus() }}</p>
-        }
+        <rl-listening-status />
 
         @if (config.hasCompany()) {
           <div class="rl-own__kpis" role="group" aria-label="Indicadores de la bandeja">
@@ -182,7 +197,8 @@ function isClosedAlert(a: CompetitorAlert): boolean {
         @if (!config.hasCompany()) {
           <div class="rl-own__empty">
             <p>
-              Configurá tu empresa en <a routerLink="/app/settings">Empresa</a> antes de escanear.
+              Falta el nombre público de tu marca (cómo te mencionan, no el legal).
+              Cargalo en <a routerLink="/app/settings" [queryParams]="{ tab: 'empresa' }">Config → Empresa</a> para escanear propios.
             </p>
           </div>
         } @else {
@@ -268,6 +284,7 @@ export class OwnPageComponent implements OnInit {
   readonly history = inject(HistoryStore);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
 
   readonly filters = signal<FeedFilterState>({
     ...DEFAULT_FEED_FILTERS,
@@ -298,6 +315,13 @@ export class OwnPageComponent implements OnInit {
         (a) =>
           isOpenAlert(a) && (a.severity === 'HIGH' || a.severity === 'CRITICAL'),
       );
+    }
+    if (mode === 'sla') {
+      return list.filter((a) => slaBreached(a));
+    }
+    if (mode === 'mine') {
+      const me = this.auth.email() || this.auth.userId() || '';
+      return list.filter((a) => isAssignedToMe(a, me));
     }
     return list;
   });
@@ -341,6 +365,22 @@ export class OwnPageComponent implements OnInit {
       value: this.urgentCount(),
       tone: 'urgent',
       icon: 'pi pi-bolt',
+    },
+    {
+      mode: 'sla' as const,
+      label: 'SLA vencido',
+      value: this.openOwn().filter((a) => slaBreached(a)).length,
+      tone: 'urgent',
+      icon: 'pi pi-exclamation-triangle',
+    },
+    {
+      mode: 'mine' as const,
+      label: 'Mías',
+      value: this.ownPool().filter((a) =>
+        isAssignedToMe(a, this.auth.email() || this.auth.userId() || ''),
+      ).length,
+      tone: 'pending',
+      icon: 'pi pi-user',
     },
     {
       mode: 'pending' as const,
@@ -387,6 +427,11 @@ export class OwnPageComponent implements OnInit {
     { value: 'responded', label: `Respondidas (${this.respondedCount()})` },
     { value: 'resolved', label: `Resueltas (${this.resolvedCount()})` },
     { value: 'dismissed', label: `Descartadas (${this.dismissedCount()})` },
+    { value: 'sla', label: `SLA vencido (${this.openOwn().filter((a) => slaBreached(a)).length})` },
+    {
+      value: 'mine',
+      label: `Mías (${this.ownPool().filter((a) => isAssignedToMe(a, this.auth.email() || this.auth.userId() || '')).length})`,
+    },
   ]);
 
   ngOnInit(): void {

@@ -37,7 +37,12 @@ module "lambdas" {
   openai_model               = var.openai_model
   llm_provider               = var.llm_provider
   gemini_api_key             = var.gemini_api_key
-  competitor_scan_schedule   = var.competitor_scan_schedule
+  competitor_scan_schedule       = var.competitor_scan_schedule
+  competitor_scan_max_rivals     = var.competitor_scan_max_rivals
+  intel_surfaces_schedule        = var.intel_surfaces_schedule
+  meta_ad_library_token          = var.meta_ad_library_token
+  socialcrawl_cron_lookback_days = var.socialcrawl_cron_lookback_days
+  manual_scan_limit_per_day      = var.manual_scan_limit_per_day
   reddit_client_id           = var.reddit_client_id
   reddit_client_secret       = var.reddit_client_secret
   reddit_user_agent          = var.reddit_user_agent
@@ -47,6 +52,7 @@ module "lambdas" {
   socialcrawl_sources        = var.socialcrawl_sources
   inbound_webhook_secret     = local.inbound_webhook_secret
   socialcrawl_jobs_queue_url = module.queues.socialcrawl_jobs_queue_url
+  external_apis_mock         = var.external_apis_mock
   socialcrawl_jobs_queue_arn = module.queues.socialcrawl_jobs_queue_arn
 }
 

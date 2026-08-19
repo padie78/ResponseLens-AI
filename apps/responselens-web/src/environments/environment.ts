@@ -3,6 +3,7 @@ import type { AppRuntimeEnvironment } from './environment.types';
 /** Generado por scripts/sync-local-env.sh — no editar a mano en local. */
 export const environment: AppRuntimeEnvironment = {
   production: false,
+  externalApisMock: true,
   appsync: {
     endpoint: 'https://eshcxes22jgm5cp3rsydvcao4e.appsync-api.eu-central-1.amazonaws.com/graphql',
     region: 'eu-central-1',

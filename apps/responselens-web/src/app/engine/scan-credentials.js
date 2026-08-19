@@ -28,7 +28,7 @@ export function defaultScanCredentials() {
       apiKey: '',
       /** CSV opcional: reddit,youtube,tiktok,instagram,threads,linkedin,… */
       sources: '',
-      lookbackDays: 3,
+      lookbackDays: 7,
     },
   };
 }
@@ -48,7 +48,7 @@ export async function loadScanCredentials() {
   const socialcrawl = { ...base.socialcrawl, ...(raw.socialcrawl || {}) };
   // Default 7 días (API default es 30). UI puede override.
   const lb = Number(socialcrawl.lookbackDays);
-  socialcrawl.lookbackDays = Number.isFinite(lb) && lb >= 1 ? Math.min(lb, 30) : 3;
+  socialcrawl.lookbackDays = Number.isFinite(lb) && lb >= 1 ? Math.min(lb, 30) : 7;
   // Si hay API key guardada, considerar activo aunque el checkbox se haya perdido.
   if (String(socialcrawl.apiKey || '').trim() && socialcrawl.enabled == null) {
     socialcrawl.enabled = true;

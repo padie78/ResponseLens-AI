@@ -1,3 +1,5 @@
+import { stableAlertId } from '../engine/mention-dedupe.js';
+
 export type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type AlertWorkflowStatus = 'NEW' | 'CONTACTED' | 'SNOOZED' | 'DISMISSED' | 'WON';
 export type BrandScope = 'own' | 'rival';
@@ -125,6 +127,8 @@ export interface ScanOpportunity {
 export interface CompetitorAlert {
   alertId: string;
   userId: string;
+  /** Empresa / workspace al que pertenece la mención. */
+  workspaceId?: string;
   competitorName: string;
   originalComplaint: string;
   sourceUrl: string;
@@ -164,10 +168,42 @@ export interface CompetitorAlert {
   _conquest?: ConquestIntel;
   replyOptions?: ReplyOption[];
   _mockPost?: MockOutboundPost;
+  /** Cola, CRM y compliance locales. */
+  _ops?: AlertOps;
+}
+
+export type CrmStage = 'new' | 'contacted' | 'dm' | 'followup' | 'won' | 'lost';
+export type ApprovalState = 'none' | 'draft' | 'approved' | 'published';
+export type SequenceStep = 'public' | 'dm' | 'followup';
+
+export interface AlertOps {
+  assignee?: string;
+  leadNote?: string;
+  approval?: ApprovalState;
+  handoffTo?: string;
+  ticketUrl?: string;
+  ticketStatus?: 'none' | 'open' | 'fixed';
+  crmStage?: CrmStage;
+  nextAction?: string;
+  nextActionAt?: string;
+  lostReason?: string;
+  sequence?: SequenceStep;
+  followupAt?: string;
+  replyUsed?: boolean | null;
+  authorKey?: string;
 }
 
 export function createAlertId(): string {
   return `al_${crypto.randomUUID().slice(0, 10)}`;
+}
+
+function mergeOps(ops: AlertOps | undefined, alert: CompetitorAlert): AlertOps | undefined {
+  const author =
+    String(ops?.authorKey || '').trim() ||
+    String(alert._scMeta?.author || '').trim().toLowerCase() ||
+    String(alert.sourceUrl || '').split('?')[0];
+  if (!ops && !author) return ops;
+  return { ...(ops || {}), authorKey: author || ops?.authorKey };
 }
 
 /** Fields persisted in Dynamo metaJson (not first-class GraphQL columns). */
@@ -188,6 +224,8 @@ export function packAlertMeta(alert: Partial<CompetitorAlert>): Record<string, u
   if (alert.replyOptions) meta['replyOptions'] = alert.replyOptions;
   if (alert._conquest) meta['_conquest'] = alert._conquest;
   if (alert._mockPost) meta['_mockPost'] = alert._mockPost;
+  if (alert._ops) meta['_ops'] = alert._ops;
+  if (alert.workspaceId) meta['workspaceId'] = alert.workspaceId;
   if (alert.metaJson && typeof alert.metaJson === 'object') {
     Object.assign(meta, alert.metaJson);
   }
@@ -236,6 +274,13 @@ export function unpackAlertMeta(
     replyOptions: (meta['replyOptions'] as ReplyOption[] | undefined) ?? alert.replyOptions,
     _conquest: (meta['_conquest'] as ConquestIntel | undefined) ?? alert._conquest,
     _mockPost: (meta['_mockPost'] as MockOutboundPost | undefined) ?? alert._mockPost,
+    _ops: mergeOps(
+      (meta['_ops'] as CompetitorAlert['_ops'] | undefined) ?? alert._ops,
+      alert,
+    ),
+    workspaceId:
+      (typeof meta['workspaceId'] === 'string' ? meta['workspaceId'] : undefined) ??
+      alert.workspaceId,
     _brandScope: alert.brandScope,
   };
 }
@@ -247,7 +292,13 @@ export function mapOpportunityToAlert(opp: ScanOpportunity, userId: string): Com
     (brandScope === 'own' ? 'NEUTRAL' : 'negative');
 
   const base: CompetitorAlert = {
-    alertId: opp.alertId || createAlertId(),
+    alertId: stableAlertId({
+      alertId: opp.alertId,
+      sourceUrl: opp.sourceUrl,
+      originalComplaint: opp.originalComplaint,
+      competitorName: opp.competitorName,
+      brandScope,
+    }),
     userId: opp.userId || userId,
     competitorName: opp.competitorName,
     originalComplaint: opp.originalComplaint,
@@ -262,7 +313,7 @@ export function mapOpportunityToAlert(opp: ScanOpportunity, userId: string): Com
     notes: opp.notes || '',
     brandScope,
     sentiment: String(sentiment).toLowerCase(),
-    inboundSource: opp._source || 'scan',
+    inboundSource: opp._source === 'cron' ? 'cron' : 'scan',
     _brandScope: brandScope,
     _sentiment: opp._sentiment,
     _mentionKind: opp._mentionKind,

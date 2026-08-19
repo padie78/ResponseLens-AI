@@ -46,8 +46,26 @@ variable "gemini_api_key" {
 
 variable "competitor_scan_schedule" {
   type        = string
-  default     = "rate(15 minutes)"
-  description = "Schedule EventBridge para escaneo competitivo."
+  default     = "cron(0 11 * * ? *)"
+  description = "Schedule EventBridge (F0: 1×/día, 11:00 UTC ≈ 08:00 AR). No usar rate(15 minutes) en prod."
+}
+
+variable "competitor_scan_max_rivals" {
+  type        = number
+  default     = 5
+  description = "Tope de rivales por pasada automática (query canónica = nombre, no aliases)."
+}
+
+variable "socialcrawl_cron_lookback_days" {
+  type        = number
+  default     = 2
+  description = "Lookback corto del cron diario (el scan manual usa socialcrawl_lookback_days)."
+}
+
+variable "manual_scan_limit_per_day" {
+  type        = number
+  default     = 3
+  description = "Tope de scans manuales (Forzar ahora) por usuario y día UTC. Scan demo no cuenta."
 }
 
 variable "reddit_client_id" {
@@ -85,14 +103,34 @@ variable "socialcrawl_api_key" {
 }
 
 variable "socialcrawl_lookback_days" {
-  type    = number
-  default = 3
+  type        = number
+  default     = 7
+  description = "Lookback del scan manual (AppSync / worker). El cron usa socialcrawl_cron_lookback_days."
 }
 
 variable "socialcrawl_sources" {
   type        = string
   default     = ""
   description = "CSV opcional de fuentes SocialCrawl (vacío = todas)."
+}
+
+variable "external_apis_mock" {
+  type        = string
+  default     = "true"
+  description = "true = Lambdas usan mocks (SocialCrawl, Reddit, NewsAPI, intel F2) sin llamar APIs externas."
+}
+
+variable "intel_surfaces_schedule" {
+  type        = string
+  default     = "cron(30 11 * * ? *)"
+  description = "F2 cron diario (11:30 UTC) para status/pricing/careers/Ad Library."
+}
+
+variable "meta_ad_library_token" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Token Meta Ad Library. Vacío + mock = creatividades mock sin spend."
 }
 
 variable "inbound_webhook_secret" {

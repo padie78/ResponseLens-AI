@@ -203,3 +203,43 @@ function escapeHtml(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+/** Paso extra según canal (local, sin API). */
+export function withChannelPlaybook(playbook, channel) {
+  if (!playbook) return playbook;
+  const ch = String(channel || '').toLowerCase();
+  let extra = null;
+  if (ch.includes('linkedin')) {
+    extra = {
+      id: 'channel',
+      title: 'LinkedIn',
+      body: 'Tono profesional, sin emojis de meme. Preferí comentario corto + InMail si hay lead.',
+    };
+  } else if (ch.includes('reddit')) {
+    extra = {
+      id: 'channel',
+      title: 'Reddit',
+      body: 'No suenes a marca. Respondé como humano; el pitch duro se downvota.',
+    };
+  } else if (ch.includes('twitter') || ch.includes('x.com') || ch === 'x') {
+    extra = {
+      id: 'channel',
+      title: 'X',
+      body: 'Una frase pública + hilo o DM. Evitá walls of text.',
+    };
+  } else if (ch.includes('youtube')) {
+    extra = {
+      id: 'channel',
+      title: 'YouTube',
+      body: 'Comentario visible bajo el video; detalle a comunidad o mail.',
+    };
+  } else if (ch.includes('instagram') || ch.includes('tiktok')) {
+    extra = {
+      id: 'channel',
+      title: 'Social corto',
+      body: 'Respuesta breve en comentario; conversión en DM/stories.',
+    };
+  }
+  if (!extra) return playbook;
+  return { ...playbook, steps: [...(playbook.steps || []), extra] };
+}

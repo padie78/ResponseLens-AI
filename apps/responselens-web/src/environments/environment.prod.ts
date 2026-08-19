@@ -2,6 +2,7 @@ import type { AppRuntimeEnvironment } from './environment.types';
 
 export const environment: AppRuntimeEnvironment = {
   production: true,
+  externalApisMock: true,
   appsync: {
     endpoint: '',
     region: 'eu-central-1',

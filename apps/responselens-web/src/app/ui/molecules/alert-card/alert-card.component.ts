@@ -14,12 +14,29 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { craftSalesPitchVariants } from '../../../engine/competitor-opportunity.js';
-import { buildLocalReplyOptions } from '../../../engine/local-fallback.js';
+import { buildLocalReplyOptions, detectReplyLanguage } from '../../../engine/local-fallback.js';
 import { ensureItemIntel } from '../../../engine/mention-intelligence.js';
 import {
   buildCapturePlaybook,
   buildDefensePlaybook,
+  withChannelPlaybook,
 } from '../../../engine/playbooks.js';
+import { replyTemplatesFor } from '../../../engine/reply-templates.js';
+import { slaBreached, slaHoursFor, slaAgeLabel } from '../../../engine/ops-queue.js';
+import { logPiiView } from '../../../engine/ops-audit.js';
+import type {
+  AlertOps,
+  ApprovalState,
+  CompetitorAlert,
+  CrmStage,
+  MockOutboundPost,
+  ReplyOption,
+  SequenceStep,
+  SocialCrawlMeta,
+} from '../../../models/alert.model';
+import { AlertsStore } from '../../../stores/alerts.store';
+import { UserConfigStore } from '../../../stores/user-config.store';
+import { AuthService } from '../../../core/auth/auth.service';
 import {
   platformDisplayLabel,
   platformIconClass,
@@ -27,8 +44,6 @@ import {
 } from '../../../engine/platforms.js';
 import { contentKindLabel as labelForContentKind, isReplyableContent, normalizeContentKind } from '../../../engine/content-kind.js';
 import { detectThemes, primaryTheme } from '../../../engine/theme-rules.js';
-import type { CompetitorAlert, MockOutboundPost, ReplyOption, SocialCrawlMeta } from '../../../models/alert.model';
-import { UserConfigStore } from '../../../stores/user-config.store';
 
 type PitchOption = {
   id?: string;
@@ -111,6 +126,15 @@ type PlaybookView = {
           <span class="rl-alert__aside">
             @if (relativeTime()) {
               <span class="rl-alert__when">{{ relativeTime() }}</span>
+            }
+            @if (slaOverdue()) {
+              <span class="rl-alert__sla is-late">SLA {{ slaAge() }} / {{ slaTarget() }}</span>
+            }
+            @if (brandReplied()) {
+              <span class="rl-alert__sla">Marca ya respondió</span>
+            }
+            @if (opsApproval() === 'draft') {
+              <span class="rl-alert__sla">Pendiente aprobación</span>
             }
             @if (platformLabel()) {
               <span
@@ -355,6 +379,49 @@ type PlaybookView = {
                 <h3 class="rl-alert__section-title">Cómo responder</h3>
               </header>
               <p class="rl-alert__compose-lead">{{ replyLead() }}</p>
+              <div class="rl-ops-row">
+                <label>
+                  Dueño
+                  <input
+                    class="rl-ops-row__input"
+                    [value]="assignee()"
+                    (change)="saveAssignee($event)"
+                    placeholder="Quién responde"
+                  />
+                </label>
+                <button type="button" class="rl-intel__pill" (click)="claimMine()">Asignarme</button>
+              </div>
+              <div class="rl-ops-row">
+                <label>
+                  Aprobación
+                  <select class="rl-ops-row__input" [value]="opsApproval()" (change)="saveOpsSelect('approval', $event)">
+                    <option value="none">Sin flujo</option>
+                    <option value="draft">Borrador (junior)</option>
+                    <option value="approved">Aprobado (lead)</option>
+                    <option value="published">Publicado</option>
+                  </select>
+                </label>
+                <label>
+                  Ticket (URL)
+                  <input
+                    class="rl-ops-row__input"
+                    [value]="opsTicketUrl()"
+                    (change)="saveOpsText('ticketUrl', $event)"
+                    placeholder="https://jira…"
+                  />
+                </label>
+              </div>
+              <label class="rl-ops-row">
+                <input type="checkbox" [checked]="opsReplyUsed()" (change)="toggleReplyUsed($event)" />
+                Se usó esta respuesta
+              </label>
+              <div class="rl-tpl">
+                @for (tpl of themeTemplates(); track tpl.id) {
+                  <button type="button" class="rl-intel__pill" (click)="applyTemplate(tpl.body)">
+                    {{ tpl.label }}
+                  </button>
+                }
+              </div>
 
               <div class="rl-reply-step">
                 <p class="rl-reply-step__label">1 · Tono</p>
@@ -485,6 +552,77 @@ type PlaybookView = {
               <p class="rl-alert__compose-lead">
                 Elegí un estilo y enviá el mensaje en {{ platformLabel() || 'la plataforma' }} (demo).
               </p>
+              <div class="rl-ops-row">
+                <label>
+                  Dueño
+                  <input
+                    class="rl-ops-row__input"
+                    [value]="assignee()"
+                    (change)="saveAssignee($event)"
+                    placeholder="Quién captura"
+                  />
+                </label>
+                <label>
+                  Nota
+                  <input
+                    class="rl-ops-row__input"
+                    [value]="leadNote()"
+                    (change)="saveLeadNote($event)"
+                    placeholder="Siguiente paso"
+                  />
+                </label>
+              </div>
+              <div class="rl-ops-row">
+                <label>
+                  Etapa CRM
+                  <select class="rl-ops-row__input" [value]="opsCrmStage()" (change)="saveOpsSelect('crmStage', $event)">
+                    <option value="new">Nuevo</option>
+                    <option value="contacted">Contactado</option>
+                    <option value="dm">DM</option>
+                    <option value="followup">Follow-up</option>
+                    <option value="won">Ganado</option>
+                    <option value="lost">Perdido</option>
+                  </select>
+                </label>
+                <label>
+                  Secuencia
+                  <select class="rl-ops-row__input" [value]="opsSequence()" (change)="saveOpsSelect('sequence', $event)">
+                    <option value="public">Público</option>
+                    <option value="dm">DM</option>
+                    <option value="followup">Follow-up 48 h</option>
+                  </select>
+                </label>
+                <button type="button" class="rl-intel__pill" (click)="scheduleFollowup()">+48 h</button>
+              </div>
+              <div class="rl-ops-row">
+                <label>
+                  Ticket
+                  <input
+                    class="rl-ops-row__input"
+                    [value]="opsTicketUrl()"
+                    (change)="saveOpsText('ticketUrl', $event)"
+                    placeholder="URL Jira/Linear"
+                  />
+                </label>
+                @if (opsCrmStage() === 'lost') {
+                  <label>
+                    Motivo pérdida
+                    <input
+                      class="rl-ops-row__input"
+                      [value]="opsLostReason()"
+                      (change)="saveOpsText('lostReason', $event)"
+                      placeholder="precio, timing…"
+                    />
+                  </label>
+                }
+              </div>
+              <div class="rl-tpl">
+                @for (tpl of themeTemplates(); track tpl.id) {
+                  <button type="button" class="rl-intel__pill" (click)="applyPitchTemplate(tpl.body)">
+                    {{ tpl.label }}
+                  </button>
+                }
+              </div>
               @if (conquestTags().length) {
                 <p class="rl-alert__conquest-tags">
                   @for (tag of conquestTags(); track tag) {
@@ -928,6 +1066,10 @@ type PlaybookView = {
       <ng-template pTemplate="footer">
         <div class="rl-analysis-modal__footer">
           <div class="rl-analysis-modal__footer-secondary">
+            <label>
+              <input type="checkbox" [checked]="opsReplyUsed()" (change)="toggleReplyUsed($event)" />
+              Respuesta usada
+            </label>
             <p-button label="Cerrar" severity="secondary" [outlined]="true" size="small" (onClick)="analysisOpen = false" />
             <p-button label="Copiar informe" icon="pi pi-copy" severity="secondary" [outlined]="true" size="small" (onClick)="copyFullReport()" />
           </div>
@@ -949,6 +1091,8 @@ type PlaybookView = {
 })
 export class AlertCardComponent {
   private readonly config = inject(UserConfigStore);
+  private readonly alertsStore = inject(AlertsStore);
+  private readonly auth = inject(AuthService);
 
   readonly alert = input.required<CompetitorAlert>();
   readonly showCapture = input(false);
@@ -1087,7 +1231,7 @@ export class AlertCardComponent {
   }
 
   highlightComments() {
-    return this.topComments().filter((c) => c.kind !== 'brand_mock').slice(0, 2);
+    return this.topComments().filter((c) => c.kind !== 'brand_mock').slice(0, 8);
   }
 
   private repoFromUrl(): string {
@@ -1564,7 +1708,7 @@ export class AlertCardComponent {
 
   readonly topComments = computed(() => {
     const list = this.scMeta()?.topComments;
-    return Array.isArray(list) ? list.slice(0, 5) : [];
+    return Array.isArray(list) ? list.slice(0, 12) : [];
   });
 
   readonly scRankLabel = computed(() => {
@@ -1606,24 +1750,26 @@ export class AlertCardComponent {
   readonly playbook = computed((): PlaybookView | null => {
     const a = this.enriched() || this.alert();
     const brand = this.brandName() || this.config.companyName() || a.competitorName;
+    const lang = detectReplyLanguage(a.originalComplaint || '');
     const raw = this.isOwn()
       ? buildDefensePlaybook({
           complaint: a.originalComplaint || '',
           companyName: brand,
-          lang: 'es',
+          lang,
         })
       : buildCapturePlaybook({
           complaint: a.originalComplaint || '',
           competitorName: a.competitorName,
           companyName: brand,
           whatTheySell: this.config.config()?.company?.whatTheySell,
-          lang: 'es',
+          lang,
         });
-    if (!raw) return null;
+    const withCh = withChannelPlaybook(raw, a.channel);
+    if (!withCh) return null;
     return {
-      oneLiner: String(raw.oneLiner || ''),
-      steps: (raw.steps || []) as PlaybookStep[],
-      donts: (raw.donts || []) as string[],
+      oneLiner: String(withCh.oneLiner || ''),
+      steps: (withCh.steps || []) as PlaybookStep[],
+      donts: (withCh.donts || []) as string[],
     };
   });
 
@@ -1774,10 +1920,132 @@ export class AlertCardComponent {
   slaLabel(): string {
     if (!this.actionable() && this.isOwn() && !this.needsModeration()) return 'Sin hilo';
     if (this.needsModeration()) return 'Ahora';
-    if (this.score() >= 80) return 'En 2 h';
-    if (this.score() >= 60) return 'Hoy';
-    if (this.score() >= 35) return 'Mañana';
-    return 'Esta semana';
+    if (this.slaOverdue()) return `Vencido · ${this.slaAge()}`;
+    const h = slaHoursFor(this.enriched() || this.alert());
+    if (h <= 2) return 'En 2 h';
+    if (h <= 8) return 'Hoy';
+    return '24 h';
+  }
+
+  slaOverdue(): boolean {
+    return slaBreached(this.enriched() || this.alert());
+  }
+
+  slaAge(): string {
+    return slaAgeLabel(this.enriched() || this.alert());
+  }
+
+  slaTarget(): string {
+    return `${slaHoursFor(this.enriched() || this.alert())} h`;
+  }
+
+  assignee(): string {
+    return String((this.enriched() || this.alert())._ops?.assignee || '').trim();
+  }
+
+  themeTemplates() {
+    const a = this.enriched() || this.alert();
+    return replyTemplatesFor({
+      complaint: a.originalComplaint,
+      companyName: this.config.companyName() || a.competitorName,
+      competitorName: a.competitorName,
+      brandScope: this.isOwn() ? 'own' : 'rival',
+    });
+  }
+
+  applyTemplate(body: string): void {
+    const cur = this.selectedDraft();
+    this.selectedDraft.set({
+      tone: cur?.tone || 'template',
+      label: cur?.label || 'Plantilla',
+      body,
+      recommended: true,
+    });
+  }
+
+  leadNote(): string {
+    return String((this.enriched() || this.alert())._ops?.leadNote || '').trim();
+  }
+
+  applyPitchTemplate(body: string): void {
+    const cur = this.selectedPitch();
+    this.selectedPitch.set({
+      id: cur?.id || 'tpl',
+      tone: cur?.tone,
+      label: cur?.label || 'Plantilla',
+      body,
+      recommended: true,
+    });
+  }
+
+  saveAssignee(ev: Event): void {
+    const value = String((ev.target as HTMLInputElement).value || '').trim();
+    const a = this.alert();
+    this.alertsStore.updateAlert(a.alertId, {
+      _ops: { ...(a._ops || {}), assignee: value },
+    });
+  }
+
+  saveLeadNote(ev: Event): void {
+    const value = String((ev.target as HTMLInputElement).value || '').trim();
+    this.patchOps({ leadNote: value });
+  }
+
+  brandReplied(): boolean {
+    return this.topComments().some((c) => c.kind === 'brand_mock');
+  }
+
+  opsApproval(): ApprovalState {
+    return ((this.enriched() || this.alert())._ops?.approval || 'none') as ApprovalState;
+  }
+
+  opsTicketUrl(): string {
+    return String((this.enriched() || this.alert())._ops?.ticketUrl || '');
+  }
+
+  opsCrmStage(): CrmStage {
+    return ((this.enriched() || this.alert())._ops?.crmStage || 'new') as CrmStage;
+  }
+
+  opsSequence(): SequenceStep {
+    return ((this.enriched() || this.alert())._ops?.sequence || 'public') as SequenceStep;
+  }
+
+  opsLostReason(): string {
+    return String((this.enriched() || this.alert())._ops?.lostReason || '');
+  }
+
+  opsReplyUsed(): boolean {
+    return Boolean((this.enriched() || this.alert())._ops?.replyUsed);
+  }
+
+  patchOps(partial: Partial<AlertOps>): void {
+    const a = this.alert();
+    this.alertsStore.updateAlert(a.alertId, {
+      _ops: { ...(a._ops || {}), ...partial },
+    });
+  }
+
+  saveOpsText(key: 'ticketUrl' | 'lostReason' | 'handoffTo' | 'nextAction', ev: Event): void {
+    this.patchOps({ [key]: String((ev.target as HTMLInputElement).value || '').trim() });
+  }
+
+  saveOpsSelect(key: 'approval' | 'crmStage' | 'sequence' | 'ticketStatus', ev: Event): void {
+    this.patchOps({ [key]: String((ev.target as HTMLSelectElement).value || '') } as Partial<AlertOps>);
+  }
+
+  toggleReplyUsed(ev: Event): void {
+    this.patchOps({ replyUsed: (ev.target as HTMLInputElement).checked });
+  }
+
+  claimMine(): void {
+    const me = this.auth.email() || this.auth.userId() || 'yo';
+    this.patchOps({ assignee: me });
+  }
+
+  scheduleFollowup(): void {
+    const at = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
+    this.patchOps({ sequence: 'followup', followupAt: at, nextActionAt: at, nextAction: 'Follow-up 48 h' });
   }
 
   severityKey(): string {
@@ -1872,6 +2140,12 @@ export class AlertCardComponent {
     ev?.preventDefault();
     this.analysisOpen = true;
     this.select.emit(this.alert().alertId);
+    logPiiView({
+      userId: this.auth.userId() || 'anon',
+      actor: this.auth.email() || this.auth.userId() || 'usuario',
+      alertId: this.alert().alertId,
+      snippet: this.alert().originalComplaint,
+    });
   }
 
   focusDraftsFromModal(): void {

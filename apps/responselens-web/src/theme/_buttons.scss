@@ -99,6 +99,11 @@ button.p-button:not(:disabled):hover,
   @extend %rl-btn-chip;
 }
 
+.rl-settings__ghost:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .rl-pitch-tab:hover,
 .rl-alert__btn:hover,
 .rl-alert__text-btn:hover,

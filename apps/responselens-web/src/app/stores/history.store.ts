@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { AuthService } from '../core/auth/auth.service';
+import { UserConfigStore } from './user-config.store';
 
 export type HistoryKind = 'own_reply' | 'comp_capture' | 'manual' | 'analyze';
 
@@ -15,11 +16,14 @@ export interface HistoryEntry {
   label?: string;
 }
 
-const storageKey = (userId: string) => `rl_web_history_${userId}`;
+const legacyKey = (userId: string) => `rl_web_history_${userId}`;
+const scopedKey = (userId: string, workspaceId: string) =>
+  `rl_web_history_${userId}_${workspaceId}`;
 
 @Injectable({ providedIn: 'root' })
 export class HistoryStore {
   private readonly auth = inject(AuthService);
+  private readonly config = inject(UserConfigStore);
   private readonly _items = signal<HistoryEntry[]>([]);
 
   readonly items = this._items.asReadonly();
@@ -31,10 +35,21 @@ export class HistoryStore {
       this._items.set([]);
       return;
     }
+    const workspaceId = this.config.activeWorkspaceId();
     try {
-      const raw = localStorage.getItem(storageKey(userId));
+      const scoped = workspaceId ? localStorage.getItem(scopedKey(userId, workspaceId)) : null;
+      if (scoped) {
+        const list = JSON.parse(scoped) as HistoryEntry[];
+        this._items.set(Array.isArray(list) ? list : []);
+        return;
+      }
+      const raw = localStorage.getItem(legacyKey(userId));
       const list = raw ? (JSON.parse(raw) as HistoryEntry[]) : [];
-      this._items.set(Array.isArray(list) ? list : []);
+      const parsed = Array.isArray(list) ? list : [];
+      if (workspaceId && parsed.length && !this.config.isolateByWorkspace()) {
+        localStorage.setItem(scopedKey(userId, workspaceId), JSON.stringify(parsed));
+      }
+      this._items.set(this.config.isolateByWorkspace() && workspaceId ? [] : parsed);
     } catch {
       this._items.set([]);
     }
@@ -43,7 +58,9 @@ export class HistoryStore {
   private persist(list: HistoryEntry[]): void {
     const userId = this.auth.userId();
     if (!userId) return;
-    localStorage.setItem(storageKey(userId), JSON.stringify(list));
+    const workspaceId = this.config.activeWorkspaceId();
+    const key = workspaceId ? scopedKey(userId, workspaceId) : legacyKey(userId);
+    localStorage.setItem(key, JSON.stringify(list));
     this._items.set(list);
   }
 

@@ -43,6 +43,8 @@ resource "aws_lambda_function" "appsync_api" {
       SOCIALCRAWL_SOURCES          = var.socialcrawl_sources
       SOCIALCRAWL_FETCH_TIMEOUT_MS = "25000"
       SOCIALCRAWL_JOB_QUEUE_URL    = var.socialcrawl_jobs_queue_url
+      MANUAL_SCAN_LIMIT_PER_DAY    = tostring(var.manual_scan_limit_per_day)
+      EXTERNAL_APIS_MOCK           = var.external_apis_mock
     }
   }
 
@@ -62,23 +64,27 @@ resource "aws_lambda_function" "competitor_scan" {
   handler          = "index.handler"
   filename         = data.archive_file.bootstrap.output_path
   source_code_hash = data.archive_file.bootstrap.output_base64sha256
-  timeout          = 60
+  timeout          = 180
   memory_size      = 512
   architectures    = ["arm64"]
 
   environment {
     variables = {
-      CORE_TABLE_NAME           = var.table_name
-      APPSYNC_GRAPHQL_URL       = "https://placeholder-will-be-patched"
-      APPSYNC_API_KEY           = "placeholder-will-be-patched"
-      LOG_LEVEL                 = "INFO"
-      REDDIT_CLIENT_ID          = var.reddit_client_id
-      REDDIT_CLIENT_SECRET      = var.reddit_client_secret
-      REDDIT_USER_AGENT         = var.reddit_user_agent
-      NEWSAPI_API_KEY           = var.newsapi_api_key
-      SOCIALCRAWL_API_KEY       = var.socialcrawl_api_key
-      SOCIALCRAWL_LOOKBACK_DAYS = tostring(var.socialcrawl_lookback_days)
-      SOCIALCRAWL_SOURCES       = var.socialcrawl_sources
+      CORE_TABLE_NAME                = var.table_name
+      APPSYNC_GRAPHQL_URL            = "https://placeholder-will-be-patched"
+      APPSYNC_API_KEY                = "placeholder-will-be-patched"
+      LOG_LEVEL                      = "INFO"
+      REDDIT_CLIENT_ID               = var.reddit_client_id
+      REDDIT_CLIENT_SECRET           = var.reddit_client_secret
+      REDDIT_USER_AGENT              = var.reddit_user_agent
+      NEWSAPI_API_KEY                = var.newsapi_api_key
+      SOCIALCRAWL_API_KEY            = var.socialcrawl_api_key
+      SOCIALCRAWL_LOOKBACK_DAYS      = tostring(var.socialcrawl_lookback_days)
+      SOCIALCRAWL_CRON_LOOKBACK_DAYS = tostring(var.socialcrawl_cron_lookback_days)
+      SOCIALCRAWL_SOURCES            = var.socialcrawl_sources
+      COMPETITOR_SCAN_MAX_RIVALS     = tostring(var.competitor_scan_max_rivals)
+      MANUAL_SCAN_LIMIT_PER_DAY      = tostring(var.manual_scan_limit_per_day)
+      EXTERNAL_APIS_MOCK             = var.external_apis_mock
     }
   }
 
@@ -126,7 +132,7 @@ resource "aws_cloudwatch_log_group" "mention_webhook" {
 
 resource "aws_cloudwatch_event_rule" "competitor_scan" {
   name                = "${var.name_prefix}-competitor-scan"
-  description         = "Competitive mention scan"
+  description         = "Competitive mention scan (1×/day)"
   schedule_expression = var.competitor_scan_schedule
 }
 
@@ -165,6 +171,7 @@ resource "aws_lambda_function" "socialcrawl_worker" {
       SOCIALCRAWL_SOURCES          = var.socialcrawl_sources
       SOCIALCRAWL_FETCH_TIMEOUT_MS = "110000"
       CORE_TABLE_NAME              = var.table_name
+      EXTERNAL_APIS_MOCK           = var.external_apis_mock
     }
   }
 
@@ -179,12 +186,50 @@ resource "aws_cloudwatch_log_group" "socialcrawl_worker" {
   retention_in_days = 14
 }
 
-resource "aws_lambda_event_source_mapping" "socialcrawl_jobs" {
-  event_source_arn        = var.socialcrawl_jobs_queue_arn
-  function_name           = aws_lambda_function.socialcrawl_worker.arn
-  batch_size              = 1
-  function_response_types = ["ReportBatchItemFailures"]
-  scaling_config {
-    maximum_concurrency = 2
+resource "aws_lambda_function" "intel_surfaces" {
+  function_name    = "${var.name_prefix}-intel-surfaces"
+  role             = aws_iam_role.lambda_exec.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.bootstrap.output_path
+  source_code_hash = data.archive_file.bootstrap.output_base64sha256
+  timeout          = 180
+  memory_size      = 512
+  architectures    = ["arm64"]
+
+  environment {
+    variables = {
+      CORE_TABLE_NAME            = var.table_name
+      LOG_LEVEL                  = "INFO"
+      COMPETITOR_SCAN_MAX_RIVALS = tostring(var.competitor_scan_max_rivals)
+      INTEL_FETCH_TIMEOUT_MS     = "8000"
+      META_AD_LIBRARY_TOKEN      = var.meta_ad_library_token
+      EXTERNAL_APIS_MOCK         = var.external_apis_mock
+    }
   }
+}
+
+resource "aws_cloudwatch_log_group" "intel_surfaces" {
+  name              = "/aws/lambda/${aws_lambda_function.intel_surfaces.function_name}"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_event_rule" "intel_surfaces" {
+  name                = "${var.name_prefix}-intel-surfaces"
+  description         = "F2 intel surfaces (status, pricing, careers, Ad Library mock)"
+  schedule_expression = var.intel_surfaces_schedule
+}
+
+resource "aws_cloudwatch_event_target" "intel_surfaces" {
+  rule      = aws_cloudwatch_event_rule.intel_surfaces.name
+  target_id = "intel-surfaces"
+  arn       = aws_lambda_function.intel_surfaces.arn
+}
+
+resource "aws_lambda_permission" "intel_surfaces_events" {
+  statement_id  = "AllowExecutionFromEventBridge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.intel_surfaces.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.intel_surfaces.arn
 }

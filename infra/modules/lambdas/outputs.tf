@@ -18,8 +18,8 @@ output "mention_webhook_arn" {
   value = aws_lambda_function.mention_webhook.arn
 }
 
-output "socialcrawl_worker_function_name" {
-  value = aws_lambda_function.socialcrawl_worker.function_name
+output "intel_surfaces_function_name" {
+  value = aws_lambda_function.intel_surfaces.function_name
 }
 
 output "lambda_exec_role_arn" {

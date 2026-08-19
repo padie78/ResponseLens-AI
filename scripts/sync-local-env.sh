@@ -164,6 +164,7 @@ import type { AppRuntimeEnvironment } from './environment.types';
 /** Generado por scripts/sync-local-env.sh — no editar a mano en local. */
 export const environment: AppRuntimeEnvironment = {
   production: false,
+  externalApisMock: true,
   appsync: {
     endpoint: '${GQL}',
     region: '${REGION}',

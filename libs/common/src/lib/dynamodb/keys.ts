@@ -5,6 +5,7 @@
  *   2. Alerta rival:    PK = USER#<userId>  SK = ALERT#<detectedAt>#<alertId>
  *   3. Lookup alerta:   GSI1PK = ALERT#<alertId>  GSI1SK = USER#<userId>
  *   4. Job SocialCrawl: PK = JOB#SC#<jobId>  SK = RESULT  (TTL ~1h)
+ *   5. Intel superficies: PK = USER#<userId>  SK = INTEL#<rivalKey>
  */
 
 export const KeyPrefix = {
@@ -13,6 +14,7 @@ export const KeyPrefix = {
   Alert: 'ALERT#',
   JobSc: 'JOB#SC#',
   Result: 'RESULT',
+  Intel: 'INTEL#',
 } as const;
 
 export const DynamoKeys = {
@@ -38,6 +40,10 @@ export const DynamoKeys = {
 
   alertGsi1Sk(userId: string): string {
     return `${KeyPrefix.User}${userId}`;
+  },
+
+  intelSk(rivalKey: string): string {
+    return `${KeyPrefix.Intel}${rivalKey}`;
   },
 
   socialCrawlJobPk(jobId: string): string {

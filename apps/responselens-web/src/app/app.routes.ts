@@ -38,9 +38,19 @@ export const APP_ROUTES: Routes = [
         loadComponent: () => import('./pages/own/own.page').then((m) => m.OwnPageComponent),
       },
       {
+        path: 'digest',
+        loadComponent: () =>
+          import('./pages/digest/digest.page').then((m) => m.DigestPageComponent),
+      },
+      {
         path: 'own/audit',
         loadComponent: () =>
           import('./pages/own/own-audit.page').then((m) => m.OwnAuditPageComponent),
+      },
+      {
+        path: 'campaigns',
+        loadComponent: () =>
+          import('./pages/campaigns/campaigns.page').then((m) => m.CampaignsPageComponent),
       },
       {
         path: 'competitors',

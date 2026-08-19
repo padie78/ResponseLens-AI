@@ -8,6 +8,7 @@ export {
   FeedFiltersComponent,
   DEFAULT_FEED_FILTERS,
 } from './molecules/feed-filters/feed-filters.component';
+export { ListeningStatusComponent } from './molecules/listening-status/listening-status.component';
 export { ScanBlockerComponent } from './molecules/scan-blocker/scan-blocker.component';
 export { BrandHealthPanelComponent } from './molecules/brand-health-panel/brand-health-panel.component';
 export { ListeningPulseComponent } from './molecules/listening-pulse/listening-pulse.component';

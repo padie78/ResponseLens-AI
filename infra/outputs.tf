@@ -37,8 +37,8 @@ output "mention_webhook_function_name" {
   value = module.lambdas.mention_webhook_function_name
 }
 
-output "socialcrawl_worker_function_name" {
-  value = module.lambdas.socialcrawl_worker_function_name
+output "intel_surfaces_function_name" {
+  value = module.lambdas.intel_surfaces_function_name
 }
 
 output "socialcrawl_jobs_queue_url" {

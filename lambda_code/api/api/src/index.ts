@@ -14,7 +14,8 @@ import {
   updateCompetitorAlert,
   upsertCompetitorAlert,
 } from './composition-root';
-import { searchSocialCrawlEverywhere } from './socialcrawl';
+import { searchSocialCrawl } from './search-socialcrawl';
+import { isExternalApisMock } from '../../../shared/external-apis-mock';
 
 type Args = Record<string, unknown>;
 
@@ -128,6 +129,7 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
       const jobId = String(input.jobId || randomUUID())
         .replace(/[^a-zA-Z0-9_-]/g, '')
         .slice(0, 64);
+      const forceMock = isExternalApisMock() || Boolean(input.mock);
       await sqs.send(
         new SendMessageCommand({
           QueueUrl: queueUrl,
@@ -135,13 +137,13 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
             jobId,
             query,
             lookbackDays:
-              input.lookbackDays ?? (Number(process.env.SOCIALCRAWL_LOOKBACK_DAYS) || 3),
+              input.lookbackDays ?? (Number(process.env.SOCIALCRAWL_LOOKBACK_DAYS) || 7),
             sources: input.sources || process.env.SOCIALCRAWL_SOURCES || '',
-            mock: Boolean(input.mock),
+            mock: forceMock,
           }),
         }),
       );
-      return { jobId, status: input.mock ? 'QUEUED_MOCK' : 'QUEUED' };
+      return { jobId, status: forceMock ? 'QUEUED_MOCK' : 'QUEUED' };
     }
 
     case 'searchSocialMentions': {
@@ -150,10 +152,10 @@ export const handler: AppSyncResolverHandler<Args, unknown> = async (event) => {
         lookbackDays?: number;
         sources?: string;
       };
-      const result = await searchSocialCrawlEverywhere({
+      const result = await searchSocialCrawl({
         query: String(input.query || ''),
         lookbackDays:
-          input.lookbackDays ?? (Number(process.env.SOCIALCRAWL_LOOKBACK_DAYS) || 3),
+          input.lookbackDays ?? (Number(process.env.SOCIALCRAWL_LOOKBACK_DAYS) || 7),
         sources: input.sources || process.env.SOCIALCRAWL_SOURCES || '',
       });
       return {

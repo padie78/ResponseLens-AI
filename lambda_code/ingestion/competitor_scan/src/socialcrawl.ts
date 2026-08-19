@@ -206,7 +206,7 @@ export async function searchSocialCrawlEverywhere(opts: {
     };
   }
 
-  const lookback = Math.min(Math.max(Number(opts.lookbackDays) || 7, 1), 90);
+  const lookback = Math.min(Math.max(Number(opts.lookbackDays) || 2, 1), 90);
   const url = new URL('https://www.socialcrawl.dev/v1/search/everywhere');
   url.searchParams.set('query', query);
   url.searchParams.set('lookback_days', String(lookback));

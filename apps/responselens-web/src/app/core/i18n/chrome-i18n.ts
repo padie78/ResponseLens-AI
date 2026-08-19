@@ -4,6 +4,12 @@ type ChromeDict = Record<string, string>;
 
 const ES: ChromeDict = {
   'chrome.workspace': 'Espacio de trabajo',
+  'chrome.company.kicker': 'Empresa',
+  'chrome.company.switch': 'Cambiar de empresa',
+  'chrome.company.rivals': 'rivales',
+  'chrome.company.empty': 'Configurá una empresa',
+  'chrome.company.new': 'Nueva empresa',
+  'chrome.company.manage': 'Gestionar',
   'chrome.listening': 'Escucha activa',
   'chrome.theme': 'Tema',
   'chrome.theme.dark': 'Oscuro',
@@ -52,6 +58,12 @@ const ES: ChromeDict = {
 
 const EN: ChromeDict = {
   'chrome.workspace': 'Workspace',
+  'chrome.company.kicker': 'Company',
+  'chrome.company.switch': 'Switch company',
+  'chrome.company.rivals': 'rivals',
+  'chrome.company.empty': 'Set up a company',
+  'chrome.company.new': 'New company',
+  'chrome.company.manage': 'Manage',
   'chrome.listening': 'Live listening',
   'chrome.theme': 'Theme',
   'chrome.theme.dark': 'Dark',

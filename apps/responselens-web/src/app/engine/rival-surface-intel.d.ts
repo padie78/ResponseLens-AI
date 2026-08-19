@@ -1,13 +1,25 @@
+export type DataSourceKind = 'demo' | 'feed' | 'connected';
+
 export interface RivalAdRow {
   id: string;
   platform: string;
+  format: string;
+  angle: string;
+  landing: string;
   headline: string;
   body: string;
   cta: string;
   status: string;
   spendBand: string;
+  startedAt?: string;
   daysLive: number;
   rival: string;
+}
+
+export interface RivalTalentJob {
+  id: string;
+  title: string;
+  url: string;
 }
 
 export interface RivalTalentTheme {
@@ -22,10 +34,17 @@ export interface RivalTalentQuote {
 }
 
 export interface RivalTalent {
+  source: DataSourceKind;
+  careersUrl: string;
   rating: number;
   reviews: number;
   openRoles: number;
+  jobs: RivalTalentJob[];
+  layoff: boolean;
   layoffRisk: string;
+  band: string;
+  weakest: string;
+  recommend: string;
   glassdoorUrl: string;
   themes: RivalTalentTheme[];
   quotes: RivalTalentQuote[];
@@ -37,17 +56,34 @@ export interface RivalVisibilityPage {
   traffic: number;
 }
 
+export interface RivalVisibilityQuery {
+  query: string;
+  pos: number;
+  volume: number;
+}
+
 export interface RivalVisibility {
+  source: DataSourceKind;
   domain: string;
+  statusUrl: string;
+  pricingUrl: string;
+  statusState: 'unknown' | 'operational' | 'incident';
+  statusSummary: string;
+  priceChanged: boolean;
+  priceHash: string;
   trafficIndex: number;
   domainAuthority: number;
   organicKeywords: number;
   shareOfVoicePct: number;
   trendPct: number;
+  band: string;
+  recommend: string;
+  queries: RivalVisibilityQuery[];
   pages: RivalVisibilityPage[];
 }
 
 export interface RivalAdsPack {
+  source: DataSourceKind;
   active: number;
   platforms: string[];
   rows: Omit<RivalAdRow, 'rival'>[];
@@ -85,6 +121,12 @@ export interface RivalSurface {
 export interface RivalSurfaceIntel {
   generatedAt: string;
   demo: boolean;
+  mock?: boolean;
+  usedFallback: boolean;
+  adsSource: DataSourceKind;
+  talentSource: DataSourceKind;
+  webSource: DataSourceKind;
+  statusIncidents: Array<{ rival: string; summary: string }>;
   disclaimer: string;
   rivals: RivalSurface[];
   adRows: RivalAdRow[];
@@ -92,7 +134,14 @@ export interface RivalSurfaceIntel {
 }
 
 export function buildRivalSurfaceIntel(opts: {
-  competitors?: Array<{ name?: string; websiteUrl?: string; aliases?: string[] }>;
+  competitors?: Array<{
+    name?: string;
+    websiteUrl?: string;
+    aliases?: string[];
+    statusUrl?: string;
+    pricingUrl?: string;
+    careersUrl?: string;
+  }>;
   alerts?: object[];
   days?: number;
 }): RivalSurfaceIntel;

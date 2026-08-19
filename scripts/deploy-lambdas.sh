@@ -84,6 +84,7 @@ FN_APPSYNC="$(resolve_function_name appsync_api_function_name "${PREFIX}-appsync
 FN_SCAN="$(resolve_function_name competitor_scan_function_name "${PREFIX}-competitor-scan")"
 FN_WEBHOOK="$(resolve_function_name mention_webhook_function_name "${PREFIX}-mention-webhook")"
 FN_WORKER="$(resolve_function_name socialcrawl_worker_function_name "${PREFIX}-socialcrawl-worker")"
+FN_INTEL="$(resolve_function_name intel_surfaces_function_name "${PREFIX}-intel-surfaces")"
 
 zip_and_publish() {
   local dir="$1"
@@ -110,6 +111,7 @@ zip_and_publish "$ROOT/lambda_code/api/api" "$FN_APPSYNC"
 zip_and_publish "$ROOT/lambda_code/ingestion/competitor_scan" "$FN_SCAN"
 zip_and_publish "$ROOT/lambda_code/ingestion/mention_webhook" "$FN_WEBHOOK"
 zip_and_publish "$ROOT/lambda_code/ingestion/socialcrawl_worker" "$FN_WORKER"
+zip_and_publish "$ROOT/lambda_code/ingestion/intel_surfaces" "$FN_INTEL"
 
 patch_appsync_env "$FN_SCAN"
 patch_appsync_env "$FN_WEBHOOK"

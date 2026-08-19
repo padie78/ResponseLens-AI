@@ -12,6 +12,7 @@ import { UiPreferencesService } from '../../core/preferences/ui-preferences.serv
 import { subscribeOnNewCompetitorAlert } from '../../engine/alerts-cloud.js';
 import { AlertsStore } from '../../stores/alerts.store';
 import { UserConfigStore } from '../../stores/user-config.store';
+import { WorkspaceStore } from '../../stores/workspace.store';
 import { AppSidebarComponent } from '../../ui/organisms/app-sidebar/app-sidebar.component';
 import { AppTopbarComponent } from '../../ui/organisms/app-topbar/app-topbar.component';
 
@@ -54,12 +55,14 @@ export class ShellPageComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   readonly alerts = inject(AlertsStore);
   readonly config = inject(UserConfigStore);
+  private readonly workspaces = inject(WorkspaceStore);
 
   private alertSub: { unsubscribe: () => void } | null = null;
 
   ngOnInit(): void {
     void this.prefs;
     this.config.load();
+    this.workspaces.hydrate();
     this.alerts.load();
     this.startAlertSubscription();
   }

@@ -1,4 +1,13 @@
-import { Component, ViewEncapsulation, computed, inject, input, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  HostListener,
+  ViewEncapsulation,
+  computed,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs/operators';
@@ -12,6 +21,8 @@ import {
 import { chromeT } from '../../../core/i18n/chrome-i18n';
 import { UiPreferencesService } from '../../../core/preferences/ui-preferences.service';
 import { AlertsStore } from '../../../stores/alerts.store';
+import { UserConfigStore } from '../../../stores/user-config.store';
+import { WorkspaceStore } from '../../../stores/workspace.store';
 
 const COLLAPSE_KEY = 'rl.ui.sidebarCollapsed';
 
@@ -42,16 +53,67 @@ const COLLAPSE_KEY = 'rl.ui.sidebarCollapsed';
         </button>
       </div>
 
-      @if (!collapsed()) {
-        <a class="rl-sidebar__company" routerLink="/app/settings" [attr.title]="companyName()">
+      <div class="rl-sidebar__company-wrap">
+        <button
+          type="button"
+          class="rl-sidebar__company"
+          [class.rl-sidebar__company--collapsed]="collapsed()"
+          [attr.aria-expanded]="companyOpen()"
+          [attr.aria-haspopup]="'listbox'"
+          [attr.title]="displayCompany()"
+          (click)="toggleCompanyMenu($event)"
+        >
           <span class="rl-sidebar__company-mark" aria-hidden="true">{{ companyInitial() }}</span>
-          <span class="rl-sidebar__company-body">
-            <span class="rl-sidebar__company-kicker">Empresa</span>
-            <span class="rl-sidebar__company-name">{{ companyName() }}</span>
-          </span>
-          <i class="pi pi-chevron-down" aria-hidden="true"></i>
-        </a>
-      }
+          @if (!collapsed()) {
+            <span class="rl-sidebar__company-body">
+              <span class="rl-sidebar__company-kicker">{{ t('chrome.company.kicker') }}</span>
+              <span class="rl-sidebar__company-name">{{ displayCompany() }}</span>
+            </span>
+            <i class="pi" [class.pi-chevron-up]="companyOpen()" [class.pi-chevron-down]="!companyOpen()" aria-hidden="true"></i>
+          }
+        </button>
+        @if (companyOpen()) {
+          <div class="rl-sidebar__company-menu" role="listbox" [attr.aria-label]="t('chrome.company.switch')">
+            <p class="rl-sidebar__company-menu-label">{{ t('chrome.company.switch') }}</p>
+            @for (opt of workspaces.options(); track opt.id) {
+              <button
+                type="button"
+                class="rl-sidebar__company-option"
+                [class.is-active]="opt.active"
+                role="option"
+                [attr.aria-selected]="opt.active"
+                (click)="selectCompany(opt.id)"
+              >
+                <span class="rl-sidebar__company-option-mark">{{ opt.label.slice(0, 1).toUpperCase() }}</span>
+                <span class="rl-sidebar__company-option-body">
+                  <strong>{{ opt.label }}</strong>
+                  <small>{{ opt.rivalCount }} {{ t('chrome.company.rivals') }}</small>
+                </span>
+                @if (opt.active) {
+                  <i class="pi pi-check" aria-hidden="true"></i>
+                }
+              </button>
+            } @empty {
+              <p class="rl-sidebar__company-empty">{{ t('chrome.company.empty') }}</p>
+            }
+            <div class="rl-sidebar__company-menu-foot">
+              <button type="button" class="rl-sidebar__company-foot-btn" (click)="newCompany()">
+                <i class="pi pi-plus" aria-hidden="true"></i>
+                {{ t('chrome.company.new') }}
+              </button>
+              <a
+                class="rl-sidebar__company-foot-btn"
+                routerLink="/app/settings"
+                [queryParams]="{ tab: 'espacios' }"
+                (click)="companyOpen.set(false)"
+              >
+                <i class="pi pi-cog" aria-hidden="true"></i>
+                {{ t('chrome.company.manage') }}
+              </a>
+            </div>
+          </div>
+        }
+      </div>
 
       <nav class="rl-sidebar__nav" [attr.aria-label]="t('chrome.nav.aria')">
         @for (section of sections; track section.id) {
@@ -122,10 +184,14 @@ const COLLAPSE_KEY = 'rl.ui.sidebarCollapsed';
 export class AppSidebarComponent {
   private readonly prefs = inject(UiPreferencesService);
   private readonly alerts = inject(AlertsStore);
+  private readonly config = inject(UserConfigStore);
+  readonly workspaces = inject(WorkspaceStore);
   private readonly router = inject(Router);
+  private readonly host = inject(ElementRef<HTMLElement>);
 
   readonly companyName = input('Empresa');
   readonly collapsed = signal(this.readCollapsed());
+  readonly companyOpen = signal(false);
   readonly sections = APP_NAV_SECTIONS;
   readonly openGroups = signal<Record<string, boolean>>(this.defaultOpenGroups());
 
@@ -139,14 +205,49 @@ export class AppSidebarComponent {
   );
 
   readonly locale = computed(() => this.prefs.locale());
+  readonly displayCompany = computed(
+    () =>
+      this.workspaces.activeLabel() ||
+      this.config.companyName() ||
+      this.companyName() ||
+      'Empresa',
+  );
 
   companyInitial(): string {
-    const name = this.companyName().trim();
+    const name = this.displayCompany().trim();
     return name ? name.slice(0, 1).toUpperCase() : 'E';
   }
 
   t(key: string): string {
     return chromeT(key, this.locale());
+  }
+
+  toggleCompanyMenu(ev: Event): void {
+    ev.stopPropagation();
+    this.companyOpen.update((v) => !v);
+  }
+
+  selectCompany(id: string): void {
+    this.workspaces.switchTo(id);
+    this.companyOpen.set(false);
+  }
+
+  async newCompany(): Promise<void> {
+    this.companyOpen.set(false);
+    this.workspaces.createBlank();
+    await this.router.navigate(['/app/settings'], { queryParams: { tab: 'empresa' } });
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(ev: MouseEvent): void {
+    if (!this.companyOpen()) return;
+    const wrap = (this.host.nativeElement as HTMLElement).querySelector('.rl-sidebar__company-wrap');
+    if (wrap && !wrap.contains(ev.target as Node)) this.companyOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEsc(): void {
+    this.companyOpen.set(false);
   }
 
   isGroup(node: AppNavNode): node is AppNavGroup {

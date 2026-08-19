@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { AuthService } from '../core/auth/auth.service';
 import { mergeAlertLists } from '../engine/mention-dedupe.js';
+import { alertBelongsToWorkspace } from '../engine/workspace-scope';
 import {
   clearCompetitorAlertsCloud,
   hasAlertsCloud,
@@ -39,23 +40,32 @@ export class AlertsStore {
   private readonly auth = inject(AuthService);
   private readonly configStore = inject(UserConfigStore);
 
-  private readonly _items = signal<CompetitorAlert[]>([]);
+  private readonly _allItems = signal<CompetitorAlert[]>([]);
   private readonly _loading = signal(false);
   private readonly _cloudError = signal<string | null>(null);
   private readonly _arrivals = signal<ScanArrival[]>([]);
   private readonly _liveToast = signal<ScanArrival | null>(null);
 
   readonly loading = this._loading.asReadonly();
-  readonly items = this._items.asReadonly();
+  readonly items = computed(() =>
+    this._allItems().filter((a) =>
+      alertBelongsToWorkspace(
+        a,
+        this.configStore.config(),
+        this.configStore.activeWorkspaceId(),
+        this.configStore.isolateByWorkspace(),
+      ),
+    ),
+  );
   readonly cloudError = this._cloudError.asReadonly();
   readonly arrivals = this._arrivals.asReadonly();
   readonly liveToast = this._liveToast.asReadonly();
 
   readonly ownAlerts = computed(() =>
-    this._items().filter((a) => a.brandScope === 'own' && a.status !== 'DISMISSED'),
+    this.items().filter((a) => a.brandScope === 'own' && a.status !== 'DISMISSED'),
   );
   readonly rivalAlerts = computed(() =>
-    this._items().filter((a) => a.brandScope === 'rival' && a.status !== 'DISMISSED'),
+    this.items().filter((a) => a.brandScope === 'rival' && a.status !== 'DISMISSED'),
   );
 
   readonly newOwnCount = computed(
@@ -75,7 +85,7 @@ export class AlertsStore {
   async loadAsync(): Promise<void> {
     const userId = this.auth.userId();
     if (!userId) {
-      this._items.set([]);
+      this._allItems.set([]);
       return;
     }
     this._loading.set(true);
@@ -84,34 +94,55 @@ export class AlertsStore {
       if (hasAlertsCloud()) {
         const remote = await listCompetitorAlertsCloud(userId, { limit: 100 });
         this.persistLocal(userId, remote);
-        this._items.set(remote);
+        this._allItems.set(remote);
         return;
       }
-      this._items.set(this.readLocal(userId));
+      this._allItems.set(this.readLocal(userId));
     } catch (err) {
       this._cloudError.set(err instanceof Error ? err.message : String(err));
-      this._items.set(this.readLocal(userId));
+      this._allItems.set(this.readLocal(userId));
     } finally {
       this._loading.set(false);
     }
   }
 
   reset(): void {
-    this._items.set([]);
+    this._allItems.set([]);
     this._arrivals.set([]);
     this._liveToast.set(null);
+  }
+
+  /** Al cambiar de empresa: limpia toast e inbox de llegadas (las alertas se refiltran). */
+  clearTransient(): void {
+    this._arrivals.set([]);
+    this._liveToast.set(null);
+  }
+
+  private stampWorkspace(alert: CompetitorAlert): CompetitorAlert {
+    const workspaceId = this.configStore.activeWorkspaceId();
+    if (!workspaceId || alert.workspaceId) return alert;
+    const next = { ...alert, workspaceId };
+    next.metaJson = { ...(alert.metaJson || {}), workspaceId };
+    return next;
   }
 
   /** Merge remoto sin re-list (push AppSync). */
   applyIncoming(alert: CompetitorAlert, source: ScanArrivalSource = 'push'): void {
     if (!alert?.alertId) return;
-    const existing = this._items().find((a) => a.alertId === alert.alertId);
-    const { merged } = mergeAlertLists(this._items(), [alert], {
-      limit: Math.max(200, this._items().length + 1),
+    const stamped = this.stampWorkspace(alert);
+    const existing = this._allItems().find((a) => a.alertId === stamped.alertId);
+    const { merged } = mergeAlertLists(this._allItems(), [stamped], {
+      limit: Math.max(200, this._allItems().length + 1),
     });
     this.setItems(merged as CompetitorAlert[]);
-    if (!existing || existing.detectedAt !== alert.detectedAt) {
-      this.pushArrival(alert, source, { toast: source === 'push' });
+    const visible = alertBelongsToWorkspace(
+      stamped,
+      this.configStore.config(),
+      this.configStore.activeWorkspaceId(),
+      this.configStore.isolateByWorkspace(),
+    );
+    if (visible && (!existing || existing.detectedAt !== stamped.detectedAt)) {
+      this.pushArrival(stamped, source, { toast: source === 'push' });
     }
   }
 
@@ -185,7 +216,7 @@ export class AlertsStore {
 
   private setItems(list: CompetitorAlert[]): void {
     const userId = this.auth.userId();
-    this._items.set(list);
+    this._allItems.set(list);
     if (userId) this.persistLocal(userId, list);
   }
 
@@ -198,7 +229,7 @@ export class AlertsStore {
     const userId = this.auth.userId();
     if (!userId) return;
 
-    const withUser = alerts.map((a) => ({ ...a, userId: a.userId || userId }));
+    const withUser = alerts.map((a) => this.stampWorkspace({ ...a, userId: a.userId || userId }));
 
     if (hasAlertsCloud()) {
       try {
@@ -212,15 +243,15 @@ export class AlertsStore {
       }
     }
 
-    const { merged } = mergeAlertLists(this._items(), withUser, {
-      limit: Math.max(200, this._items().length + withUser.length),
+    const { merged } = mergeAlertLists(this._allItems(), withUser, {
+      limit: Math.max(200, this._allItems().length + withUser.length),
     });
     this.setItems(merged as CompetitorAlert[]);
   }
 
   async updateStatus(alertId: string, status: CompetitorAlert['status']): Promise<void> {
     const userId = this.auth.userId();
-    const next = this._items().map((a) => (a.alertId === alertId ? { ...a, status } : a));
+    const next = this._allItems().map((a) => (a.alertId === alertId ? { ...a, status } : a));
     this.setItems(next);
 
     if (userId && hasAlertsCloud()) {
@@ -234,7 +265,7 @@ export class AlertsStore {
   }
 
   updateAlert(alertId: string, patch: Partial<CompetitorAlert>): void {
-    const next = this._items().map((a) =>
+    const next = this._allItems().map((a) =>
       a.alertId === alertId ? { ...a, ...patch } : a,
     );
     this.setItems(next);
@@ -259,7 +290,7 @@ export class AlertsStore {
   }
 
   getById(alertId: string): CompetitorAlert | undefined {
-    return this._items().find((a) => a.alertId === alertId);
+    return this._allItems().find((a) => a.alertId === alertId);
   }
 
   seedExamples(): void {
@@ -273,6 +304,7 @@ export class AlertsStore {
       {
         alertId: createAlertId(),
         userId,
+        workspaceId: this.configStore.activeWorkspaceId() || undefined,
         competitorName: company,
         originalComplaint:
           `Llevo 3 días sin respuesta de soporte de ${company}. El producto se cayó en producción y nadie contesta.`,
@@ -354,7 +386,19 @@ export class AlertsStore {
 
   async clearScope(scope: BrandScope): Promise<void> {
     const userId = this.auth.userId();
-    if (userId && hasAlertsCloud()) {
+    const isolate = this.configStore.isolateByWorkspace();
+    const keep = (a: CompetitorAlert): boolean => {
+      if (a.brandScope !== scope) return true;
+      if (!isolate) return false;
+      return !alertBelongsToWorkspace(
+        a,
+        this.configStore.config(),
+        this.configStore.activeWorkspaceId(),
+        true,
+      );
+    };
+
+    if (userId && hasAlertsCloud() && !isolate) {
       try {
         await clearCompetitorAlertsCloud(userId, scope);
         const remote = await listCompetitorAlertsCloud(userId, { limit: 100 });
@@ -365,6 +409,6 @@ export class AlertsStore {
         this._cloudError.set(err instanceof Error ? err.message : String(err));
       }
     }
-    this.setItems(this._items().filter((a) => a.brandScope !== scope));
+    this.setItems(this._allItems().filter(keep));
   }
 }

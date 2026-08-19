@@ -4,6 +4,7 @@ import { DynamoKeys } from '@responselens/common';
 import { getDynamoDocClient, coreTableName } from '@responselens/infrastructure';
 import { searchSocialCrawlEverywhere } from './socialcrawl';
 import { searchSocialCrawlMock } from './socialcrawl-mock';
+import { isExternalApisMock } from '../../../shared/external-apis-mock';
 
 type SocialCrawlJob = {
   jobId: string;
@@ -93,7 +94,7 @@ async function processJob(job: SocialCrawlJob): Promise<void> {
     throw new Error('invalid_socialcrawl_job');
   }
 
-  const useMock = Boolean(job.mock);
+  const useMock = isExternalApisMock() || Boolean(job.mock);
   console.info('socialcrawl_worker.job_start', { jobId, mock: useMock, query: query.slice(0, 80) });
 
   const result = useMock

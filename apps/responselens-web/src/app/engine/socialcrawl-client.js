@@ -8,7 +8,8 @@ import { generateClient } from 'aws-amplify/api';
 import { environment } from '../../environments/environment';
 import { loadScanCredentials } from './scan-credentials.js';
 import { normalizePlatformChannel } from './platforms.js';
-import { isSocialCrawlMock } from './socialcrawl-mock.js';
+import { fetchMockSocialCrawlMentions, isSocialCrawlMock } from './socialcrawl-mock.js';
+import { isExternalApisMock } from './external-apis-mock.js';
 import { socialCrawlEverywhereSourcesCsv } from './socialcrawl-sources.js';
 
 const JOB_WAIT_MS = 100_000;
@@ -19,6 +20,7 @@ const POLL_MS = 2_000;
  * Mock y real requieren AppSync (misma cola SQS / worker).
  */
 export function hasSocialCrawlServer() {
+  if (isExternalApisMock()) return true;
   return Boolean(environment.appsync?.endpoint && environment.appsync?.apiKey);
 }
 
@@ -34,6 +36,18 @@ export function hasSocialCrawl(credentials) {
  * @param {{ lookbackDays?: number, sources?: string, mock?: boolean }} [opts]
  */
 export async function fetchSocialCrawlMentions(_credentials, brandOrRivalName, opts = {}) {
+  const name = String(brandOrRivalName || '')
+    .replace(/["']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!name) return { mentions: [], error: 'empty_name', skipped: false };
+
+  const mock = opts.mock === true || isSocialCrawlMock() || isExternalApisMock();
+
+  if (mock) {
+    return fetchMockSocialCrawlMentions(name);
+  }
+
   if (!hasSocialCrawlServer()) {
     return {
       mentions: [],
@@ -41,12 +55,6 @@ export async function fetchSocialCrawlMentions(_credentials, brandOrRivalName, o
       skipped: true,
     };
   }
-
-  const name = String(brandOrRivalName || '')
-    .replace(/["']/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!name) return { mentions: [], error: 'empty_name', skipped: false };
 
   const prefs = await loadScanCredentials();
   const lookback =
@@ -57,13 +65,12 @@ export async function fetchSocialCrawlMentions(_credentials, brandOrRivalName, o
     opts.sources != null && String(opts.sources).trim()
       ? String(opts.sources).trim()
       : socialCrawlEverywhereSourcesCsv();
-  const mock = opts.mock === true || isSocialCrawlMock();
 
   const result = await searchViaAppSyncJob({
     query: name,
     lookbackDays: lookback,
     sources,
-    mock,
+    mock: false,
   });
 
   if (!result.ok) {
@@ -92,7 +99,7 @@ export async function fetchSocialCrawlMentions(_credentials, brandOrRivalName, o
     partialFailure: false,
     planIntent: result.planIntent,
     clusterCount: 0,
-    mock,
+    mock: false,
   };
 }
 
@@ -166,7 +173,7 @@ async function searchViaAppSyncJob(input) {
         variables: {
           input: {
             query: input.query,
-            lookbackDays: input.lookbackDays ?? 3,
+            lookbackDays: input.lookbackDays ?? 7,
             sources: input.sources || null,
             jobId,
             mock: Boolean(input.mock),
