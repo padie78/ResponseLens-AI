@@ -181,11 +181,11 @@ Solo con contrato y presupuesto.
 
 | # | Cambio | Fuente |
 |---|---|---|
-| 4.1 | Un proveedor SEO: Semrush **o** Similarweb | API paga → visibilidad web |
-| 4.2 | G2 / Capterra | partner |
-| 4.3 | Glassdoor / employer | enterprise |
-| 4.4 | TikTok ads library / LinkedIn ads | ToS + pago |
-| 4.5 | AI visibility (Prism / Otterly) | pago por query |
+| 4.1 | Un proveedor SEO: Semrush **o** Similarweb | API paga → visibilidad web | **Hecho** (mock) |
+| 4.2 | G2 / Capterra | partner | **Hecho** (mock) |
+| 4.3 | Glassdoor / employer | enterprise | **Hecho** (mock) |
+| 4.4 | TikTok ads library / LinkedIn ads | ToS + pago | **Hecho** (mock) |
+| 4.5 | AI visibility (Prism / Otterly) | pago por query | **Hecho** (mock) |
 
 ---
 
@@ -194,7 +194,7 @@ Solo con contrato y presupuesto.
 | Tema | Plan |
 |---|---|
 | Posteo automático Reddit/X/YT/Meta | Apps oficiales + revisión de plataforma + moderación humana |
-| Feed global / Tendencias | Siguen `comingSoon` hasta spec de industria |
+| Feed global / Tendencias | **F5.1 acotada hecha**: keywords configuradas por el cliente + señales existentes/demos. Cobertura global real sigue fuera de alcance hasta spec de industria |
 | Polling browser / SSE permanente | No; no es “comentario en caliente” |
 | Cron 15 min o cada hora como default | Solo crisis temporal o plan Enterprise |
 | Diccionario mundial de empresas | No; el cliente carga rivales |

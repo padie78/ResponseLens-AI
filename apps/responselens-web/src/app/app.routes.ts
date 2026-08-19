@@ -80,20 +80,12 @@ export const APP_ROUTES: Routes = [
       {
         path: 'discovery',
         loadComponent: () =>
-          import('./pages/coming-soon/coming-soon.page').then((m) => m.ComingSoonPageComponent),
-        data: {
-          title: 'Feed global de comentarios',
-          lead: 'Conversación de industria más allá de tu marca y rivales.',
-        },
+          import('./pages/discovery/discovery.page').then((m) => m.DiscoveryPageComponent),
       },
       {
         path: 'trends',
         loadComponent: () =>
-          import('./pages/coming-soon/coming-soon.page').then((m) => m.ComingSoonPageComponent),
-        data: {
-          title: 'Tendencias del mercado',
-          lead: 'Keywords y temas emergentes de la categoría.',
-        },
+          import('./pages/trends/trends.page').then((m) => m.TrendsPageComponent),
       },
       {
         path: 'alerts',

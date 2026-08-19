@@ -28,6 +28,22 @@ export interface CompanyProfile {
   googleAdsCustomerId: string;
   /** Slack incoming webhook URL para digest. F3.7 */
   slackWebhookUrl: string;
+  /** Semrush API key. F4.1 */
+  semrushApiKey: string;
+  /** G2 company slug. F4.2 */
+  g2CompanySlug: string;
+  /** Glassdoor employer ID. F4.3 */
+  glassdoorEmployerId: string;
+  /** TikTok ads account ID. F4.4 */
+  tiktokAdsAccountId: string;
+  /** LinkedIn ads account ID. F4.4 */
+  linkedinAdsAccountId: string;
+  /** AI visibility provider (prism/otterly). F4.5 */
+  aiVisibilityProvider: string;
+  /** Keywords de industria para feed global y tendencias. F5.1 */
+  industryKeywords: string[];
+  /** Categoría/mercado principal. F5.1 */
+  marketCategory: string;
 }
 
 export interface UserConfig {
@@ -50,6 +66,14 @@ export function emptyCompany(): CompanyProfile {
     metaAdsAccountId: '',
     googleAdsCustomerId: '',
     slackWebhookUrl: '',
+    semrushApiKey: '',
+    g2CompanySlug: '',
+    glassdoorEmployerId: '',
+    tiktokAdsAccountId: '',
+    linkedinAdsAccountId: '',
+    aiVisibilityProvider: '',
+    industryKeywords: [],
+    marketCategory: '',
   };
 }
 

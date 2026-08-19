@@ -3,6 +3,8 @@ import { RouterLink } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
 import { ButtonModule } from 'primeng/button';
 import { buildRivalSurfaceIntel } from '../../engine/rival-surface-intel.js';
+import { buildRivalEmployerIntel } from '../../engine/rival-employer-intel.js';
+import { buildRivalReviewsIntel } from '../../engine/rival-reviews-intel.js';
 import { dataBadgeKind, dataBadgeLabel } from '../../engine/data-badge.js';
 import { ScanService } from '../../services/scan.service';
 import { AlertsStore } from '../../stores/alerts.store';
@@ -145,6 +147,58 @@ import { EchartComponent, ScanBlockerComponent, type EChartOptions } from '../..
           <header class="rl-panel__head"><h2 class="rl-panel__title">Comparativa de roles abiertos</h2></header>
           <rl-echart [options]="chart()" style="--rl-echart-height: 240px" />
         </section>
+
+        @if (currentEmployer(); as emp) {
+          <section class="rl-panel" style="margin-top: 1.25rem">
+            <header class="rl-panel__head">
+              <h2 class="rl-panel__title">
+                Glassdoor — {{ selectedName() }}
+                <span class="rl-data-badge" [class]="'rl-data-badge--' + empBadgeKind()">{{ empBadge() }}</span>
+              </h2>
+            </header>
+            <p class="rl-page__disclaimer">{{ emp.disclaimer }}</p>
+            @if (emp.connected) {
+              <div class="rl-kpi-grid" style="margin-top: .75rem">
+                <article class="rl-kpi"><span class="rl-kpi__label">Rating</span><strong class="rl-kpi__value">{{ emp.overallRating }}</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">Reviews</span><strong class="rl-kpi__value">{{ emp.totalReviews }}</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">CEO aprueba</span><strong class="rl-kpi__value">{{ emp.ceoApproval }}%</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">Recomiendan</span><strong class="rl-kpi__value">{{ emp.recommendPct }}%</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">Tendencia</span><strong class="rl-kpi__value">{{ emp.trendDirection }}</strong></article>
+              </div>
+              @for (cat of emp.categories; track cat.name) {
+                <p style="font-size: .85rem">{{ cat.name }}: {{ cat.rating }}/5</p>
+              }
+            }
+          </section>
+        }
+
+        @if (currentReviews(); as rev) {
+          <section class="rl-panel" style="margin-top: 1.25rem">
+            <header class="rl-panel__head">
+              <h2 class="rl-panel__title">
+                G2 Reviews — {{ selectedName() }}
+                <span class="rl-data-badge" [class]="'rl-data-badge--' + revBadgeKind()">{{ revBadge() }}</span>
+              </h2>
+            </header>
+            <p class="rl-page__disclaimer">{{ rev.disclaimer }}</p>
+            @if (rev.connected) {
+              <div class="rl-kpi-grid" style="margin-top: .75rem">
+                <article class="rl-kpi"><span class="rl-kpi__label">Rating</span><strong class="rl-kpi__value">{{ rev.overallRating }}</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">Reviews</span><strong class="rl-kpi__value">{{ rev.totalReviews }}</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">NPS</span><strong class="rl-kpi__value">{{ rev.nps }}</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">Tendencia</span><strong class="rl-kpi__value">{{ rev.trendDirection }}</strong></article>
+              </div>
+              <h3 style="margin-top: .75rem; font-size: .9rem">Pros más mencionados</h3>
+              @for (p of rev.recentPros; track p.text) {
+                <p style="font-size: .85rem">+ {{ p.text }} ({{ p.mentions }}×)</p>
+              }
+              <h3 style="margin-top: .5rem; font-size: .9rem">Contras más mencionados</h3>
+              @for (c of rev.recentCons; track c.text) {
+                <p style="font-size: .85rem">− {{ c.text }} ({{ c.mentions }}×)</p>
+              }
+            }
+          </section>
+        }
       </div>
     </ion-content>
   `,
@@ -194,6 +248,29 @@ export class RivalsTalentPageComponent implements OnInit {
   readonly layoffCount = computed(
     () => this.pack().rivals.filter((r) => r.talent.layoff).length,
   );
+
+  readonly currentEmployer = computed(() => {
+    const c = this.current();
+    if (!c) return null;
+    return buildRivalEmployerIntel({
+      competitor: c,
+      glassdoorEmployerId: this.config.config()?.company?.glassdoorEmployerId,
+    });
+  });
+
+  readonly currentReviews = computed(() => {
+    const c = this.current();
+    if (!c) return null;
+    return buildRivalReviewsIntel({
+      competitor: c,
+      g2CompanySlug: this.config.config()?.company?.g2CompanySlug,
+    });
+  });
+
+  empBadgeKind(): string { return dataBadgeKind(this.currentEmployer()?.source ?? 'demo'); }
+  empBadge(): string { return dataBadgeLabel(this.currentEmployer()?.source ?? 'demo'); }
+  revBadgeKind(): string { return dataBadgeKind(this.currentReviews()?.source ?? 'demo'); }
+  revBadge(): string { return dataBadgeLabel(this.currentReviews()?.source ?? 'demo'); }
 
   readonly chart = computed((): EChartOptions => {
     const rivals = [...this.pack().rivals].reverse();

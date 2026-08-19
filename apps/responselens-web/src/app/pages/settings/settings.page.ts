@@ -221,6 +221,23 @@ function formatWhen(iso: string): string {
                   <textarea class="rl-settings__input rl-settings__textarea" formControlName="brandVoiceNotes" rows="3" placeholder="Cercano, técnico…"></textarea>
                 </label>
               </div>
+              <div class="rl-settings__grid">
+                <label class="rl-settings__label">
+                  Categoría / mercado
+                  <span class="rl-settings__hint">Sirve para agrupar tendencias. Ej: pagos online, CRM, ciberseguridad.</span>
+                  <input class="rl-settings__input" formControlName="marketCategory" placeholder="pagos online" />
+                </label>
+                <label class="rl-settings__label">
+                  Keywords de industria
+                  <span class="rl-settings__hint">Una por línea o separadas por coma. Alimentan Feed global y Tendencias.</span>
+                  <textarea
+                    class="rl-settings__input rl-settings__textarea"
+                    formControlName="industryKeywordsText"
+                    rows="3"
+                    placeholder="fintech&#10;pagos&#10;fraude&#10;checkout"
+                  ></textarea>
+                </label>
+              </div>
               <label class="rl-settings__label">
                 URLs de canales (una por línea)
                 <textarea
@@ -455,6 +472,81 @@ function formatWhen(iso: string): string {
                   <span class="rl-badge rl-badge--sent-neu">Sin webhook</span>
                 }
               </p>
+
+              <h3 class="rl-settings__subh">SEO — Semrush / Similarweb (F4.1)</h3>
+              <label class="rl-settings__label">
+                Semrush API Key
+                <span class="rl-settings__hint">API key de tu plan Semrush.</span>
+                <input class="rl-settings__input" formControlName="semrushApiKey" type="password" placeholder="xxxxxxxxxxxxxxxx" autocomplete="off" />
+              </label>
+              <p class="rl-settings__empty">
+                @if (form.controls.semrushApiKey.value) {
+                  <span class="rl-badge rl-badge--sent-pos">Conectado (mock)</span>
+                } @else {
+                  <span class="rl-badge rl-badge--sent-neu">Pendiente — requiere contrato</span>
+                }
+              </p>
+
+              <h3 class="rl-settings__subh">Reviews — G2 / Capterra (F4.2)</h3>
+              <label class="rl-settings__label">
+                G2 Company Slug
+                <span class="rl-settings__hint">Slug del perfil G2 (ej: "responselens").</span>
+                <input class="rl-settings__input" formControlName="g2CompanySlug" placeholder="responselens" />
+              </label>
+              <p class="rl-settings__empty">
+                @if (form.controls.g2CompanySlug.value) {
+                  <span class="rl-badge rl-badge--sent-pos">Conectado (mock)</span>
+                } @else {
+                  <span class="rl-badge rl-badge--sent-neu">Pendiente — requiere partner</span>
+                }
+              </p>
+
+              <h3 class="rl-settings__subh">Employer brand — Glassdoor (F4.3)</h3>
+              <label class="rl-settings__label">
+                Glassdoor Employer ID
+                <span class="rl-settings__hint">ID numérico del perfil Glassdoor.</span>
+                <input class="rl-settings__input" formControlName="glassdoorEmployerId" placeholder="123456" />
+              </label>
+              <p class="rl-settings__empty">
+                @if (form.controls.glassdoorEmployerId.value) {
+                  <span class="rl-badge rl-badge--sent-pos">Conectado (mock)</span>
+                } @else {
+                  <span class="rl-badge rl-badge--sent-neu">Pendiente — enterprise</span>
+                }
+              </p>
+
+              <h3 class="rl-settings__subh">Social Ads — TikTok / LinkedIn (F4.4)</h3>
+              <div class="rl-settings__grid">
+                <label class="rl-settings__label">
+                  TikTok Ads Account ID
+                  <input class="rl-settings__input" formControlName="tiktokAdsAccountId" placeholder="7xxx..." />
+                </label>
+                <label class="rl-settings__label">
+                  LinkedIn Ads Account ID
+                  <input class="rl-settings__input" formControlName="linkedinAdsAccountId" placeholder="5xxx..." />
+                </label>
+              </div>
+              <p class="rl-settings__empty">
+                @if (form.controls.tiktokAdsAccountId.value || form.controls.linkedinAdsAccountId.value) {
+                  <span class="rl-badge rl-badge--sent-pos">Conectado (mock)</span>
+                } @else {
+                  <span class="rl-badge rl-badge--sent-neu">Pendiente — ToS + pago</span>
+                }
+              </p>
+
+              <h3 class="rl-settings__subh">AI Visibility — Prism / Otterly (F4.5)</h3>
+              <label class="rl-settings__label">
+                Proveedor
+                <span class="rl-settings__hint">"prism" u "otterly".</span>
+                <input class="rl-settings__input" formControlName="aiVisibilityProvider" placeholder="prism" />
+              </label>
+              <p class="rl-settings__empty">
+                @if (form.controls.aiVisibilityProvider.value) {
+                  <span class="rl-badge rl-badge--sent-pos">Conectado (mock)</span>
+                } @else {
+                  <span class="rl-badge rl-badge--sent-neu">Pendiente — pago por query</span>
+                }
+              </p>
             </section>
           }
 
@@ -607,6 +699,14 @@ export class SettingsPageComponent implements OnInit, OnDestroy {
     metaAdsAccountId: [''],
     googleAdsCustomerId: [''],
     slackWebhookUrl: [''],
+    semrushApiKey: [''],
+    g2CompanySlug: [''],
+    glassdoorEmployerId: [''],
+    tiktokAdsAccountId: [''],
+    linkedinAdsAccountId: [''],
+    aiVisibilityProvider: [''],
+    industryKeywordsText: [''],
+    marketCategory: [''],
   });
 
   readonly setup = computed(() => {
@@ -787,6 +887,14 @@ export class SettingsPageComponent implements OnInit, OnDestroy {
       metaAdsAccountId: cfg.company.metaAdsAccountId ?? '',
       googleAdsCustomerId: cfg.company.googleAdsCustomerId ?? '',
       slackWebhookUrl: cfg.company.slackWebhookUrl ?? '',
+      semrushApiKey: cfg.company.semrushApiKey ?? '',
+      g2CompanySlug: cfg.company.g2CompanySlug ?? '',
+      glassdoorEmployerId: cfg.company.glassdoorEmployerId ?? '',
+      tiktokAdsAccountId: cfg.company.tiktokAdsAccountId ?? '',
+      linkedinAdsAccountId: cfg.company.linkedinAdsAccountId ?? '',
+      aiVisibilityProvider: cfg.company.aiVisibilityProvider ?? '',
+      industryKeywordsText: (cfg.company.industryKeywords ?? []).join('\n'),
+      marketCategory: cfg.company.marketCategory ?? '',
     });
     this.competitors.clear();
     for (const c of cfg.competitors.slice(0, SCAN_MAX_RIVALS)) {
@@ -956,6 +1064,21 @@ export class SettingsPageComponent implements OnInit, OnDestroy {
         metaAdsAccountId: v.metaAdsAccountId.trim(),
         googleAdsCustomerId: v.googleAdsCustomerId.trim(),
         slackWebhookUrl: v.slackWebhookUrl.trim(),
+        semrushApiKey: v.semrushApiKey.trim(),
+        g2CompanySlug: v.g2CompanySlug.trim(),
+        glassdoorEmployerId: v.glassdoorEmployerId.trim(),
+        tiktokAdsAccountId: v.tiktokAdsAccountId.trim(),
+        linkedinAdsAccountId: v.linkedinAdsAccountId.trim(),
+        aiVisibilityProvider: v.aiVisibilityProvider.trim(),
+        industryKeywords: [
+          ...new Set(
+            v.industryKeywordsText
+              .split(/\n|,/)
+              .map((s) => s.trim())
+              .filter(Boolean),
+          ),
+        ],
+        marketCategory: v.marketCategory.trim(),
       },
       competitors,
     );

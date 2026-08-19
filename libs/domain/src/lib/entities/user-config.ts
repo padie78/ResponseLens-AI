@@ -20,6 +20,14 @@ export interface CompanyProfile {
   metaAdsAccountId?: string | null;
   googleAdsCustomerId?: string | null;
   slackWebhookUrl?: string | null;
+  semrushApiKey?: string | null;
+  g2CompanySlug?: string | null;
+  glassdoorEmployerId?: string | null;
+  tiktokAdsAccountId?: string | null;
+  linkedinAdsAccountId?: string | null;
+  aiVisibilityProvider?: string | null;
+  industryKeywords?: string[];
+  marketCategory?: string | null;
 }
 
 export interface UserConfig {

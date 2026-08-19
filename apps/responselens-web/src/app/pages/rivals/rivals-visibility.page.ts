@@ -2,7 +2,10 @@ import { Component, OnInit, ViewEncapsulation, computed, inject, signal } from '
 import { RouterLink } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
 import { ButtonModule } from 'primeng/button';
+import { DecimalPipe } from '@angular/common';
 import { buildRivalSurfaceIntel } from '../../engine/rival-surface-intel.js';
+import { buildRivalSeoIntel } from '../../engine/rival-seo-intel.js';
+import { buildAiVisibilityIntel } from '../../engine/ai-visibility-intel.js';
 import { dataBadgeKind, dataBadgeLabel } from '../../engine/data-badge.js';
 import { ScanService } from '../../services/scan.service';
 import { AlertsStore } from '../../stores/alerts.store';
@@ -13,7 +16,7 @@ import { EchartComponent, ScanBlockerComponent, type EChartOptions } from '../..
   standalone: true,
   selector: 'rl-rivals-visibility-page',
   encapsulation: ViewEncapsulation.None,
-  imports: [IonContent, RouterLink, ButtonModule, ScanBlockerComponent, EchartComponent],
+  imports: [IonContent, DecimalPipe, RouterLink, ButtonModule, ScanBlockerComponent, EchartComponent],
   template: `
     <ion-content>
       <rl-scan-blocker [active]="scan.scanning()" [message]="scan.lastStatus()" />
@@ -149,6 +152,49 @@ import { EchartComponent, ScanBlockerComponent, type EChartOptions } from '../..
           <header class="rl-panel__head"><h2 class="rl-panel__title">Roles vs cambio de precio</h2></header>
           <rl-echart [options]="chart()" style="--rl-echart-height: 240px" />
         </section>
+
+        @if (currentSeo(); as seo) {
+          <section class="rl-panel" style="margin-top: 1.25rem">
+            <header class="rl-panel__head">
+              <h2 class="rl-panel__title">
+                SEO — {{ seo.domain }}
+                <span class="rl-data-badge" [class]="'rl-data-badge--' + seoBadgeKind()">{{ seoBadge() }}</span>
+              </h2>
+            </header>
+            <p class="rl-page__disclaimer">{{ seo.disclaimer }}</p>
+            @if (seo.connected) {
+              <div class="rl-kpi-grid" style="margin-top: .75rem">
+                <article class="rl-kpi"><span class="rl-kpi__label">Tráfico est.</span><strong class="rl-kpi__value">{{ seo.trafficIndex | number }}</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">DA</span><strong class="rl-kpi__value">{{ seo.domainAuthority }}</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">Keywords org.</span><strong class="rl-kpi__value">{{ seo.organicKeywords | number }}</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">Backlinks</span><strong class="rl-kpi__value">{{ seo.backlinks | number }}</strong></article>
+                <article class="rl-kpi"><span class="rl-kpi__label">Tendencia</span><strong class="rl-kpi__value">{{ seo.trendPct > 0 ? '+' : '' }}{{ seo.trendPct }}%</strong></article>
+              </div>
+              <h3 style="margin-top: 1rem; font-size: .9rem">Top keywords</h3>
+              @for (kw of seo.topKeywords.slice(0, 5); track kw.keyword) {
+                <p style="font-size: .85rem">{{ kw.keyword }} · vol. {{ kw.volume }} · pos. {{ kw.position }} · CPC \${{ kw.cpc }}</p>
+              }
+            }
+          </section>
+        }
+
+        @if (currentAiVis(); as aiv) {
+          <section class="rl-panel" style="margin-top: 1.25rem">
+            <header class="rl-panel__head">
+              <h2 class="rl-panel__title">
+                AI Visibility
+                <span class="rl-data-badge" [class]="'rl-data-badge--' + aivBadgeKind()">{{ aivBadge() }}</span>
+              </h2>
+            </header>
+            <p class="rl-page__disclaimer">{{ aiv.disclaimer }}</p>
+            @if (aiv.connected) {
+              <p style="margin-top: .5rem">Presence score: <strong>{{ aiv.presenceScore }}/100</strong></p>
+              @for (m of aiv.llmMentions; track m.llm) {
+                <p style="font-size: .85rem">{{ m.llm }}: {{ m.mentioned ? 'Sí (pos. ' + m.rank + ', ' + m.sentiment + ')' : 'No aparece' }}</p>
+              }
+            }
+          </section>
+        }
       </div>
     </ion-content>
   `,
@@ -192,6 +238,29 @@ export class RivalsVisibilityPageComponent implements OnInit {
   readonly priceChangeCount = computed(
     () => this.pack().rivals.filter((r) => r.visibility.priceChanged).length,
   );
+
+  readonly currentSeo = computed(() => {
+    const c = this.current();
+    if (!c) return null;
+    return buildRivalSeoIntel({
+      competitor: c,
+      semrushApiKey: this.config.config()?.company?.semrushApiKey,
+    });
+  });
+
+  readonly currentAiVis = computed(() => {
+    const c = this.current();
+    if (!c) return null;
+    return buildAiVisibilityIntel({
+      competitor: c,
+      aiVisibilityProvider: this.config.config()?.company?.aiVisibilityProvider,
+    });
+  });
+
+  seoBadgeKind(): string { return dataBadgeKind(this.currentSeo()?.source ?? 'demo'); }
+  seoBadge(): string { return dataBadgeLabel(this.currentSeo()?.source ?? 'demo'); }
+  aivBadgeKind(): string { return dataBadgeKind(this.currentAiVis()?.source ?? 'demo'); }
+  aivBadge(): string { return dataBadgeLabel(this.currentAiVis()?.source ?? 'demo'); }
 
   readonly chart = computed((): EChartOptions => {
     const rows = this.pack().visChart;

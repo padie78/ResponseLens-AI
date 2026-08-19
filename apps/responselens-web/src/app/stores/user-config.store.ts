@@ -81,6 +81,14 @@ export class UserConfigStore {
           metaAdsAccountId: (company.metaAdsAccountId ?? '').trim(),
           googleAdsCustomerId: (company.googleAdsCustomerId ?? '').trim(),
           slackWebhookUrl: (company.slackWebhookUrl ?? '').trim(),
+          semrushApiKey: (company.semrushApiKey ?? '').trim(),
+          g2CompanySlug: (company.g2CompanySlug ?? '').trim(),
+          glassdoorEmployerId: (company.glassdoorEmployerId ?? '').trim(),
+          tiktokAdsAccountId: (company.tiktokAdsAccountId ?? '').trim(),
+          linkedinAdsAccountId: (company.linkedinAdsAccountId ?? '').trim(),
+          aiVisibilityProvider: (company.aiVisibilityProvider ?? '').trim(),
+          industryKeywords: (company.industryKeywords ?? []).map((k) => k.trim()).filter(Boolean),
+          marketCategory: (company.marketCategory ?? '').trim(),
         },
         competitors: competitors
           .map((c) => ({

@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
 import { ButtonModule } from 'primeng/button';
 import { buildRivalSurfaceIntel } from '../../engine/rival-surface-intel.js';
+import { buildRivalSocialAdsIntel } from '../../engine/rival-social-ads-intel.js';
 import { dataBadgeKind, dataBadgeLabel } from '../../engine/data-badge.js';
 import { ScanService } from '../../services/scan.service';
 import { AlertsStore } from '../../stores/alerts.store';
@@ -150,6 +151,28 @@ import { ScanBlockerComponent } from '../../ui';
             <p class="rl-empty">Nada con ese filtro.</p>
           }
         </div>
+
+        <section class="rl-panel" style="margin-top: 1.25rem">
+          <header class="rl-panel__head">
+            <h2 class="rl-panel__title">
+              Social Ads (TikTok / LinkedIn)
+              <span class="rl-data-badge" [class]="'rl-data-badge--' + socialAdsBadgeKind()">{{ socialAdsBadge() }}</span>
+            </h2>
+          </header>
+          <p class="rl-page__disclaimer">{{ socialAdsIntel().disclaimer }}</p>
+          @if (socialAdsIntel().connected) {
+            <p style="margin-top: .5rem">Activos: <strong>{{ socialAdsIntel().totalActive }}</strong></p>
+            @for (ad of socialAdsAll(); track ad.id) {
+              <article class="rl-ad-card" style="margin-top: .5rem; padding: .75rem; border: 1px solid var(--rl-border, #e5e7eb); border-radius: .5rem">
+                <div style="display: flex; justify-content: space-between; font-size: .8rem; text-transform: uppercase">
+                  <span style="font-weight: 600">{{ ad.platform }}</span>
+                  <span style="opacity: .6">{{ ad.active ? 'Activo' : 'Pausado' }}</span>
+                </div>
+                <p style="font-size: .85rem; margin: .25rem 0 0">{{ ad.format }} · {{ ad.objective }} · {{ ad.engagementPct }} eng. · {{ ad.spendBand }}</p>
+              </article>
+            }
+          }
+        </section>
       </div>
     </ion-content>
   `,
@@ -196,6 +219,25 @@ export class RivalsAdsPageComponent implements OnInit {
   readonly pausedCount = computed(
     () => this.pack().adRows.filter((r) => r.status !== 'Activo').length,
   );
+
+  readonly socialAdsIntel = computed(() => {
+    const company = this.config.config()?.company;
+    const competitors = this.config.competitors();
+    const first = competitors[0];
+    if (!first) return { source: 'demo' as const, connected: false, disclaimer: 'Sin rivales configurados.', tiktokAds: [], linkedinAds: [], totalActive: 0 };
+    return buildRivalSocialAdsIntel({
+      competitor: first,
+      tiktokAdsAccountId: company?.tiktokAdsAccountId,
+      linkedinAdsAccountId: company?.linkedinAdsAccountId,
+    });
+  });
+
+  readonly socialAdsAll = computed(() =>
+    [...this.socialAdsIntel().tiktokAds, ...this.socialAdsIntel().linkedinAds],
+  );
+
+  socialAdsBadgeKind(): string { return dataBadgeKind(this.socialAdsIntel().source); }
+  socialAdsBadge(): string { return dataBadgeLabel(this.socialAdsIntel().source); }
 
   platformIcon(platform: string): string {
     if (platform === 'Meta') return 'pi-facebook';
